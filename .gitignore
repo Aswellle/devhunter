@@ -1,0 +1,16 @@
+# Docker 本地覆盖
+docker-compose.override.yml
+.env
+*.env.local
+
+# 本机工具产物（Claude Code / omc / gstack 会话状态，不入库）
+.claude/
+.omc/
+.gstack/
+
+# 打包产物（含历史快照，可能带旧密钥）
+devhunter.zip
+
+# 内部文档（不公开：架构约定 / 安全审计细节）
+CLAUDE.md
+AUDIT.md

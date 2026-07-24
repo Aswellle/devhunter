@@ -1,0 +1,510 @@
+import { useState, useMemo, useCallback } from 'react'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { ChevronDown, ChevronRight, CheckCheck, Check, Star, Rss, Trash2, X, Layers } from 'lucide-react'
+import { clsx } from 'clsx'
+import { itemsApi } from '../api/items'
+import { tasksApi } from '../api/tasks'
+import { threadsApi } from '../api/threads'
+import { ItemCard } from '../components/items/ItemCard'
+import { ItemsFilterBar } from '../components/items/ItemsFilterBar'
+import { ThreadCard } from '../components/items/ThreadCard'
+import { Spinner } from '../components/ui/Spinner'
+import { Empty } from '../components/ui/Empty'
+import { toast } from 'react-hot-toast'
+import type { Item, ThreadWithItems } from '../types'
+
+type ViewMode = 'source' | 'thread'
+
+interface Filters {
+  search: string
+  task_id: string
+  starred: boolean | undefined
+  is_read: boolean | undefined
+}
+
+interface GroupedItems {
+  task_id: string
+  task_name: string
+  items: Item[]
+  unreadCount: number
+  latestFetchedAt: string
+}
+
+export function ItemsPage() {
+  const [filters, setFilters] = useState<Filters>({ search: '', task_id: '', starred: undefined, is_read: undefined })
+  const [viewMode, setViewMode] = useState<ViewMode>('source')
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+
+  const qc = useQueryClient()
+
+  // Fetch items
+  const { data, isFetching } = useQuery({
+    queryKey: ['items-grouped', filters],
+    queryFn: () =>
+      itemsApi.list({
+        search: filters.search || undefined,
+        task_id: filters.task_id || undefined,
+        starred: filters.starred,
+        is_read: filters.is_read,
+        per_page: 100,
+      }),
+  })
+
+  // Fetch tasks for filter bar
+  const { data: tasksPage } = useQuery({
+    queryKey: ['tasks-all'],
+    queryFn: () => tasksApi.list({ per_page: 100 }),
+  })
+
+  // Fetch Threads (only when in thread view)
+  const { data: threadsPage } = useQuery({
+    queryKey: ['threads', filters.task_id],
+    queryFn: () =>
+      threadsApi.list({
+        task_id: filters.task_id || undefined,
+        per_page: 50,
+      }),
+    enabled: viewMode === 'thread',
+  })
+
+  // Compute category counts
+  const categoryCounts = useMemo<Record<string, { total: number; unread: number }>>(() => {
+    if (!data?.items) return {}
+    const counts: Record<string, { total: number; unread: number }> = {}
+    for (const item of data.items) {
+      const key = item.task_id || 'unknown'
+      if (!counts[key]) counts[key] = { total: 0, unread: 0 }
+      counts[key].total++
+      if (!item.is_read) counts[key].unread++
+    }
+    return counts
+  }, [data?.items])
+
+  // Group items by task_id
+  const groupedItems = useMemo<GroupedItems[]>(() => {
+    if (!data?.items) return []
+    if (filters.task_id) {
+      const items = [...data.items].sort(
+        (a, b) => new Date(b.fetched_at).getTime() - new Date(a.fetched_at).getTime()
+      )
+      return [{
+        task_id: filters.task_id,
+        task_name: items[0]?.task_name || tasksPage?.items.find(t => t.id === filters.task_id)?.name || 'Unknown',
+        items,
+        unreadCount: items.filter(i => !i.is_read).length,
+        latestFetchedAt: items[0]?.fetched_at ?? '',
+      }]
+    }
+    const groups = new Map<string, GroupedItems>()
+    for (const item of data.items) {
+      const key = item.task_id || 'unknown'
+      if (!groups.has(key)) {
+        groups.set(key, {
+          task_id: key,
+          task_name: item.task_name || 'Unknown Source',
+          items: [],
+          unreadCount: 0,
+          latestFetchedAt: item.fetched_at,
+        })
+      }
+      const group = groups.get(key)!
+      group.items.push(item)
+      if (!item.is_read) group.unreadCount++
+      if (new Date(item.fetched_at) > new Date(group.latestFetchedAt)) {
+        group.latestFetchedAt = item.fetched_at
+      }
+    }
+    return Array.from(groups.values())
+      .sort((a, b) =>
+        new Date(b.latestFetchedAt).getTime() - new Date(a.latestFetchedAt).getTime()
+      )
+      .map(g => ({
+        ...g,
+        items: [...g.items].sort((a, b) =>
+          new Date(b.fetched_at).getTime() - new Date(a.fetched_at).getTime()
+        ),
+      }))
+  }, [data, filters.task_id, tasksPage])
+
+  const toggleGroup = useCallback((taskId: string) => {
+    setCollapsedGroups(prev => {
+      const next = new Set(prev)
+      if (next.has(taskId)) next.delete(taskId)
+      else next.add(taskId)
+      return next
+    })
+  }, [])
+
+  const expandGroup = useCallback((taskId: string) => {
+    setCollapsedGroups(prev => {
+      const next = new Set(prev)
+      next.delete(taskId)
+      return next
+    })
+  }, [])
+
+  const toggleSelect = useCallback((itemId: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(itemId)) next.delete(itemId)
+      else next.add(itemId)
+      return next
+    })
+  }, [])
+
+  const selectAllInGroup = useCallback((group: GroupedItems) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      const allUnreadInGroup = group.items.filter(i => !i.is_read).map(i => i.id)
+      const allSelected = allUnreadInGroup.every(id => prev.has(id))
+      if (allSelected) {
+        allUnreadInGroup.forEach(id => next.delete(id))
+      } else {
+        allUnreadInGroup.forEach(id => next.add(id))
+      }
+      return next
+    })
+  }, [])
+
+  const batchStarMutation = useMutation({
+    mutationFn: ({ ids, starred }: { ids: string[]; starred: boolean }) =>
+      itemsApi.batchPatch(ids, { is_starred: starred }),
+    onSuccess: (result) => {
+      qc.invalidateQueries({ queryKey: ['items'] })
+      qc.invalidateQueries({ queryKey: ['items-starred'] })
+      qc.invalidateQueries({ queryKey: ['items-grouped'] })
+      qc.invalidateQueries({ queryKey: ['threads'] })
+      qc.invalidateQueries({ queryKey: ['recommendations'] })
+      toast.success(`${batchStarMutation.variables?.starred ? '已收藏' : '已取消收藏'} ${result.updated} 条`)
+      setSelectedIds(new Set())
+    },
+    onError: () => toast.error('操作失败'),
+  })
+
+  const batchDeleteMutation = useMutation({
+    mutationFn: (ids: string[]) => itemsApi.batchDelete(ids),
+    onSuccess: (result) => {
+      qc.invalidateQueries({ queryKey: ['items'] })
+      qc.invalidateQueries({ queryKey: ['items-grouped'] })
+      qc.invalidateQueries({ queryKey: ['items-starred'] })
+      qc.invalidateQueries({ queryKey: ['threads'] })
+      qc.invalidateQueries({ queryKey: ['recommendations'] })
+      toast.success(`已删除 ${result.deleted} 条`)
+      setSelectedIds(new Set())
+    },
+    onError: () => toast.error('删除失败'),
+  })
+
+  const batchMarkReadMutation = useMutation({
+    mutationFn: (ids: string[]) => itemsApi.batchPatch(ids, { is_read: true }),
+    onSuccess: (result) => {
+      qc.invalidateQueries({ queryKey: ['items'] })
+      qc.invalidateQueries({ queryKey: ['items-grouped'] })
+      qc.invalidateQueries({ queryKey: ['threads'] })
+      qc.invalidateQueries({ queryKey: ['recommendations'] })
+      toast.success(`已标记 ${result.updated} 条为已读`)
+      setSelectedIds(new Set())
+    },
+    onError: () => toast.error('操作失败'),
+  })
+
+  const handleFilterChange = (partial: Partial<Filters>) => {
+    setFilters(f => {
+      const next = { ...f, ...partial }
+      if (partial.task_id && partial.task_id !== f.task_id) {
+        expandGroup(partial.task_id)
+      }
+      if (partial.task_id === '' && f.task_id !== '') {
+        setCollapsedGroups(new Set())
+      }
+      return next
+    })
+  }
+
+  const handleBatchStar = () => {
+    const selected = Array.from(selectedIds)
+    const firstSelected = data?.items.find(i => selectedIds.has(i.id))
+    const newStarred = !firstSelected?.is_starred
+    batchStarMutation.mutate({ ids: selected, starred: newStarred })
+  }
+
+  const handleBatchMarkRead = () => {
+    batchMarkReadMutation.mutate(Array.from(selectedUnreadIds))
+  }
+
+  const selectedUnreadIds = new Set(
+    [...selectedIds].filter(id => {
+      const item = data?.items.find(i => i.id === id)
+      return item && !item.is_read
+    })
+  )
+  const totalSelected = selectedIds.size
+  const hasUnreadSelected = selectedUnreadIds.size > 0
+
+  return (
+    <div className="max-w-4xl mx-auto px-4 sm:px-6 py-6">
+
+      {/* Page header */}
+      <div className="mb-5">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-xl font-bold text-gray-900">采集结果</h1>
+            <p className="text-sm text-gray-500 mt-0.5">
+              {viewMode === 'source'
+                ? (data
+                    ? filters.task_id
+                      ? `共 ${data.total} 条记录`
+                      : `共 ${groupedItems.length} 个数据源，${data.total} 条记录`
+                    : '加载中...')
+                : (threadsPage
+                    ? `共 ${threadsPage.total} 个热点 Thread`
+                    : '加载中...')}
+            </p>
+          </div>
+
+          {/* View mode toggle */}
+          <div className="flex items-center gap-1 p-1 bg-gray-100 rounded-lg">
+            <button
+              onClick={() => setViewMode('source')}
+              className={clsx(
+                'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-all',
+                viewMode === 'source'
+                  ? 'bg-white text-gray-900 shadow-sm'
+                  : 'text-gray-500 hover:text-gray-700'
+              )}
+            >
+              <Rss className="h-4 w-4" />
+              数据源
+            </button>
+            <button
+              onClick={() => setViewMode('thread')}
+              className={clsx(
+                'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-all',
+                viewMode === 'thread'
+                  ? 'bg-white text-gray-900 shadow-sm'
+                  : 'text-gray-500 hover:text-gray-700'
+              )}
+            >
+              <Layers className="h-4 w-4" />
+              热点聚合
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Filter bar */}
+      <div className="mb-4">
+        <ItemsFilterBar
+          filters={filters}
+          onChange={handleFilterChange}
+          tasks={tasksPage?.items ?? []}
+          categoryCounts={categoryCounts}
+          totalCount={data?.total}
+          useNewLayout={true}
+        />
+      </div>
+
+      {/* Content */}
+      {viewMode === 'thread' ? (
+        /* ── Thread View ── */
+        isFetching && !threadsPage ? (
+          <div className="flex justify-center py-12">
+            <Spinner />
+          </div>
+        ) : threadsPage?.items && threadsPage.items.length > 0 ? (
+          <div className="space-y-3">
+            {(threadsPage.items as ThreadWithItems[]).map((thread) => (
+              <ThreadCard
+                key={thread.id}
+                thread={thread as ThreadWithItems}
+                defaultExpanded={false}
+              />
+            ))}
+          </div>
+        ) : (
+          <Empty
+            title="暂无热点聚合"
+            description="采集更多内容后，系统会自动将讨论同一事件的内容聚合为 Thread"
+          />
+        )
+      ) : (
+        /* ── Source View (original) ── */
+        groupedItems.length === 0 ? (
+          <Empty
+            title="暂无采集结果"
+            description={
+              filters.search || filters.task_id || filters.starred
+                ? '当前筛选条件无匹配结果，请调整过滤项'
+                : '前往「任务管理」创建采集任务，系统将自动抓取数据'
+            }
+          />
+        ) : (
+          <>
+            <div className="space-y-3">
+              {groupedItems.map(group => {
+                const isCollapsed = collapsedGroups.has(group.task_id)
+                const someSelected = group.items.filter(i => !i.is_read).some(i => selectedIds.has(i.id))
+
+                return (
+                  <div key={group.task_id} className="card overflow-hidden">
+                    {/* Group header */}
+                    <button
+                      onClick={() => toggleGroup(group.task_id)}
+                      className={clsx(
+                        'w-full flex items-center gap-3 px-4 py-3 text-left transition-colors',
+                        'hover:bg-gray-50',
+                        isCollapsed && 'bg-gray-50/50'
+                      )}
+                    >
+                      <span className="text-gray-400">
+                        {isCollapsed
+                          ? <ChevronRight className="h-5 w-5" />
+                          : <ChevronDown className="h-5 w-5" />
+                        }
+                      </span>
+                      <Rss className="h-4 w-4 text-primary-500 shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium text-gray-900 truncate">
+                            {group.task_name}
+                          </span>
+                          {group.unreadCount > 0 && (
+                            <span className="badge badge-primary">
+                              {group.unreadCount} 未读
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-xs text-gray-400 mt-0.5">
+                          {group.items.length} 条内容
+                          {filters.search && (
+                            <span className="ml-1">（搜索: "{filters.search}"）</span>
+                          )}
+                        </div>
+                      </div>
+                      {!isCollapsed && group.unreadCount > 0 && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            selectAllInGroup(group)
+                          }}
+                          className={clsx(
+                            'p-1.5 rounded transition-colors shrink-0',
+                            someSelected
+                              ? 'text-primary-600 bg-primary-50 hover:bg-primary-100'
+                              : 'text-gray-400 hover:text-primary-600 hover:bg-gray-100'
+                          )}
+                          title="全选未读"
+                        >
+                          <CheckCheck className="h-4 w-4" />
+                        </button>
+                      )}
+                    </button>
+
+                    {!isCollapsed && (
+                      <div className="border-t border-gray-100">
+                        {someSelected && (
+                          <div className="px-4 py-2 bg-primary-50 border-b border-primary-100 flex items-center gap-2 text-xs text-primary-700">
+                            <span>已选择 {group.items.filter(i => !i.is_read && selectedIds.has(i.id)).length} 条</span>
+                            <button
+                              onClick={() => setSelectedIds(prev => {
+                                const next = new Set(prev)
+                                group.items.forEach(i => next.delete(i.id))
+                                return next
+                              })}
+                              className="underline hover:no-underline"
+                            >
+                              清除
+                            </button>
+                          </div>
+                        )}
+                        <div className="divide-y divide-gray-100">
+                          {group.items.map(item => (
+                            <div key={item.id} className="flex items-start gap-0">
+                              <button
+                                onClick={() => toggleSelect(item.id)}
+                                className={clsx(
+                                  'p-3 shrink-0 transition-colors',
+                                  selectedIds.has(item.id)
+                                    ? 'text-primary-600 bg-primary-50 hover:bg-primary-100'
+                                    : 'text-gray-300 hover:text-primary-500 hover:bg-gray-50'
+                                )}
+                              >
+                                <div className={clsx(
+                                  'h-4 w-4 rounded border-2 flex items-center justify-center transition-colors',
+                                  selectedIds.has(item.id)
+                                    ? 'border-primary-600 bg-primary-600'
+                                    : 'border-current'
+                                )}>
+                                  {selectedIds.has(item.id) && (
+                                    <svg className="h-2.5 w-2.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                                    </svg>
+                                  )}
+                                </div>
+                              </button>
+                              <div className="flex-1 min-w-0 pl-0">
+                                <ItemCard item={item} />
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+
+            {/* Batch actions bar */}
+            {totalSelected > 0 && (
+              <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50">
+                <div className="flex items-center gap-3 px-4 py-3 bg-gray-900 text-white rounded-xl shadow-2xl">
+                  <span className="text-sm font-medium">
+                    已选择 <b>{totalSelected}</b> 条
+                  </span>
+                  <div className="w-px h-5 bg-gray-700" />
+                  {hasUnreadSelected && (
+                    <>
+                      <button
+                        onClick={handleBatchMarkRead}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-blue-900 hover:bg-blue-800 text-blue-200 transition-colors"
+                      >
+                        <Check className="h-4 w-4" />
+                        标记已读
+                      </button>
+                      <div className="w-px h-5 bg-gray-700" />
+                    </>
+                  )}
+                  <button
+                    onClick={handleBatchStar}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-gray-800 hover:bg-gray-700 transition-colors"
+                  >
+                    <Star className="h-4 w-4" />
+                    {data?.items.find(i => selectedIds.has(i.id))?.is_starred ? '取消收藏' : '收藏'}
+                  </button>
+                  <button
+                    onClick={() => {
+                      if (!confirm(`确定删除选中的 ${totalSelected} 条采集结果？删除后不可恢复。`)) return
+                      batchDeleteMutation.mutate(Array.from(selectedIds))
+                    }}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-red-900 hover:bg-red-800 text-red-200 transition-colors"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                    删除
+                  </button>
+                  <button
+                    onClick={() => setSelectedIds(new Set())}
+                    className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-gray-800 transition-colors"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+            )}
+          </>
+        )
+      )}
+    </div>
+  )
+}

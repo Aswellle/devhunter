@@ -1,0 +1,122 @@
+[
+  {
+    "id": "hackernews",
+    "name": "Hacker News",
+    "source_url": "https://news.ycombinator.com/rss",
+    "selector_list": "rss:",
+    "selector_title": "rss:title",
+    "selector_link": "rss:link",
+    "selector_summary": "rss:description",
+    "description": "Hacker News 官方 RSS - 技术/创业/独立开发，绕过反爬直达 Feed",
+    "default_keywords": [],
+    "recommended_cron": "0 */1 * * *"
+  },
+  {
+    "id": "v2ex",
+    "name": "V2EX 热门",
+    "source_url": "https://www.v2ex.com/api/topics/hot.json",
+    "selector_list": "json:",
+    "selector_title": "title",
+    "selector_link": "url",
+    "selector_summary": "content",
+    "description": "V2EX 公开 JSON API - 实时热门话题，无需鉴权",
+    "default_keywords": [],
+    "recommended_cron": "0 */2 * * *"
+  },
+  {
+    "id": "github_trending",
+    "name": "GitHub Trending",
+    "source_url": "https://github.com/trending",
+    "selector_list": "article.Box-row",
+    "selector_title": "h2.h3 a",
+    "selector_link": "h2.h3 a",
+    "selector_summary": "p.col-9",
+    "description": "GitHub 今日热门仓库 - HTML 抓取，稳定可用",
+    "default_keywords": [],
+    "recommended_cron": "0 9 * * *"
+  },
+  {
+    "id": "juejin",
+    "name": "掘金推荐",
+    "source_url": "https://api.juejin.cn/recommend_api/v1/article/recommend_all_feed",
+    "selector_list": "json-post:data|||{\"id_type\":2,\"sort_type\":200,\"cursor\":\"0\",\"limit\":20,\"recommend_type\":3}",
+    "selector_title": "item_info.article_info.title",
+    "selector_link": "PREF:https://juejin.cn/post/|item_info.article_id",
+    "selector_summary": "item_info.article_info.brief_content",
+    "description": "掘金 BFF JSON API (POST) - 推荐文章流，附带请求头反爬绕过",
+    "default_keywords": [],
+    "recommended_cron": "0 */3 * * *"
+  },
+  {
+    "id": "indiehackers",
+    "name": "Indie Hackers",
+    "source_url": "https://www.indiehackers.com/feed.xml",
+    "selector_list": "rss:",
+    "selector_title": "rss:title",
+    "selector_link": "rss:link",
+    "selector_summary": "rss:description",
+    "description": "Indie Hackers 官方 Atom/RSS Feed - 独立开发者产品与讨论",
+    "default_keywords": [],
+    "recommended_cron": "0 */6 * * *"
+  },
+  {
+    "id": "devto",
+    "name": "Dev.to",
+    "source_url": "https://dev.to/api/articles?per_page=20&top=1",
+    "selector_list": "json:",
+    "selector_title": "title",
+    "selector_link": "canonical_url",
+    "selector_summary": "description",
+    "description": "Dev.to 官方 REST API - 无需鉴权，获取热门技术文章",
+    "default_keywords": [],
+    "recommended_cron": "0 */2 * * *"
+  },
+  {
+    "id": "reddit_webdev",
+    "name": "Reddit r/webdev",
+    "source_url": "https://www.reddit.com/r/webdev/hot.json?limit=25",
+    "selector_list": "json:data.children",
+    "selector_title": "data.title",
+    "selector_link": "data.url",
+    "selector_summary": "data.selftext",
+    "description": "Reddit r/webdev JSON API - 热门 Web 开发帖子（需合规 User-Agent）",
+    "default_keywords": [],
+    "recommended_cron": "0 */3 * * *"
+  },
+  {
+    "id": "sspai",
+    "name": "少数派",
+    "source_url": "https://sspai.com/feed",
+    "selector_list": "rss:",
+    "selector_title": "rss:title",
+    "selector_link": "rss:link",
+    "selector_summary": "rss:description",
+    "description": "少数派官方 RSS Feed - 科技/效率/独立开发工具报道，绕过 Cloudflare",
+    "default_keywords": [],
+    "recommended_cron": "0 */6 * * *"
+  },
+  {
+    "id": "bilibili_comprehensive",
+    "name": "哔哩哔哩 综合",
+    "source_url": "https://api.bilibili.com/x/web-interface/dynamic/region?ps=20&rid=1",
+    "selector_list": "json:data.archives",
+    "selector_title": "title",
+    "selector_link": "short_link_v2",
+    "selector_summary": "desc",
+    "description": "Bilibili 公开 JSON API - 综合区热门视频，支持多分区（rid=1综合/rid=3音乐/rid=4游戏等）",
+    "default_keywords": [],
+    "recommended_cron": "0 */3 * * *"
+  },
+  {
+    "id": "bilibili_music",
+    "name": "哔哩哔哩 音乐",
+    "source_url": "https://api.bilibili.com/x/web-interface/dynamic/region?ps=20&rid=3",
+    "selector_list": "json:data.archives",
+    "selector_title": "title",
+    "selector_link": "short_link_v2",
+    "selector_summary": "desc",
+    "description": "Bilibili 音乐区热门视频 - 公开 JSON API，无需登录",
+    "default_keywords": [],
+    "recommended_cron": "0 */4 * * *"
+  }
+]

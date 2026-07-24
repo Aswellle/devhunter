@@ -1,0 +1,52 @@
+version: '3.9'
+
+services:
+  # ── 后端 API + 调度器 ─────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: devhunter-backend
+    restart: unless-stopped
+    environment:
+      APP_ENV: production
+      APP_HOST: 0.0.0.0
+      APP_PORT: 8000
+      APP_DEBUG: "false"
+      DB_PATH: /data/devhunter.db
+      AUTH_PASSWORD: ${AUTH_PASSWORD:-devhunter123}
+      SECRET_KEY: ${SECRET_KEY:-change-me-please-use-openssl-rand-hex-32}
+      JWT_EXPIRE_MINUTES: "10080"
+      CRAWLER_TIMEOUT: "15"
+      CRAWLER_MAX_RESPONSE_MB: "5"
+      SCHEDULER_MAX_WORKERS: "3"
+      LOG_LEVEL: INFO
+      LOG_FORMAT: json
+      CORS_ORIGINS: http://localhost,http://localhost:80,http://frontend
+    volumes:
+      - devhunter_data:/data
+    ports:
+      - "8001:8000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # ── 前端静态文件服务（Nginx）──────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: devhunter-frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  devhunter_data:
+    driver: local
