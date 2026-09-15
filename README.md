@@ -98,20 +98,62 @@ npm run dev
 
 ## 支持的数据源
 
-系统内置 10 个预设模板，涵盖技术、创业、内容社区：
+系统内置 **28 个预设模板**，按类别分组，涵盖开发趋势、创意发现、社区讨论、技术博客、内容创作和需求分享：
 
-| 模板 | 平台 | 抓取方式 |
-|------|------|----------|
-| `hackernews` | Hacker News | RSS |
-| `v2ex` | V2EX 热门 | JSON API |
-| `github_trending` | GitHub Trending | HTML |
-| `juejin` | 掘金推荐 | JSON API (POST) |
-| `indiehackers` | Indie Hackers | RSS |
-| `devto` | Dev.to | JSON API |
-| `reddit_webdev` | Reddit r/webdev | JSON API |
-| `sspai` | 少数派 | RSS |
-| `bilibili_comprehensive` | 哔哩哔哩 综合区 | JSON API |
-| `bilibili_music` | 哔哩哔哩 音乐区 | JSON API |
+### 开发趋势
+
+| 模板 | 平台 | 抓取方式 | 说明 |
+|------|------|----------|------|
+| `hackernews` | Hacker News | RSS | 技术/创业/独立开发聚合 |
+| `hackernews_show` | Hacker News Show HN | RSS | 独立开发者展示项目 |
+| `hackernews_ask` | Hacker News Ask HN | RSS | 开发者提问和寻求建议 |
+| `github_trending` | GitHub Trending | HTML | 今日热门开源仓库 |
+| `trending_github_repos` | GitHub Trending Daily | HTML | 每日热门仓库 |
+| `lobsters` | Lobste.rs | RSS | 技术链接聚合社区 |
+
+### 创意发现
+
+| 模板 | 平台 | 抓取方式 | 说明 |
+|------|------|----------|------|
+| `producthunt` | Product Hunt | RSS | 每日新产品发布平台 |
+| `indiehackers` | Indie Hackers | RSS | 独立开发者产品与讨论 |
+| `v2ex_create` | V2EX 创意分享 | JSON API | 开发者分享项目和创意 |
+| `reddit_sideproject` | Reddit r/SideProject | JSON API | 开发者分享副项目和创意 |
+
+### 社区讨论
+
+| 模板 | 平台 | 抓取方式 | 说明 |
+|------|------|----------|------|
+| `v2ex` | V2EX 热门 | JSON API | 实时热门话题 |
+| `v2ex_jobs` | V2EX 工作 | JSON API | 工作机会和招聘 |
+| `reddit_webdev` | Reddit r/webdev | JSON API | Web 开发讨论 |
+| `reddit_startups` | Reddit r/startups | JSON API | 创业讨论和商业模式 |
+
+### 技术博客
+
+| 模板 | 平台 | 抓取方式 | 说明 |
+|------|------|----------|------|
+| `devto` | Dev.to | JSON API | 热门技术文章 |
+| `hashnode` | Hashnode | GraphQL | 开发者博客平台 |
+| `juejin` | 掘金推荐 | JSON API (POST) | 推荐文章流 |
+| `sspai` | 少数派 | RSS | 科技/效率/独立开发工具 |
+| `medium_programming` | Medium Programming | RSS | 技术深度文章 |
+
+### 内容创作（UP主/内容创作者素材）
+
+| 模板 | 平台 | 抓取方式 | 说明 |
+|------|------|----------|------|
+| `bilibili_comprehensive` | 哔哩哔哩 综合 | JSON API | 综合区热门视频素材 |
+| `bilibili_music` | 哔哩哔哩 音乐 | JSON API | 音乐区热门视频素材 |
+| `douyin_trending` | 抖音 热门 | JSON API | 短视频热门话题和趋势 |
+| `zhihu_hot` | 知乎 热榜 | JSON API | 实时热门话题和讨论 |
+
+### 需求分享
+
+| 模板 | 平台 | 抓取方式 | 说明 |
+|------|------|----------|------|
+| `reddit_forhire` | Reddit r/forhire | JSON API | 自由职业项目机会 |
+| `reddit_ideas` | Reddit r/SomebodyMakeThis | JSON API | 用户发布创意需求 |
 
 也可以完全自定义：填入任意 URL，系统自动发现结构并生成配置，即可接入任何站点。
 

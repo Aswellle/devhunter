@@ -9,19 +9,23 @@
     "selector_summary": "rss:description",
     "description": "Hacker News 官方 RSS - 技术/创业/独立开发，绕过反爬直达 Feed",
     "default_keywords": [],
-    "recommended_cron": "0 */1 * * *"
+    "recommended_cron": "0 */1 * * *",
+    "category": "开发趋势",
+    "subcategory": "技术聚合"
   },
   {
-    "id": "v2ex",
-    "name": "V2EX 热门",
-    "source_url": "https://www.v2ex.com/api/topics/hot.json",
-    "selector_list": "json:",
-    "selector_title": "title",
-    "selector_link": "url",
-    "selector_summary": "content",
-    "description": "V2EX 公开 JSON API - 实时热门话题，无需鉴权",
+    "id": "hackernews_show",
+    "name": "Hacker News Show HN",
+    "source_url": "https://hnrss.org/newest?q=show+hn&points=10",
+    "selector_list": "rss:",
+    "selector_title": "rss:title",
+    "selector_link": "rss:link",
+    "selector_summary": "rss:description",
+    "description": "Show HN - 独立开发者展示自己的项目，寻找早期用户和反馈",
     "default_keywords": [],
-    "recommended_cron": "0 */2 * * *"
+    "recommended_cron": "0 */2 * * *",
+    "category": "创意发现",
+    "subcategory": "项目展示"
   },
   {
     "id": "github_trending",
@@ -33,19 +37,23 @@
     "selector_summary": "p.col-9",
     "description": "GitHub 今日热门仓库 - HTML 抓取，稳定可用",
     "default_keywords": [],
-    "recommended_cron": "0 9 * * *"
+    "recommended_cron": "0 9 * * *",
+    "category": "开发趋势",
+    "subcategory": "开源项目"
   },
   {
-    "id": "juejin",
-    "name": "掘金推荐",
-    "source_url": "https://api.juejin.cn/recommend_api/v1/article/recommend_all_feed",
-    "selector_list": "json-post:data|||{\"id_type\":2,\"sort_type\":200,\"cursor\":\"0\",\"limit\":20,\"recommend_type\":3}",
-    "selector_title": "item_info.article_info.title",
-    "selector_link": "PREF:https://juejin.cn/post/|item_info.article_id",
-    "selector_summary": "item_info.article_info.brief_content",
-    "description": "掘金 BFF JSON API (POST) - 推荐文章流，附带请求头反爬绕过",
+    "id": "producthunt",
+    "name": "Product Hunt",
+    "source_url": "https://www.producthunt.com/feed",
+    "selector_list": "rss:",
+    "selector_title": "rss:title",
+    "selector_link": "rss:link",
+    "selector_summary": "rss:description",
+    "description": "Product Hunt - 每日新产品发布平台，发现最新 SaaS 和独立产品",
     "default_keywords": [],
-    "recommended_cron": "0 */3 * * *"
+    "recommended_cron": "0 10 * * *",
+    "category": "创意发现",
+    "subcategory": "产品发布"
   },
   {
     "id": "indiehackers",
@@ -57,7 +65,65 @@
     "selector_summary": "rss:description",
     "description": "Indie Hackers 官方 Atom/RSS Feed - 独立开发者产品与讨论",
     "default_keywords": [],
-    "recommended_cron": "0 */6 * * *"
+    "recommended_cron": "0 */6 * * *",
+    "category": "创意发现",
+    "subcategory": "独立开发"
+  },
+  {
+    "id": "lobsters",
+    "name": "Lobste.rs",
+    "source_url": "https://lobste.rs/rss",
+    "selector_list": "rss:",
+    "selector_title": "rss:title",
+    "selector_link": "rss:link",
+    "selector_summary": "rss:description",
+    "description": "Lobsters - 技术链接聚合社区，Hacker News 的替代品，更聚焦编程",
+    "default_keywords": [],
+    "recommended_cron": "0 */2 * * *",
+    "category": "开发趋势",
+    "subcategory": "技术聚合"
+  },
+  {
+    "id": "v2ex",
+    "name": "V2EX 热门",
+    "source_url": "https://www.v2ex.com/api/topics/hot.json",
+    "selector_list": "json:",
+    "selector_title": "title",
+    "selector_link": "url",
+    "selector_summary": "content",
+    "description": "V2EX 公开 JSON API - 实时热门话题，无需鉴权",
+    "default_keywords": [],
+    "recommended_cron": "0 */2 * * *",
+    "category": "社区讨论",
+    "subcategory": "开发者社区"
+  },
+  {
+    "id": "v2ex_create",
+    "name": "V2EX 创意分享",
+    "source_url": "https://www.v2ex.com/api/topics/show.json",
+    "selector_list": "json:",
+    "selector_title": "title",
+    "selector_link": "url",
+    "selector_summary": "content",
+    "description": "V2EX '创意分享' 节点 - 开发者分享自己的项目和创意",
+    "default_keywords": [],
+    "recommended_cron": "0 */3 * * *",
+    "category": "创意发现",
+    "subcategory": "项目展示"
+  },
+  {
+    "id": "v2ex_jobs",
+    "name": "V2EX 工作机会",
+    "source_url": "https://www.v2ex.com/api/topics/jobs.json",
+    "selector_list": "json:",
+    "selector_title": "title",
+    "selector_link": "url",
+    "selector_summary": "content",
+    "description": "V2EX '工作' 节点 - 开发者寻找工作机会或发布招聘需求",
+    "default_keywords": [],
+    "recommended_cron": "0 */6 * * *",
+    "category": "需求分享",
+    "subcategory": "工作机会"
   },
   {
     "id": "devto",
@@ -69,7 +135,23 @@
     "selector_summary": "description",
     "description": "Dev.to 官方 REST API - 无需鉴权，获取热门技术文章",
     "default_keywords": [],
-    "recommended_cron": "0 */2 * * *"
+    "recommended_cron": "0 */2 * * *",
+    "category": "技术博客",
+    "subcategory": "开发者博客"
+  },
+  {
+    "id": "hashnode",
+    "name": "Hashnode",
+    "source_url": "https://gql.hashnode.com/",
+    "selector_list": "json-post:data.publication.posts.edges|||{\"query\":\"query{publication(host:\\\"/\\\"){posts{paging{edges{node{title url brief}}}}}}\"}",
+    "selector_title": "node.title",
+    "selector_link": "node.url",
+    "selector_summary": "node.brief",
+    "description": "Hashnode - 开发者博客平台，GraphQL API 获取热门技术文章",
+    "default_keywords": [],
+    "recommended_cron": "0 */3 * * *",
+    "category": "技术博客",
+    "subcategory": "开发者博客"
   },
   {
     "id": "reddit_webdev",
@@ -81,7 +163,51 @@
     "selector_summary": "data.selftext",
     "description": "Reddit r/webdev JSON API - 热门 Web 开发帖子（需合规 User-Agent）",
     "default_keywords": [],
-    "recommended_cron": "0 */3 * * *"
+    "recommended_cron": "0 */3 * * *",
+    "category": "社区讨论",
+    "subcategory": "开发者社区"
+  },
+  {
+    "id": "reddit_sideproject",
+    "name": "Reddit r/SideProject",
+    "source_url": "https://www.reddit.com/r/SideProject/hot.json?limit=25",
+    "selector_list": "json:data.children",
+    "selector_title": "data.title",
+    "selector_link": "data.url",
+    "selector_summary": "data.selftext",
+    "description": "Reddit r/SideProject - 开发者分享副项目和创意，寻找反馈",
+    "default_keywords": [],
+    "recommended_cron": "0 */4 * * *",
+    "category": "创意发现",
+    "subcategory": "项目展示"
+  },
+  {
+    "id": "reddit_startups",
+    "name": "Reddit r/startups",
+    "source_url": "https://www.reddit.com/r/startups/hot.json?limit=25",
+    "selector_list": "json:data.children",
+    "selector_title": "data.title",
+    "selector_link": "data.url",
+    "selector_summary": "data.selftext",
+    "description": "Reddit r/startups - 创业讨论、商业模式验证、增长策略",
+    "default_keywords": [],
+    "recommended_cron": "0 */4 * * *",
+    "category": "社区讨论",
+    "subcategory": "创业"
+  },
+  {
+    "id": "juejin",
+    "name": "掘金推荐",
+    "source_url": "https://api.juejin.cn/recommend_api/v1/article/recommend_all_feed",
+    "selector_list": "json-post:data|||{\"id_type\":2,\"sort_type\":200,\"cursor\":\"0\",\"limit\":20,\"recommend_type\":3}",
+    "selector_title": "item_info.article_info.title",
+    "selector_link": "PREF:https://juejin.cn/post/|item_info.article_id",
+    "selector_summary": "item_info.article_info.brief_content",
+    "description": "掘金 BFF JSON API (POST) - 推荐文章流，附带请求头反爬绕过",
+    "default_keywords": [],
+    "recommended_cron": "0 */3 * * *",
+    "category": "技术博客",
+    "subcategory": "开发者博客"
   },
   {
     "id": "sspai",
@@ -93,7 +219,23 @@
     "selector_summary": "rss:description",
     "description": "少数派官方 RSS Feed - 科技/效率/独立开发工具报道，绕过 Cloudflare",
     "default_keywords": [],
-    "recommended_cron": "0 */6 * * *"
+    "recommended_cron": "0 */6 * * *",
+    "category": "技术博客",
+    "subcategory": "效率工具"
+  },
+  {
+    "id": "medium_programming",
+    "name": "Medium Programming",
+    "source_url": "https://medium.com/feed/tag/programming",
+    "selector_list": "rss:",
+    "selector_title": "rss:title",
+    "selector_link": "rss:link",
+    "selector_summary": "rss:description",
+    "description": "Medium 编程标签 - 技术深度文章、开发经验分享",
+    "default_keywords": [],
+    "recommended_cron": "0 */4 * * *",
+    "category": "技术博客",
+    "subcategory": "开发者博客"
   },
   {
     "id": "bilibili_comprehensive",
@@ -105,7 +247,9 @@
     "selector_summary": "desc",
     "description": "Bilibili 公开 JSON API - 综合区热门视频，支持多分区（rid=1综合/rid=3音乐/rid=4游戏等）",
     "default_keywords": [],
-    "recommended_cron": "0 */3 * * *"
+    "recommended_cron": "0 */3 * * *",
+    "category": "内容创作",
+    "subcategory": "视频素材"
   },
   {
     "id": "bilibili_music",
@@ -117,6 +261,92 @@
     "selector_summary": "desc",
     "description": "Bilibili 音乐区热门视频 - 公开 JSON API，无需登录",
     "default_keywords": [],
-    "recommended_cron": "0 */4 * * *"
+    "recommended_cron": "0 */4 * * *",
+    "category": "内容创作",
+    "subcategory": "视频素材"
+  },
+  {
+    "id": "douyin_trending",
+    "name": "抖音 热门",
+    "source_url": "https://www.douyin.com/aweme/v1/web/hot/search/list/",
+    "selector_list": "json:data.word_list",
+    "selector_title": "word",
+    "selector_link": "hot_url",
+    "selector_summary": "word_cover.url_list.0",
+    "description": "抖音热搜榜 - 短视频热门话题和趋势，内容创作者必备素材",
+    "default_keywords": [],
+    "recommended_cron": "0 */2 * * *",
+    "category": "内容创作",
+    "subcategory": "热点趋势"
+  },
+  {
+    "id": "zhihu_hot",
+    "name": "知乎 热榜",
+    "source_url": "https://www.zhihu.com/api/v3/feed/topstory/hot-lists/total?limit=20",
+    "selector_list": "json:data",
+    "selector_title": "target.title",
+    "selector_link": "target.url",
+    "selector_summary": "target.excerpt",
+    "description": "知乎热榜 - 实时热门话题和讨论，发现行业趋势和公众关注点",
+    "default_keywords": [],
+    "recommended_cron": "0 */2 * * *",
+    "category": "内容创作",
+    "subcategory": "热点趋势"
+  },
+  {
+    "id": "trending_github_repos",
+    "name": "GitHub Trending (Daily)",
+    "source_url": "https://github.com/trending?since=daily",
+    "selector_list": "article.Box-row",
+    "selector_title": "h2.h3 a",
+    "selector_link": "h2.h3 a",
+    "selector_summary": "p.col-9",
+    "description": "GitHub 今日热门仓库 - 发现新兴开源项目和技术趋势",
+    "default_keywords": [],
+    "recommended_cron": "0 9 * * *",
+    "category": "开发趋势",
+    "subcategory": "开源项目"
+  },
+  {
+    "id": "reddit_forhire",
+    "name": "Reddit r/forhire",
+    "source_url": "https://www.reddit.com/r/forhire/hot.json?limit=25",
+    "selector_list": "json:data.children",
+    "selector_title": "data.title",
+    "selector_link": "data.url",
+    "selector_summary": "data.selftext",
+    "description": "Reddit r/forhire - 开发者发布求职或寻找自由职业项目",
+    "default_keywords": [],
+    "recommended_cron": "0 */6 * * *",
+    "category": "需求分享",
+    "subcategory": "自由职业"
+  },
+  {
+    "id": "reddit_ideas",
+    "name": "Reddit r/SomebodyMakeThis",
+    "source_url": "https://www.reddit.com/r/SomebodyMakeThis/hot.json?limit=25",
+    "selector_list": "json:data.children",
+    "selector_title": "data.title",
+    "selector_link": "data.url",
+    "selector_summary": "data.selftext",
+    "description": "Reddit r/SomebodyMakeThis - 用户发布创意需求，等待他人实现",
+    "default_keywords": [],
+    "recommended_cron": "0 */6 * * *",
+    "category": "需求分享",
+    "subcategory": "创意需求"
+  },
+  {
+    "id": "hackernews_ask",
+    "name": "Hacker News Ask HN",
+    "source_url": "https://hnrss.org/newest?q=ask+hn&points=10",
+    "selector_list": "rss:",
+    "selector_title": "rss:title",
+    "selector_link": "rss:link",
+    "selector_summary": "rss:description",
+    "description": "Ask HN - 开发者提问和寻求建议，了解行业痛点和需求",
+    "default_keywords": [],
+    "recommended_cron": "0 */3 * * *",
+    "category": "需求分享",
+    "subcategory": "问题讨论"
   }
 ]

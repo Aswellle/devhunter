@@ -13,50 +13,40 @@ from app.utils.url import is_valid_url
 
 # ── 预设模板标识常量 ──────────────────────────────────────
 PRESET_TEMPLATES = {
+    # 开发趋势
     "hackernews",
-    "v2ex",
+    "hackernews_show",
+    "hackernews_ask",
     "github_trending",
-    "juejin",
+    "trending_github_repos",
+    "lobsters",
+    # 创意发现
+    "producthunt",
     "indiehackers",
-    # Stage 2/3 新增模板（与 templates/sources.json 保持同步）
-    "devto",
+    "v2ex_create",
+    "reddit_sideproject",
+    # 社区讨论
+    "v2ex",
+    "v2ex_jobs",
     "reddit_webdev",
+    "reddit_startups",
+    # 技术博客
+    "devto",
+    "hashnode",
+    "juejin",
     "sspai",
+    "medium_programming",
+    # 内容创作（UP主/内容创作者素材）
     "bilibili_comprehensive",
     "bilibili_music",
+    "douyin_trending",
+    "zhihu_hot",
+    # 需求分享
+    "reddit_forhire",
+    "reddit_ideas",
 }
 
 # ── Selector 复杂度限制（ReDoS 防护）──────────────────────
-_MAX_SELECTOR_LEN = 300
-_MAX_COMBINATORS = 5   # 防止深层嵌套
-_MAX_ATTR_SELECTORS = 3  # 防止复杂属性链
-
-
-def _validate_selector(v: str | None, field_name: str) -> str | None:
-    if v is None:
-        return v
-    if len(v) > _MAX_SELECTOR_LEN:
-        raise ValueError(f"{field_name} exceeds max length {_MAX_SELECTOR_LEN}")
-    # 限制 combinator 数量
-    combinator_count = v.count(">") + v.count("+") + v.count("~")
-    if combinator_count > _MAX_COMBINATORS:
-        raise ValueError(f"{field_name} has too many combinators (> + ~), max {_MAX_COMBINATORS}")
-    # 限制属性选择器数量
-    attr_count = len(re.findall(r"\[.*?\]", v))
-    if attr_count > _MAX_ATTR_SELECTORS:
-        raise ValueError(f"{field_name} has too many attribute selectors, max {_MAX_ATTR_SELECTORS}")
-    # 使用 soupsieve 验证语法，结构检查已足够防止 ReDoS
-    # NotImplementedError: soupsieve 不支持某些 CSS4 选择器（如 :data()、:is() 嵌套等）
-    try:
-        sv.compile(v)
-    except sv.SelectorSyntaxError as e:
-        raise ValueError(f"Invalid CSS selector in {field_name}: {e}")
-    except NotImplementedError:
-        # soupsieve 无法解析的选择器（如 :data()），结构检查已做 ReDoS 防护，放行
-        pass
-    return v
-
-
 def _validate_next_page_selector(v: str | None) -> str | None:
     """
     selector_next_page 校验：允许 None/空，允许 json:/json-post: 前缀路径，

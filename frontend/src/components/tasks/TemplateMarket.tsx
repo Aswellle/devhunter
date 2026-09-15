@@ -1,33 +1,28 @@
 /**
  * TemplateMarket：模板市场式体验。
 
- * 分类展示预设模板，支持一键启用。
+ * 按类别分组展示预设模板，支持一键启用。
  */
 import { useState } from 'react'
 import { useQuery, useMutation } from '@tanstack/react-query'
-import { Zap, ExternalLink, Check } from 'lucide-react'
+import { Zap, ExternalLink, Check, Code, Lightbulb, Users, BookOpen, Palette, ClipboardList } from 'lucide-react'
 import { tasksApi } from '../../api/tasks'
 import { Spinner } from '../../components/ui/Spinner'
+import type { SourceTemplate } from '../../types'
 
 interface TemplateMarketProps {
   onClose: () => void
   onCreated?: () => void
 }
 
-interface PresetTemplate {
-  id: string
-  name: string
-  description: string
-  source_url: string
-  recommended_cron: string
-}
-
 const CATEGORIES = [
-  { id: 'all', name: 'All' },
-  { id: 'ai', name: 'AI & ML' },
-  { id: 'dev', name: 'Developer' },
-  { id: 'startup', name: 'Startup' },
-  { id: 'chinese', name: 'Chinese' },
+  { id: 'all', name: '全部', icon: null },
+  { id: '开发趋势', name: '开发趋势', icon: Code },
+  { id: '创意发现', name: '创意发现', icon: Lightbulb },
+  { id: '社区讨论', name: '社区讨论', icon: Users },
+  { id: '技术博客', name: '技术博客', icon: BookOpen },
+  { id: '内容创作', name: '内容创作', icon: Palette },
+  { id: '需求分享', name: '需求分享', icon: ClipboardList },
 ]
 
 export function TemplateMarket({ onClose, onCreated }: TemplateMarketProps) {
@@ -39,17 +34,18 @@ export function TemplateMarket({ onClose, onCreated }: TemplateMarketProps) {
     queryFn: () => tasksApi.templates(),
   })
 
-  const templateList = templates || []
+  const templateList: SourceTemplate[] = templates || []
 
   const enableMutation = useMutation({
-    mutationFn: (template: PresetTemplate) =>
+    mutationFn: (template: SourceTemplate) =>
       tasksApi.create({
         name: template.name,
         source_url: template.source_url,
-        selector_list: '',
-        selector_title: '',
-        selector_link: '',
-        keywords: [],
+        selector_list: template.selector_list,
+        selector_title: template.selector_title,
+        selector_link: template.selector_link,
+        selector_summary: template.selector_summary,
+        keywords: template.default_keywords,
         cron_expression: template.recommended_cron,
         template_id: template.id,
       }),
@@ -59,88 +55,112 @@ export function TemplateMarket({ onClose, onCreated }: TemplateMarketProps) {
     },
   })
 
-  const filteredTemplates = templateList.filter((t: PresetTemplate) => {
+  const filteredTemplates = templateList.filter((t: SourceTemplate) => {
     if (selectedCategory === 'all') return true
-    const name = t.name.toLowerCase()
-    if (selectedCategory === 'ai') return name.includes('ai') || name.includes('gpt') || name.includes('llm')
-    if (selectedCategory === 'dev') return name.includes('github') || name.includes('hackernews') || name.includes('dev')
-    if (selectedCategory === 'startup') return name.includes('indie') || name.includes('startup')
-    if (selectedCategory === 'chinese') return name.includes('v2ex') || name.includes('掘金') || name.includes('少数派')
-    return true
+    return t.category === selectedCategory
   })
+
+  // Group templates by category
+  const groupedTemplates: Record<string, SourceTemplate[]> = {}
+  for (const t of filteredTemplates) {
+    const cat = t.category || '其他'
+    if (!groupedTemplates[cat]) groupedTemplates[cat] = []
+    groupedTemplates[cat].push(t)
+  }
 
   return (
     <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-4xl mx-4 max-h-[90vh] overflow-y-auto">
-        <div className="flex items-center justify-between px-6 py-4 border-b">
-          <h2 className="text-lg font-semibold">Template Market</h2>
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-5xl mx-4 max-h-[90vh] overflow-hidden flex flex-col">
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b shrink-0">
+          <h2 className="text-lg font-semibold">模板市场</h2>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
             ✕
           </button>
         </div>
 
-        <div className="px-6 py-3 border-b bg-gray-50">
-          <div className="flex gap-2">
-            {CATEGORIES.map((cat) => (
-              <button
-                key={cat.id}
-                onClick={() => setSelectedCategory(cat.id)}
-                className={`px-3 py-1 rounded-full text-sm ${
-                  selectedCategory === cat.id
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-white border hover:bg-gray-50'
-                }`}
-              >
-                {cat.name}
-              </button>
-            ))}
+        {/* Categories */}
+        <div className="px-6 py-3 border-b bg-gray-50 shrink-0">
+          <div className="flex gap-2 flex-wrap">
+            {CATEGORIES.map((cat) => {
+              const Icon = cat.icon
+              return (
+                <button
+                  key={cat.id}
+                  onClick={() => setSelectedCategory(cat.id)}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm transition-colors ${
+                    selectedCategory === cat.id
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-white border hover:bg-gray-50'
+                  }`}
+                >
+                  {Icon && <Icon className="h-3.5 w-3.5" />}
+                  {cat.name}
+                </button>
+              )
+            })}
           </div>
         </div>
 
-        <div className="px-6 py-4">
+        {/* Content */}
+        <div className="flex-1 overflow-y-auto px-6 py-4">
           {isLoading ? (
             <div className="flex justify-center py-10">
               <Spinner className="h-8 w-8" />
             </div>
           ) : (
-            <div className="grid gap-3 sm:grid-cols-2">
-              {filteredTemplates.map((template: PresetTemplate) => {
-                const isEnabled = enabledTemplates.has(template.id)
-                return (
-                  <div
-                    key={template.id}
-                    className="p-4 border rounded-lg hover:shadow-md transition-shadow"
-                  >
-                    <div className="flex items-start justify-between mb-2">
-                      <h3 className="font-medium">{template.name}</h3>
-                      {isEnabled ? (
-                        <span className="flex items-center gap-1 text-green-600 text-sm">
-                          <Check className="h-4 w-4" />
-                          Enabled
-                        </span>
-                      ) : (
-                        <button
-                          onClick={() => enableMutation.mutate(template)}
-                          disabled={enableMutation.isPending}
-                          className="flex items-center gap-1 px-3 py-1 bg-blue-600 text-white text-sm rounded hover:bg-blue-700 disabled:opacity-50"
+            <div className="space-y-6">
+              {Object.entries(groupedTemplates).map(([category, items]) => (
+                <div key={category}>
+                  <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">
+                    {category}
+                  </h3>
+                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                    {items.map((template: SourceTemplate) => {
+                      const isEnabled = enabledTemplates.has(template.id)
+                      return (
+                        <div
+                          key={template.id}
+                          className="p-4 border rounded-lg hover:shadow-md transition-shadow"
                         >
-                          {enableMutation.isPending ? (
-                            <Spinner className="h-3 w-3" />
-                          ) : (
-                            <Zap className="h-3 w-3" />
+                          <div className="flex items-start justify-between mb-2">
+                            <h4 className="font-medium text-sm">{template.name}</h4>
+                            {isEnabled ? (
+                              <span className="flex items-center gap-1 text-green-600 text-xs">
+                                <Check className="h-3 w-3" />
+                                已启用
+                              </span>
+                            ) : (
+                              <button
+                                onClick={() => enableMutation.mutate(template)}
+                                disabled={enableMutation.isPending}
+                                className="flex items-center gap-1 px-2 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-700 disabled:opacity-50"
+                              >
+                                {enableMutation.isPending ? (
+                                  <Spinner className="h-3 w-3" />
+                                ) : (
+                                  <Zap className="h-3 w-3" />
+                                )}
+                                启用
+                              </button>
+                            )}
+                          </div>
+                          <p className="text-xs text-gray-600 mb-2 line-clamp-2">{template.description}</p>
+                          <div className="flex items-center gap-2 text-xs text-gray-500">
+                            <ExternalLink className="h-3 w-3" />
+                            <span className="truncate">{template.source_url}</span>
+                          </div>
+                          {template.subcategory && (
+                            <span className="inline-block mt-2 px-2 py-0.5 bg-gray-100 text-gray-600 text-xs rounded">
+                              {template.subcategory}
+                            </span>
                           )}
-                          Enable
-                        </button>
-                      )}
-                    </div>
-                    <p className="text-sm text-gray-600 mb-2">{template.description}</p>
-                    <div className="flex items-center gap-2 text-xs text-gray-500">
-                      <ExternalLink className="h-3 w-3" />
-                      <span className="truncate">{template.source_url}</span>
-                    </div>
+                        </div>
+                      )
+                    })}
                   </div>
-                )
-              })}
+                </div>
+              ))}
             </div>
           )}
         </div>

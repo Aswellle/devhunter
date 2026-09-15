@@ -26,6 +26,20 @@ export interface RecommendedTopic {
   score: number
 }
 
+export interface Item {
+  id: string
+  task_id: string
+  task_name: string | null
+  thread_id: string | null
+  title: string
+  url: string
+  summary: string | null
+  is_read: boolean
+  is_starred: boolean
+  fetched_at: string
+  created_at: string
+}
+
 export interface RecommendedItem extends Item {
   recommendation_score: number
   recommendation_reasons?: RecommendationReason[]
@@ -112,33 +126,19 @@ export interface TaskUpdate extends Partial<TaskCreate> {
   status?: 'active' | 'paused'
 }
 
-// ── Item 采集结果 ─────────────────────────────────────────
-export interface Item {
-  id: string
-  task_id: string
-  task_name: string | null
-  thread_id: string | null  // 所属 Thread（多平台聚合）
-  title: string
-  url: string
-  summary: string | null
-  is_read: boolean
-  is_starred: boolean
-  fetched_at: string
-  created_at: string
-}
-
 // ── Thread 多平台聚合 ────────────────────────────────────────
 export interface Thread {
   id: string
-  title: string           // 规范化 Thread 标题（最完整的那个）
-  first_seen_at: string  // 首次出现
-  last_seen_at: string  // 最近一次出现
-  item_count: number     // 包含的 Items 数量
-  platforms: string[]   // 来源平台列表
+  title: string
+  first_seen_at: string
+  last_seen_at: string
+  item_count: number
+  platforms: string[]
+  confidence?: string
 }
 
 export interface ThreadWithItems extends Thread {
-  items: Item[]  // Thread 内的所有 Items
+  items: Item[]
 }
 
 // ── TaskExecution 执行记录 ────────────────────────────────
@@ -161,17 +161,20 @@ export interface PaginatedResponse<T> {
   per_page: number
 }
 
-// ── 预设模板 ──────────────────────────────────────────────
+// ── Source Template ──────────────────────────────────────
 export interface SourceTemplate {
   id: string
   name: string
+  description: string
   source_url: string
   selector_list: string
   selector_title: string
   selector_link: string
   selector_summary: string | null
-  description: string
+  default_keywords: string[]
   recommended_cron: string
+  category?: string
+  subcategory?: string
 }
 
 // ── Auth ──────────────────────────────────────────────────
