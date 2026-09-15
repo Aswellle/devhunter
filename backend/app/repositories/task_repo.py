@@ -28,6 +28,14 @@ def _row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
             d["keywords"] = []
     else:
         d["keywords"] = []
+    # config_snapshot: JSON 字符串 → Python dict
+    if d.get("config_snapshot"):
+        try:
+            d["config_snapshot"] = json.loads(d["config_snapshot"])
+        except (json.JSONDecodeError, TypeError):
+            d["config_snapshot"] = None
+    else:
+        d["config_snapshot"] = None
     return d
 
 
@@ -38,6 +46,7 @@ class TaskRepository:
         task_id = data.get("id") or str(uuid.uuid4())
         now = _now_iso()
         keywords_json = json.dumps(data.get("keywords") or [], ensure_ascii=False)
+        config_snapshot_json = json.dumps(data.get("config_snapshot") or {}, ensure_ascii=False) if data.get("config_snapshot") else None
 
         with get_db() as conn:
             conn.execute(
@@ -48,6 +57,7 @@ class TaskRepository:
                     selector_next_page,
                     keywords, cron_expression, status,
                     consecutive_failures, consecutive_empty,
+                    config_snapshot,
                     created_at, updated_at
                 ) VALUES (
                     ?, ?, ?, ?,
@@ -55,6 +65,7 @@ class TaskRepository:
                     ?,
                     ?, ?, 'active',
                     0, 0,
+                    ?,
                     ?, ?
                 )
                 """,
@@ -70,6 +81,7 @@ class TaskRepository:
                     data.get("selector_next_page"),
                     keywords_json,
                     data["cron_expression"],
+                    config_snapshot_json,
                     now, now,
                 ),
             )
@@ -166,9 +178,11 @@ class TaskRepository:
         return self.get(task_id)
 
     def update_status(self, task_id: str, status: str) -> None:
+        # D2: guard against a crawl finishing after its task was soft-deleted
+        # mid-flight — without this, status flips on an already-deleted row.
         with get_db() as conn:
             conn.execute(
-                "UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?",
+                "UPDATE tasks SET status = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL",
                 (status, _now_iso(), task_id),
             )
 
@@ -184,6 +198,10 @@ class TaskRepository:
         - 成功且非空 → 重置两个计数
         - 失败 → consecutive_failures +1（达到 3 次自动 error）
         - 成功但空 → consecutive_empty +1
+
+        D2 (same root cause as update_status): 所有分支都加
+        AND deleted_at IS NULL，避免爬取在任务被软删除后完成时，
+        仍然修改已删除行的统计/状态字段。
         """
         with get_db() as conn:
             if success and not empty:
@@ -194,7 +212,7 @@ class TaskRepository:
                         consecutive_empty = 0,
                         last_executed_at = ?,
                         updated_at = ?
-                    WHERE id = ?
+                    WHERE id = ? AND deleted_at IS NULL
                     """,
                     (executed_at, _now_iso(), task_id),
                 )
@@ -209,7 +227,7 @@ class TaskRepository:
                             WHEN consecutive_failures + 1 >= 3 THEN 'error'
                             ELSE status
                         END
-                    WHERE id = ?
+                    WHERE id = ? AND deleted_at IS NULL
                     """,
                     (executed_at, _now_iso(), task_id),
                 )
@@ -221,7 +239,7 @@ class TaskRepository:
                         consecutive_failures = 0,
                         last_executed_at = ?,
                         updated_at = ?
-                    WHERE id = ?
+                    WHERE id = ? AND deleted_at IS NULL
                     """,
                     (executed_at, _now_iso(), task_id),
                 )

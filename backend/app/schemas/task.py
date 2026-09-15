@@ -83,6 +83,27 @@ FREQUENCY_PRESETS: dict[str, str] = {
 }
 
 
+def _validate_cron_expression(v: str) -> str:
+    """
+    C8: 校验 5 段格式 + 字段取值范围（如 "99 * * * *" 应在此处被拒绝为 400，
+    而不是让错误一路冒泡到 scheduler_manager.add_job() 才被发现并静默吞掉）。
+    复用 APScheduler 的 CronTrigger 做取值范围校验，避免自己重新实现一套规则。
+    """
+    parts = v.strip().split()
+    if len(parts) != 5:
+        from app.core.exceptions import InvalidCronError
+        raise InvalidCronError(f"Cron must have 5 fields, got: {v!r}")
+
+    from apscheduler.triggers.cron import CronTrigger
+    from app.core.exceptions import InvalidCronError
+    minute, hour, day, month, day_of_week = parts
+    try:
+        CronTrigger(minute=minute, hour=hour, day=day, month=month, day_of_week=day_of_week)
+    except ValueError as e:
+        raise InvalidCronError(f"Invalid cron field value: {e}") from e
+    return v.strip()
+
+
 class TaskBase(BaseModel):
     name: str = Field(..., min_length=1, max_length=100, description="任务名称")
     source_url: str = Field(..., max_length=2048, description="目标页面 URL")
@@ -94,6 +115,7 @@ class TaskBase(BaseModel):
     selector_next_page: str | None = Field(None, max_length=500, description="下一页 Selector（可选，CSS 或 json: 路径）")
     keywords: list[str] = Field(default_factory=list, description="关键词列表，空列表 = 全量采集")
     cron_expression: str = Field(..., max_length=100, description="Cron 表达式（5 段）")
+    config_snapshot: dict | None = Field(None, description="创建时的模板配置快照（JSON）")
 
     @field_validator("source_url")
     @classmethod
@@ -106,15 +128,10 @@ class TaskBase(BaseModel):
     @field_validator("cron_expression")
     @classmethod
     def validate_cron(cls, v: str) -> str:
-        """验证 Cron 表达式格式（5 段，不含秒）"""
-        # 先检查是否是快捷键
+        """验证 Cron 表达式格式（5 段 + 字段取值范围，不含秒）"""
         if v in FREQUENCY_PRESETS:
             return FREQUENCY_PRESETS[v]
-        parts = v.strip().split()
-        if len(parts) != 5:
-            from app.core.exceptions import InvalidCronError
-            raise InvalidCronError(f"Cron must have 5 fields, got: {v!r}")
-        return v.strip()
+        return _validate_cron_expression(v)
 
     @field_validator("template_id")
     @classmethod
@@ -168,11 +185,7 @@ class TaskUpdate(BaseModel):
             return v
         if v in FREQUENCY_PRESETS:
             return FREQUENCY_PRESETS[v]
-        parts = v.strip().split()
-        if len(parts) != 5:
-            from app.core.exceptions import InvalidCronError
-            raise InvalidCronError(f"Cron must have 5 fields, got: {v!r}")
-        return v.strip()
+        return _validate_cron_expression(v)
 
     @field_validator("template_id")
     @classmethod
@@ -204,7 +217,7 @@ class TaskResponse(BaseModel):
     selector_summary: str | None
     selector_next_page: str | None
     keywords: list[str]
-    cron_expression: str
+    config_snapshot: dict | None = None
     status: str
     consecutive_failures: int
     consecutive_empty: int

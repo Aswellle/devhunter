@@ -51,7 +51,7 @@ class EventBus:
                 self._queues.pop(task_id, None)
 
     def publish(self, event: ExecutionEvent) -> None:
-        """向所有订阅者广播事件（非阻塞，队列满则丢弃）。"""
+        """向所有订阅者广播事件（非阻塞，队列满则丢弃）。同时持久化到 execution_events 表。"""
         with self._lock:
             queues = list(self._queues.get(event.task_id, []))
         for q in queues:
@@ -59,6 +59,19 @@ class EventBus:
                 q.put_nowait(event)
             except queue.Full:
                 pass  # 客户端消费太慢，丢弃事件
+
+        # 持久化到 execution_events 表（durable execution events）
+        try:
+            from app.repositories.execution_event_repo import execution_event_repo
+            execution_event_repo.record(
+                execution_id=event.data.get("execution_id", event.task_id),
+                task_id=event.task_id,
+                event_type=event.event_type,
+                message=event.message,
+                data=event.data,
+            )
+        except Exception:
+            pass  # 持久化失败不影响实时流
 
     def has_listeners(self, task_id: str) -> bool:
         with self._lock:
