@@ -30,4 +30,16 @@ export const userPrefsApi = {
   // 记录用户交互
   recordInteraction: (data: { item_id: string; interaction_type: string; dwell_seconds?: number }) =>
     client.post('/user-prefs/interactions', data).then((r) => r.data),
+
+  // 获取用户亲缘度
+  getAffinities: () =>
+    client.get('/user-prefs/affinities').then((r) => r.data),
+
+  // 更新推荐配置
+  updateRecommendationConfig: (data: { preference_mode?: string; weights?: Record<string, number> }) =>
+    client.post('/user-prefs/recommendations/config', data).then((r) => r.data),
+
+  // 记录负反馈
+  recordFeedback: (data: { item_id: string; feedback_type: string; reason?: string }) =>
+    client.post('/user-prefs/feedback', data).then((r) => r.data),
 }

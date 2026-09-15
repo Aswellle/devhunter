@@ -28,6 +28,50 @@ export interface RecommendedTopic {
 
 export interface RecommendedItem extends Item {
   recommendation_score: number
+  recommendation_reasons?: RecommendationReason[]
+}
+
+export interface RecommendationReason {
+  type: 'topic' | 'affinity' | 'recency' | 'engagement' | 'thread' | 'exploration'
+  label: string
+}
+
+// ── Source Discovery ──────────────────────────────────────
+export interface DiscoveryResult {
+  url: string
+  source_type: 'rss' | 'json' | 'html' | 'unknown'
+  title: string
+  description: string
+  feed_url: string
+  json_path: string
+  list_selector: string
+  title_selector: string
+  link_selector: string
+  summary_selector: string
+  next_page_selector: string
+  candidate_count: number
+  sample_items: Array<{ title: string; url: string; summary: string }>
+  errors: string[]
+}
+
+export interface PreviewResult {
+  success: boolean
+  items: Array<{ title: string; url: string; summary: string }>
+  total_found: number
+  error: string
+  http_status: number
+}
+
+export interface TestResult {
+  success: boolean
+  transport_success: boolean
+  parse_success: boolean
+  semantic_success: boolean
+  http_status: number
+  items_found: number
+  field_coverage: number
+  errors: string[]
+  warnings: string[]
 }
 
 // ── Task 采集任务 ────────────────────────────────────────

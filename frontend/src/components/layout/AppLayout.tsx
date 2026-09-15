@@ -8,7 +8,7 @@
  */
 import { useState } from 'react'
 import { Link, NavLink, useNavigate } from 'react-router-dom'
-import { BarChart2, Cloud, LayoutDashboard, LogOut, Menu, Rss, Sparkles, Star, X } from 'lucide-react'
+import { BarChart2, Cloud, LayoutDashboard, LogOut, Menu, Rss, Sparkles, Star, User, X } from 'lucide-react'
 import { useAuthStore } from '../../stores/authStore'
 import { clsx } from 'clsx'
 
@@ -19,6 +19,7 @@ const navItems = [
   { to: '/starred',   label: '已收藏',   icon: Star },
   { to: '/recommend', label: '今日推荐', icon: Sparkles },
   { to: '/dashboard', label: '数据概览', icon: BarChart2 },
+  { to: '/profile',   label: '我的画像', icon: User },
 ]
 
 interface SidebarContentProps {
@@ -121,6 +122,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
               <button
                 className="text-gray-400 hover:text-white p-1 rounded"
                 onClick={() => setSidebarOpen(false)}
+                aria-label="关闭导航菜单"
               >
                 <X className="h-5 w-5" />
               </button>
@@ -144,6 +146,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           <button
             className="text-gray-300 hover:text-white p-1"
             onClick={() => setSidebarOpen(true)}
+            aria-label="打开导航菜单"
           >
             <Menu className="h-5 w-5" />
           </button>
