@@ -13,6 +13,14 @@ import re
 from abc import ABC, abstractmethod
 from typing import Any
 
+# Optional numpy dependency for embedding similarity
+try:
+    import numpy as np
+    _NUMPY_AVAILABLE = True
+except ImportError:
+    _NUMPY_AVAILABLE = False
+    np = None  # type: ignore
+
 logger = logging.getLogger(__name__)
 
 
@@ -113,6 +121,12 @@ class EmbeddingSimilarity(SemanticSimilarity):
     def _load_model(self):
         """延迟加载模型"""
         if self._model is None:
+            if not _NUMPY_AVAILABLE:
+                logger.warning(
+                    "numpy not installed. "
+                    "Falling back to CharacterNgramSimilarity."
+                )
+                return False
             try:
                 from sentence_transformers import SentenceTransformer
                 self._model = SentenceTransformer(self.model_name)
@@ -136,8 +150,7 @@ class EmbeddingSimilarity(SemanticSimilarity):
             return 0.0
 
         embeddings = self._model.encode([text_a, text_b])
-        # Cosine similarity
-        import numpy as np
+        # Cosine similarity using module-level numpy
         sim = np.dot(embeddings[0], embeddings[1]) / (
             np.linalg.norm(embeddings[0]) * np.linalg.norm(embeddings[1])
         )
@@ -155,11 +168,10 @@ class EmbeddingSimilarity(SemanticSimilarity):
         texts = [query] + candidates
         embeddings = self._model.encode(texts)
 
-        import numpy as np
         query_emb = embeddings[0]
         candidate_embs = embeddings[1:]
 
-        # Cosine similarity
+        # Cosine similarity using module-level numpy
         similarities = []
         for emb in candidate_embs:
             sim = np.dot(query_emb, emb) / (

@@ -21,6 +21,8 @@ import uuid
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel, Field
+from typing import Optional
 
 from app.api.deps import require_auth
 from app.sources.discovery import url_discoverer, DiscoveryResult
@@ -33,13 +35,42 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/sources", tags=["sources"])
 
 
-def _now_iso() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+class DiscoverRequest(BaseModel):
+    url: str = Field(..., description="Target URL to discover")
 
 
-@router.post("/discover")
+class PreviewRequest(BaseModel):
+    url: str = Field(..., description="Target URL to preview")
+    discovery_result: Optional[dict] = Field(None, description="Discovery result from /discover")
+
+
+class TestRequest(BaseModel):
+    url: str = Field(..., description="Target URL to test")
+    selectors: dict = Field(default_factory=dict, description="CSS selectors configuration")
+    expected_min_items: int = Field(1, ge=1, description="Expected minimum items")
+    required_fields: list[str] = Field(default=["title", "link"], description="Required fields")
+
+
+class CreateSourceRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=100, description="Template name")
+    source_url: str = Field(..., max_length=2048, description="Source URL")
+    selectors: dict = Field(default_factory=dict, description="CSS selectors configuration")
+    keywords: list[str] = Field(default_factory=list, description="Filter keywords")
+    cron_expression: str = Field("0 9 * * *", max_length=100, description="Cron expression")
+    category: Optional[str] = Field(None, description="Template category")
+    tags: list[str] = Field(default_factory=list, description="Template tags")
+
+
+class ShareRequest(BaseModel):
+    category: Optional[str] = Field(None, description="Marketplace category")
+    tags: list[str] = Field(default_factory=list, description="Template tags")
+
+
+class CloneRequest(BaseModel):
+    name: Optional[str] = Field(None, description="Custom name for cloned template")
 def discover_source(
-    body: dict,
+    body: DiscoverRequest,
     _: str = Depends(require_auth),
 ):
     """
@@ -48,7 +79,7 @@ def discover_source(
     输入: { "url": "https://example.com" }
     输出: DiscoveryResult JSON
     """
-    url = body.get("url", "")
+    url = body.url
     if not url:
         raise HTTPException(status_code=400, detail="URL is required")
 
@@ -58,7 +89,7 @@ def discover_source(
 
 @router.post("/preview")
 def preview_source(
-    body: dict,
+    body: PreviewRequest,
     _: str = Depends(require_auth),
 ):
     """
@@ -67,11 +98,11 @@ def preview_source(
     输入: { "url": "...", "discovery_result": {...} }
     输出: PreviewResult JSON
     """
-    url = body.get("url", "")
+    url = body.url
     if not url:
         raise HTTPException(status_code=400, detail="URL is required")
 
-    discovery_data = body.get("discovery_result")
+    discovery_data = body.discovery_result
     discovery_result = None
     if discovery_data:
         discovery_result = DiscoveryResult(**discovery_data)
@@ -82,7 +113,7 @@ def preview_source(
 
 @router.post("/test")
 def test_source(
-    body: dict,
+    body: TestRequest,
     _: str = Depends(require_auth),
 ):
     """
@@ -91,13 +122,13 @@ def test_source(
     输入: { "url": "...", "selectors": {...}, "expected_min_items": 5 }
     输出: TestResult JSON
     """
-    url = body.get("url", "")
+    url = body.url
     if not url:
         raise HTTPException(status_code=400, detail="URL is required")
 
-    selectors = body.get("selectors", {})
-    expected_min_items = body.get("expected_min_items", 1)
-    required_fields = body.get("required_fields", ["title", "link"])
+    selectors = body.selectors
+    expected_min_items = body.expected_min_items
+    required_fields = body.required_fields
 
     result = config_tester.test(url, selectors, expected_min_items, required_fields)
     return result.to_dict()
@@ -105,7 +136,7 @@ def test_source(
 
 @router.post("", status_code=status.HTTP_201_CREATED)
 def create_source(
-    body: dict,
+    body: CreateSourceRequest,
     _: str = Depends(require_auth),
 ):
     """
@@ -119,17 +150,17 @@ def create_source(
         "cron_expression": "..."
     }
     """
-    name = body.get("name", "")
+    name = body.name
     if not name:
         raise HTTPException(status_code=400, detail="Name is required")
 
-    source_url = body.get("source_url", "")
+    source_url = body.source_url
     if not source_url:
         raise HTTPException(status_code=400, detail="source_url is required")
 
-    selectors = body.get("selectors", {})
-    keywords = body.get("keywords", [])
-    cron_expression = body.get("cron_expression", "0 9 * * *")
+    selectors = body.selectors
+    keywords = body.keywords
+    cron_expression = body.cron_expression
 
     # 构建 config
     config = {
@@ -187,7 +218,7 @@ def get_source(
 @router.post("/{source_id}/share")
 def share_source(
     source_id: str,
-    body: dict,
+    body: ShareRequest,
     _: str = Depends(require_auth),
 ):
     """
@@ -200,8 +231,8 @@ def share_source(
         raise HTTPException(status_code=404, detail="Source not found")
 
     # 更新分享状态
-    category = body.get("category")
-    tags = body.get("tags", [])
+    category = body.category
+    tags = body.tags
     template_registry.update(source_id, {
         "shared": True,
         "category": category,
@@ -246,7 +277,7 @@ def list_marketplace(
 @router.post("/{source_id}/import")
 def import_source(
     source_id: str,
-    body: dict,
+    body: CloneRequest,
     _: str = Depends(require_auth),
 ):
     """
@@ -263,7 +294,7 @@ def import_source(
 
     # 创建导入的副本
     new_id = str(uuid.uuid4())
-    name = body.get("name", template.get("name", "Imported Template"))
+    name = body.name or template.get("name", "Imported Template")
 
     imported = template_registry.create({
         "id": new_id,
@@ -284,7 +315,7 @@ def import_source(
 @router.post("/{source_id}/clone")
 def clone_source(
     source_id: str,
-    body: dict,
+    body: CloneRequest,
     _: str = Depends(require_auth),
 ):
     """
