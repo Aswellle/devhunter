@@ -13,7 +13,7 @@ thread_score =
 其中：
 - lexical_score: Jaccard 标题相似度
 - entity_score: 实体重叠度
-- semantic_score: 语义相似度（基于内容指纹）
+- semantic_score: 语义相似度（基于 semantic similarity 模块）
 - temporal_score: 时间相似度
 - source_score: 来源独立性（跨平台共识 vs 同源重复）
 """
@@ -21,6 +21,8 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any
 
+from app.features.extractor import feature_extractor
+from app.features.semantic import semantic_similarity
 from app.features.temporal import temporal_score, detect_event_type, get_event_window_hours
 from app.utils.similarity import jaccard_similarity
 
@@ -101,8 +103,10 @@ class ThreadScorer:
             candidate_features.get("entities", {}) if candidate_features else {},
         )
 
-        # 3. Semantic score (内容指纹)
+        # 3. Semantic score (语义相似度 - 使用可插拔的 semantic similarity)
         score.semantic_score = self._calc_semantic_score(
+            new_title,
+            thread_title,
             new_features.get("fingerprint", "") if new_features else "",
             candidate_features.get("fingerprint", "") if candidate_features else "",
         )
@@ -164,13 +168,25 @@ class ThreadScorer:
 
         return total_overlap / len(all_types)
 
-    def _calc_semantic_score(self, fingerprint_a: str, fingerprint_b: str) -> float:
-        """计算语义相似度（基于内容指纹）"""
-        if not fingerprint_a or not fingerprint_b:
-            return 0.0
-        # 完全相同 → 1.0，否则 → 0.0
-        # 未来可以改为 embedding 相似度
-        return 1.0 if fingerprint_a == fingerprint_b else 0.0
+    def _calc_semantic_score(
+        self,
+        title_a: str,
+        title_b: str,
+        fingerprint_a: str = "",
+        fingerprint_b: str = "",
+    ) -> float:
+        """
+        计算语义相似度。
+
+        优先使用 semantic similarity 模块（可插拔），
+        如果指纹完全相同则直接返回 1.0。
+        """
+        # 完全相同 → 1.0
+        if fingerprint_a and fingerprint_b and fingerprint_a == fingerprint_b:
+            return 1.0
+
+        # 使用 semantic similarity 模块
+        return semantic_similarity.compute(title_a, title_b)
 
     def _calc_source_score(self, new_source_id: str, thread_platforms: list[str]) -> float:
         """
