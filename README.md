@@ -14,7 +14,7 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![License](https://img.shields.io/badge/license-MIT-blue)](#license)
 
-[快速启动](#快速启动) · [功能概览](#功能概览) · [架构](#架构) · [API 文档](#api-文档) · [环境变量](#环境变量)
+[快速启动](#快速启动) · [功能概览](#功能概览) · [架构](#架构) · [API 文档](#api-文档) · [环境变量](#环境变量) · [**[English]**](./README.en.md)
 
 </div>
 
@@ -371,3 +371,13 @@ DevHunter 是一个**信息聚合工具**，设计用于以下合法目的：
 ## License
 
 [MIT](LICENSE)
+
+---
+
+<div align="center">
+
+**如果您觉得 DevHunter 对您有帮助，请考虑给予 Star 支持！**
+
+⭐ [GitHub Star](https://github.com/Aswellle/devhunter) ⭐
+
+</div>
