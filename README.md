@@ -9,7 +9,7 @@
 全自动抓取 Hacker News、V2EX、GitHub Trending、掘金等平台的高价值信息，集中管理、全文可搜索、支持定时调度。
 
 [![Python](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white)](https://www.python.org/)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.111+-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.11+-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)](https://react.dev/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![License](https://img.shields.io/badge/license-MIT-blue)](#license)
@@ -24,10 +24,12 @@
 
 DevHunter 是一个自托管的内容采集与聚合系统，专为开发者、独立创业者跟踪多平台动态而设计。你配置一次采集任务（选定来源、CSS Selector 或 JSON 路径、关键词、Cron 周期），系统就会按计划自动抓取、去重、入库，并提供统一的搜索与浏览界面——不用再挨个刷十几个网站。
 
-内置两个进阶能力：
+内置多个进阶能力：
 
-- **跨平台事件聚合（Threads）**：当多个平台报道同一事件时，系统基于标题分词相似度自动把它们归为一组，一次看全貌，而不是看到十条重复信息。
-- **个性化推荐**：根据你设置的关注主题、历史交互行为（浏览/点击/停留/收藏），持续计算内容与你的匹配度，越用越懂你。
+- **跨平台事件聚合（Threads V2）**：基于多因素评分（词法 + 实体 + 语义 + 时间 + 来源）的智能聚类，同一事件的多平台报道自动归组，一次看全貌。
+- **个性化推荐 V2**：候选生成 → 多因子评分 → 多样性处理 → 可解释推荐，根据你的阅读习惯动态调整探索/利用比例。
+- **3 步模板向导**：输入 URL → 自动发现结构 → 预览确认，无需学习 CSS Selector。
+- **模板市场**：分享你的模板到社区，一键导入他人分享的配置。
 
 ---
 
@@ -79,11 +81,15 @@ npm run dev
 | 功能 | 说明 |
 |------|------|
 | 📥 采集任务管理 | 创建 / 编辑 / 删除采集任务，10 个预设数据源模板一键接入 |
+| 🧙 3 步模板向导 | 输入 URL 自动发现结构，无需手写 CSS Selector |
+| 🏪 模板市场 | 分享模板到社区，一键导入他人配置 |
 | ⏰ 定时调度 | 基于 5 段 Cron 表达式（UTC），最小精度 1 分钟，支持手动触发 |
 | 🌐 多模式抓取引擎 | HTML CSS Selector / JSON API（GET & POST）/ RSS，自动分页，失败自动重试 |
 | 🔍 全文搜索 | SQLite FTS5 全文索引，中文场景自动回退 LIKE 匹配 |
-| 🔗 跨平台聚合 | 同一事件的多平台报道自动归组为 Thread，一览多方视角 |
-| 🎯 个性化推荐 | 基于主题偏好 + 行为亲缘度 + 新鲜度 + 参与度的多因子评分 |
+| 🔗 跨平台聚合 V2 | 多因素智能聚类（词法 + 实体 + 语义 + 时间 + 来源），支持手动合并/拆分 |
+| 🎯 个性化推荐 V2 | 候选生成 → 评分 → 多样性 → 可解释，自适应探索/利用比例 |
+| 🏥 来源健康监控 | HTTP 可用性 + 解析成功率 + 字段覆盖率 + 新鲜度 + 重复率 |
+| ✅ 语义验证 | 三层验证（transport → parse → semantic），区分 HTTP 200 与真实成功 |
 | ⭐ 收藏与已读 | 条目 Star / 已读状态标记，支持批量操作与多维度筛选 |
 | 📊 实时执行监控 | SSE 推送任务执行全链路事件，执行历史与耗时统计 |
 | 🔐 单用户认证 | JWT + httpOnly Cookie，密码通过环境变量配置 |
@@ -107,7 +113,7 @@ npm run dev
 | `bilibili_comprehensive` | 哔哩哔哩 综合区 | JSON API |
 | `bilibili_music` | 哔哩哔哩 音乐区 | JSON API |
 
-也可以完全自定义：填入任意 URL + CSS Selector / JSON 路径 / RSS 地址，即可接入模板之外的任何站点。
+也可以完全自定义：填入任意 URL，系统自动发现结构并生成配置，即可接入任何站点。
 
 ---
 
@@ -117,27 +123,32 @@ npm run dev
 devhunter/
 ├── backend/                    # FastAPI 后端
 │   ├── app/
-│   │   ├── api/                # HTTP 路由层（auth / tasks / items / threads / ...）
+│   │   ├── api/                # HTTP 路由层
 │   │   ├── services/           # 业务编排层
 │   │   ├── repositories/       # 数据访问层
 │   │   ├── scheduler/          # APScheduler 调度模块
-│   │   ├── crawler/            # 抓取引擎（HTML / JSON / RSS 解析 + SSRF 防护）
+│   │   ├── crawler/            # 抓取引擎（HTML / JSON / RSS）
+│   │   ├── sources/            # 模板注册 / 发现 / 验证 / 健康
+│   │   ├── features/           # 特征提取（实体 / 语义 / 时间）
+│   │   ├── threads/            # Thread 聚类 / 评分 / 合并 / 拆分
+│   │   ├── recommendation/     # 推荐引擎（候选 / 评分 / 排序 / 多样性 / 解释）
+│   │   ├── execution/          # 执行状态机
 │   │   ├── schemas/            # Pydantic 请求 / 响应模型
 │   │   ├── core/               # 基础设施：DB、Config、日志、事件总线
-│   │   └── utils/              # 哈希 / URL / Jaccard 相似度工具
+│   │   └── utils/              # 哈希 / URL / 相似度工具
 │   ├── migrations/             # 纯 SQL 迁移文件，启动时自动执行
 │   ├── templates/               # 预设数据源模板（JSON）
 │   └── run.py                  # 启动入口
 │
 ├── frontend/                   # React + Vite + TypeScript 前端
 │   └── src/
-│       ├── api/                 # axios 封装的 API 客户端
-│       ├── components/          # UI 组件（dashboard / items / tasks / layout）
-│       ├── pages/                # 页面组件
-│       ├── stores/               # Zustand 状态管理
-│       └── hooks/                # 自定义 Hook（SSE 订阅等）
+│       ├── api/                # axios 封装的 API 客户端
+│       ├── components/         # UI 组件
+│       ├── pages/              # 页面组件
+│       ├── stores/             # Zustand 状态管理
+│       └── hooks/              # 自定义 Hook（SSE 订阅等）
 │
-└── docker-compose.yml           # 一键部署（backend + frontend + Nginx）
+└── docker-compose.yml          # 一键部署（backend + frontend + Nginx）
 ```
 
 **数据流**：API 路由 → 业务服务层 → 数据访问层 → SQLite。
@@ -145,6 +156,13 @@ devhunter/
 **调度器**：APScheduler 的 `BackgroundScheduler` 运行在独立线程中，与 FastAPI 的 asyncio 事件循环完全隔离；Job 状态持久化到与业务数据同库的 SQLite 表（`SQLAlchemyJobStore`），应用启动时以数据库任务表为唯一真相源重建所有调度任务。
 
 **抓取引擎**：单一入口支持四种解析模式（HTML CSS Selector / `json:` GET / `json-post:` POST / `rss:`），自动识别响应类型、按需分页、失败重试（最多 3 次，指数退避），并在请求前对目标地址做 SSRF 防护（拦截私有网段 / 环回 / 链路本地地址）。
+
+**Thread V2 聚类**：多因素评分公式：
+```
+thread_score = 0.30 * lexical + 0.25 * entity + 0.20 * semantic + 0.15 * temporal + 0.10 * source
+```
+
+**推荐 V2 流程**：候选生成（8 源）→ 多因子评分 → 多样性处理 → 可解释输出。
 
 **技术栈**：
 
@@ -185,6 +203,25 @@ PATCH  /api/items/{id}                  更新条目状态（已读 / 收藏）
 PATCH  /api/items/batch                 批量更新
 POST   /api/items/batch-delete          批量删除
 
+POST   /api/threads/{id}/merge          合并 Thread
+POST   /api/threads/{id}/split          拆分 Thread
+POST   /api/threads/{id}/feedback       反馈误聚合
+
+GET    /api/sources                     列出模板
+POST   /api/sources                     创建模板
+POST   /api/sources/discover           URL 自动发现
+POST   /api/sources/preview            预览提取
+POST   /api/sources/test               测试配置
+POST   /api/sources/{id}/share         分享模板
+POST   /api/sources/{id}/unshare       取消分享
+GET    /api/sources/marketplace/list   浏览市场
+POST   /api/sources/{id}/import        从市场导入
+POST   /api/sources/{id}/clone         克隆模板
+
+GET    /api/recommendations             个性化推荐
+POST   /api/recommendations/feedback    推荐反馈
+GET    /api/user/profile                用户画像
+
 GET    /api/stats                       仪表盘统计数据
 GET    /api/user_prefs/topics           用户关注主题
 POST   /api/user_prefs/interactions     记录用户行为（用于推荐）
@@ -207,6 +244,7 @@ POST   /api/user_prefs/interactions     记录用户行为（用于推荐）
 | `SCHEDULER_MAX_WORKERS` | `3` | 调度器并行 Worker 数 |
 | `CORS_ORIGINS` | `http://localhost:5173,http://localhost:3000` | 允许的前端来源，逗号分隔 |
 | `LOG_LEVEL` | `INFO` | 日志级别 |
+| `SEMANTIC_BACKEND` | `ngram` | 语义相似度后端（`ngram` 或 `embedding`） |
 
 ---
 
@@ -222,7 +260,13 @@ cd frontend
 npm run lint
 ```
 
-后端测试当前覆盖抓取引擎的重试与分页逻辑（`tests/test_crawler/`）；API / 仓库层 / 服务层测试目录已搭好骨架，欢迎补充。
+后端测试覆盖：
+- 抓取引擎（重试 / 分页 / SSRF 防护）
+- 模板注册 / 市场 / 分享
+- Thread 聚类 / 评分 / 合并 / 拆分
+- 推荐引擎（候选 / 评分 / 多样性 / 解释）
+- 语义相似度
+- 自适应推荐
 
 ---
 
