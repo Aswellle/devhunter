@@ -1,6 +1,6 @@
 """
 app/api/sources.py
-Sources API：3-step template wizard。
+Sources API：3-step template wizard + template marketplace/sharing.
 
 端点：
 - POST /api/sources/discover - Step 1: URL 自动发现
@@ -9,11 +9,16 @@ Sources API：3-step template wizard。
 - POST /api/sources - 保存模板
 - GET /api/sources - 列出模板
 - GET /api/sources/{id} - 获取模板详情
+- POST /api/sources/{id}/share - 分享模板到市场
+- POST /api/sources/{id}/unshare - 取消分享
+- GET /api/sources/marketplace - 浏览市场
+- POST /api/sources/{id}/import - 从市场导入
+- POST /api/sources/{id}/clone - 克隆模板
 """
+import json
 import logging
 import uuid
 from datetime import datetime, timezone
-from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
@@ -147,6 +152,8 @@ def create_source(
         "kind": "custom",
         "config": config,
         "status": "draft",
+        "category": body.get("category"),
+        "tags": body.get("tags", []),
     })
 
     return template
@@ -172,3 +179,134 @@ def get_source(
     if not template:
         raise HTTPException(status_code=404, detail="Source not found")
     return template
+
+
+# ── Template Marketplace / Sharing ────────────────────────────────
+
+
+@router.post("/{source_id}/share")
+def share_source(
+    source_id: str,
+    body: dict,
+    _: str = Depends(require_auth),
+):
+    """
+    分享模板到市场。
+
+    输入: { "category": "developer", "tags": ["ai", "ml"] }
+    """
+    template = template_registry.get(source_id)
+    if not template:
+        raise HTTPException(status_code=404, detail="Source not found")
+
+    # 更新分享状态
+    category = body.get("category")
+    tags = body.get("tags", [])
+    template_registry.update(source_id, {
+        "shared": True,
+        "category": category,
+        "tags": tags,
+    })
+
+    return {"status": "shared", "source_id": source_id}
+
+
+@router.post("/{source_id}/unshare")
+def unshare_source(
+    source_id: str,
+    _: str = Depends(require_auth),
+):
+    """取消分享模板"""
+    template = template_registry.get(source_id)
+    if not template:
+        raise HTTPException(status_code=404, detail="Source not found")
+
+    template_registry.update(source_id, {"shared": False})
+
+    return {"status": "unshared", "source_id": source_id}
+
+
+@router.get("/marketplace/list")
+def list_marketplace(
+    _: str = Depends(require_auth),
+    category: str | None = None,
+    sort: str = "popular",  # popular | recent | name
+):
+    """
+    浏览市场中的共享模板。
+
+    Args:
+        category: 分类筛选
+        sort: 排序方式 (popular | recent | name)
+    """
+    templates = template_registry.list_shared(category=category, sort=sort)
+    return [t for t in templates]
+
+
+@router.post("/{source_id}/import")
+def import_source(
+    source_id: str,
+    body: dict,
+    _: str = Depends(require_auth),
+):
+    """
+    从市场导入模板。
+
+    输入: { "name": "My Copy" }  // 可选自定义名称
+    """
+    template = template_registry.get(source_id)
+    if not template:
+        raise HTTPException(status_code=404, detail="Source not found")
+
+    if not template.get("shared"):
+        raise HTTPException(status_code=400, detail="Template is not shared")
+
+    # 创建导入的副本
+    new_id = str(uuid.uuid4())
+    name = body.get("name", template.get("name", "Imported Template"))
+
+    imported = template_registry.create({
+        "id": new_id,
+        "name": name,
+        "kind": "imported",
+        "config": template.get("config", {}),
+        "status": "draft",
+        "category": template.get("category"),
+        "tags": template.get("tags", []),
+    })
+
+    # 增加分享计数
+    template_registry.increment_share_count(source_id)
+
+    return imported
+
+
+@router.post("/{source_id}/clone")
+def clone_source(
+    source_id: str,
+    body: dict,
+    _: str = Depends(require_auth),
+):
+    """
+    克隆模板（创建可编辑副本）。
+
+    输入: { "name": "My Clone" }
+    """
+    template = template_registry.get(source_id)
+    if not template:
+        raise HTTPException(status_code=404, detail="Source not found")
+
+    new_id = str(uuid.uuid4())
+    name = body.get("name", f"Copy of {template.get('name', 'Template')}")
+
+    cloned = template_registry.create({
+        "id": new_id,
+        "name": name,
+        "kind": "custom",
+        "config": template.get("config", {}),
+        "status": "draft",
+        "category": template.get("category"),
+        "tags": template.get("tags", []),
+    })
+
+    return cloned

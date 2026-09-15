@@ -4,6 +4,8 @@ Template Registry：预设 + 自定义模板的单一数据源。
 
 所有模板（preset / custom / imported）统一存储在 source_templates 表中。
 向后兼容：保留 PRESET_TEMPLATES 常量作为 fallback。
+
+支持模板市场/共享功能。
 """
 import json
 import logging
@@ -30,11 +32,19 @@ def _row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
             d["config"] = {}
     else:
         d["config"] = {}
+    # Parse tags JSON
+    if d.get("tags") and isinstance(d["tags"], str):
+        try:
+            d["tags"] = json.loads(d["tags"])
+        except (json.JSONDecodeError, TypeError):
+            d["tags"] = []
+    else:
+        d["tags"] = []
     return d
 
 
 class SourceTemplateRegistry:
-    """模板注册表：CRUD + 查询"""
+    """模板注册表：CRUD + 查询 + 市场"""
 
     def get(self, template_id: str) -> dict[str, Any] | None:
         """根据 ID 获取模板"""
@@ -69,6 +79,38 @@ class SourceTemplateRegistry:
             rows = conn.execute(query, params).fetchall()
             return [_row_to_dict(r) for r in rows]
 
+    def list_shared(
+        self,
+        category: str | None = None,
+        sort: str = "popular",
+    ) -> list[dict[str, Any]]:
+        """
+        列出市场中的共享模板。
+
+        Args:
+            category: 分类筛选
+            sort: 排序方式 (popular | recent | name)
+        """
+        query = "SELECT * FROM source_templates WHERE shared = 1"
+        params: list[str] = []
+        if category:
+            query += " AND category = ?"
+            params.append(category)
+
+        # 排序
+        if sort == "popular":
+            query += " ORDER BY share_count DESC, created_at DESC"
+        elif sort == "recent":
+            query += " ORDER BY created_at DESC"
+        elif sort == "name":
+            query += " ORDER BY name ASC"
+        else:
+            query += " ORDER BY share_count DESC"
+
+        with get_db() as conn:
+            rows = conn.execute(query, params).fetchall()
+            return [_row_to_dict(r) for r in rows]
+
     def exists(self, template_id: str) -> bool:
         """检查模板是否存在"""
         with get_db() as conn:
@@ -83,14 +125,16 @@ class SourceTemplateRegistry:
         template_id = data.get("id") or str(uuid.uuid4())
         now = _now_iso()
         config_json = json.dumps(data.get("config", {}), ensure_ascii=False)
+        tags_json = json.dumps(data.get("tags", []), ensure_ascii=False)
 
         with get_db() as conn:
             conn.execute(
                 """INSERT INTO source_templates
                    (id, owner_type, owner_id, kind, schema_version, version,
                     name, config_json, status, health_score, last_validated_at,
+                    category, tags, shared, share_count,
                     created_at, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?)""",
                 (
                     template_id,
                     data.get("owner_type", "system"),
@@ -103,6 +147,8 @@ class SourceTemplateRegistry:
                     data.get("status", "draft"),
                     data.get("health_score", 0.0),
                     data.get("last_validated_at"),
+                    data.get("category"),
+                    tags_json,
                     now,
                     now,
                 )
@@ -113,18 +159,29 @@ class SourceTemplateRegistry:
         """更新模板"""
         now = _now_iso()
         config_json = json.dumps(data.get("config", {}), ensure_ascii=False) if "config" in data else None
+        tags_json = json.dumps(data.get("tags", []), ensure_ascii=False) if "tags" in data else None
 
         with get_db() as conn:
             conn.execute(
                 """UPDATE source_templates SET
-                    name = ?, config_json = ?, status = ?,
-                    health_score = ?, last_validated_at = ?, updated_at = ?
+                    name = COALESCE(?, name),
+                    config_json = COALESCE(?, config_json),
+                    status = COALESCE(?, status),
+                    health_score = COALESCE(?, health_score),
+                    category = COALESCE(?, category),
+                    tags = COALESCE(?, tags),
+                    shared = COALESCE(?, shared),
+                    last_validated_at = COALESCE(?, last_validated_at),
+                    updated_at = ?
                    WHERE id = ?""",
                 (
-                    data.get("name", ""),
-                    config_json or "{}",
-                    data.get("status", "draft"),
-                    data.get("health_score", 0.0),
+                    data.get("name"),
+                    config_json,
+                    data.get("status"),
+                    data.get("health_score"),
+                    data.get("category"),
+                    tags_json,
+                    data.get("shared"),
                     data.get("last_validated_at"),
                     now,
                     template_id,
@@ -141,6 +198,14 @@ class SourceTemplateRegistry:
                     health_score = ?, status = ?, last_validated_at = ?, updated_at = ?
                    WHERE id = ?""",
                 (health_score, status, now, now, template_id)
+            )
+
+    def increment_share_count(self, template_id: str) -> None:
+        """增加分享计数"""
+        with get_db() as conn:
+            conn.execute(
+                "UPDATE source_templates SET share_count = share_count + 1 WHERE id = ?",
+                (template_id,)
             )
 
     def delete(self, template_id: str) -> bool:
