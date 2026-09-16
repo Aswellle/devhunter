@@ -29,7 +29,7 @@ class Settings(BaseSettings):
     app_env: Literal["development", "production"] = "development"
     app_host: str = "0.0.0.0"
     app_port: int = 8000
-    app_debug: bool = True
+    app_debug: bool = False
 
     # ── 数据库 ──────────────────────────────────
     db_path: str = "data/devhunter.db"
@@ -38,7 +38,7 @@ class Settings(BaseSettings):
     auth_username: str = "admin"
     auth_password: str = "devhunter123"
     secret_key: str = "change-me-in-production"
-    jwt_algorithm: str = "HS256"
+    jwt_algorithm: Literal["HS256"] = "HS256"
     jwt_expire_minutes: int = 10080  # 7 days
 
     # ── 抓取 ────────────────────────────────────
@@ -59,7 +59,7 @@ class Settings(BaseSettings):
     log_format: Literal["json", "text"] = "json"
 
     # ── CORS ────────────────────────────────────
-    cors_origins: str = "http://localhost:5173,http://localhost:3000"
+    cors_origins: str = "http://localhost:5173,http://localhost:3000,http://localhost:5200"
 
     @field_validator("db_path")
     @classmethod
@@ -75,6 +75,22 @@ class Settings(BaseSettings):
     @property
     def is_production(self) -> bool:
         return self.app_env == "production"
+
+    def validate_production_secrets(self) -> None:
+        """生产环境启动时校验敏感配置，防止使用默认值/占位符部署"""
+        if not self.is_production:
+            return
+        insecure_passwords = {"devhunter123", "change-me", "", "<请修改为强密码>"}
+        insecure_keys = {
+            "change-me-in-production", "change-me", "",
+            "<请用 openssl rand -hex 32 生成>",
+            # docker-compose.yml 的 SECRET_KEY fallback 默认值（未设置环境变量时）
+            "change-me-please-use-openssl-rand-hex-32",
+        }
+        if self.auth_password in insecure_passwords:
+            raise RuntimeError("AUTH_PASSWORD must be changed from default in production")
+        if self.secret_key in insecure_keys:
+            raise RuntimeError("SECRET_KEY must be changed from default in production")
 
 
 @lru_cache(maxsize=1)
