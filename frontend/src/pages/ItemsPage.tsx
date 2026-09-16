@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react'
+import { useState, useMemo, useCallback, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { ChevronDown, ChevronRight, CheckCheck, Check, Star, Rss, Trash2, X, Layers } from 'lucide-react'
 import { clsx } from 'clsx'
@@ -35,11 +35,25 @@ export function ItemsPage() {
   const [viewMode, setViewMode] = useState<ViewMode>('source')
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  // U9: replaces window.confirm() for batch delete — a blocking native
+  // dialog with no visual consistency with the rest of the app. Two-step
+  // inline confirm: first click arms it, second click within the window
+  // actually deletes; clicking elsewhere or 4s of inactivity disarms it.
+  const [confirmingDelete, setConfirmingDelete] = useState(false)
+
+  // U9: 4s inactivity timer — disarms the confirm state so a half-finished
+  // batch action can't linger. Reset on every state change via the effect's
+  // dependency; cleared on unmount or when the user confirms/cancels.
+  useEffect(() => {
+    if (!confirmingDelete) return
+    const id = setTimeout(() => setConfirmingDelete(false), 4000)
+    return () => clearTimeout(id)
+  }, [confirmingDelete])
 
   const qc = useQueryClient()
 
   // Fetch items
-  const { data, isFetching } = useQuery({
+  const { data, isFetching, isError, refetch } = useQuery({
     queryKey: ['items-grouped', filters],
     queryFn: () =>
       itemsApi.list({
@@ -222,6 +236,23 @@ export function ItemsPage() {
     })
   }
 
+  // U13: previously rebuilt on every render (including unrelated state
+  // changes like filter/collapse toggles) since it ran directly in the
+  // render body instead of behind useMemo. Declared before the callbacks
+  // below so handleBatchMarkRead can read it without a use-before-define.
+  const selectedUnreadIds = useMemo(
+    () =>
+      new Set(
+        [...selectedIds].filter(id => {
+          const item = data?.items.find(i => i.id === id)
+          return item && !item.is_read
+        })
+      ),
+    [selectedIds, data?.items]
+  )
+  const totalSelected = selectedIds.size
+  const hasUnreadSelected = selectedUnreadIds.size > 0
+
   const handleBatchStar = () => {
     const selected = Array.from(selectedIds)
     const firstSelected = data?.items.find(i => selectedIds.has(i.id))
@@ -232,15 +263,6 @@ export function ItemsPage() {
   const handleBatchMarkRead = () => {
     batchMarkReadMutation.mutate(Array.from(selectedUnreadIds))
   }
-
-  const selectedUnreadIds = new Set(
-    [...selectedIds].filter(id => {
-      const item = data?.items.find(i => i.id === id)
-      return item && !item.is_read
-    })
-  )
-  const totalSelected = selectedIds.size
-  const hasUnreadSelected = selectedUnreadIds.size > 0
 
   return (
     <div className="max-w-4xl mx-auto px-4 sm:px-6 py-6">
@@ -330,7 +352,27 @@ export function ItemsPage() {
         )
       ) : (
         /* ── Source View (original) ── */
-        groupedItems.length === 0 ? (
+        // U1: guard the initial fetch — without `isFetching && !data`, a
+        // first-time user sees the "no items yet, go create a task" empty
+        // state flash before data has even arrived, which reads as if the
+        // app already checked and found nothing.
+        // U3: surface isError with a retry action instead of silently
+        // rendering the same empty state as "no data" on a failed request.
+        isFetching && !data ? (
+          <div className="flex justify-center py-12">
+            <Spinner />
+          </div>
+        ) : isError ? (
+          <Empty
+            title="加载失败"
+            description="采集结果加载出错，请检查网络连接后重试"
+            action={
+              <button onClick={() => refetch()} className="btn-primary">
+                重试
+              </button>
+            }
+          />
+        ) : groupedItems.length === 0 ? (
           <Empty
             title="暂无采集结果"
             description={
@@ -383,13 +425,25 @@ export function ItemsPage() {
                         </div>
                       </div>
                       {!isCollapsed && group.unreadCount > 0 && (
-                        <button
+                        // span (not button) to avoid invalid nested-button HTML inside the
+                        // group header <button>. role="button" + keyboard handler keeps it
+                        // accessible; stopPropagation so the header's toggle doesn't fire.
+                        <span
+                          role="button"
+                          tabIndex={0}
                           onClick={(e) => {
                             e.stopPropagation()
                             selectAllInGroup(group)
                           }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault()
+                              e.stopPropagation()
+                              selectAllInGroup(group)
+                            }
+                          }}
                           className={clsx(
-                            'p-1.5 rounded transition-colors shrink-0',
+                            'p-1.5 rounded transition-colors shrink-0 cursor-pointer',
                             someSelected
                               ? 'text-primary-600 bg-primary-50 hover:bg-primary-100'
                               : 'text-gray-400 hover:text-primary-600 hover:bg-gray-100'
@@ -397,7 +451,7 @@ export function ItemsPage() {
                           title="全选未读"
                         >
                           <CheckCheck className="h-4 w-4" />
-                        </button>
+                        </span>
                       )}
                     </button>
 
@@ -483,18 +537,33 @@ export function ItemsPage() {
                     <Star className="h-4 w-4" />
                     {data?.items.find(i => selectedIds.has(i.id))?.is_starred ? '取消收藏' : '收藏'}
                   </button>
+                  {confirmingDelete ? (
+                    <button
+                      onClick={() => {
+                        setConfirmingDelete(false)
+                        batchDeleteMutation.mutate(Array.from(selectedIds))
+                      }}
+                      onBlur={() => setConfirmingDelete(false)}
+                      autoFocus
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-red-600 hover:bg-red-500 text-white transition-colors"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      确认删除 {totalSelected} 条？
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => setConfirmingDelete(true)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-red-900 hover:bg-red-800 text-red-200 transition-colors"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      删除
+                    </button>
+                  )}
                   <button
                     onClick={() => {
-                      if (!confirm(`确定删除选中的 ${totalSelected} 条采集结果？删除后不可恢复。`)) return
-                      batchDeleteMutation.mutate(Array.from(selectedIds))
+                      setConfirmingDelete(false)
+                      setSelectedIds(new Set())
                     }}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-red-900 hover:bg-red-800 text-red-200 transition-colors"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                    删除
-                  </button>
-                  <button
-                    onClick={() => setSelectedIds(new Set())}
                     className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-gray-800 transition-colors"
                   >
                     <X className="h-4 w-4" />

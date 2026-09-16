@@ -22,7 +22,9 @@ services:
       SCHEDULER_MAX_WORKERS: "3"
       LOG_LEVEL: INFO
       LOG_FORMAT: json
-      CORS_ORIGINS: http://localhost,http://localhost:80,http://frontend
+      # 浏览器可见的前端 origin；http://frontend 是 Docker 内部服务名，
+      # 浏览器永远不会把它当作 Origin 发送，此前留在这里是死配置。
+      CORS_ORIGINS: http://localhost,http://localhost:80
     volumes:
       - devhunter_data:/data
     ports:

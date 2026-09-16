@@ -1,20 +1,23 @@
 import { useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Plus } from 'lucide-react'
+import { Plus, LayoutGrid } from 'lucide-react'
 import { tasksApi } from '../api/tasks'
 import { TaskCard } from '../components/tasks/TaskCard'
 import { TaskFormModal } from '../components/tasks/TaskFormModal'
+import { SourceWizard } from '../components/tasks/SourceWizard'
+import { TemplateMarket } from '../components/tasks/TemplateMarket'
 import { ExecutionHistoryPanel } from '../components/tasks/ExecutionHistoryPanel'
 import { Spinner } from '../components/ui/Spinner'
 import { Empty } from '../components/ui/Empty'
 import type { Task } from '../types'
-
 export function TasksPage() {
   const [showForm, setShowForm]         = useState(false)
   const [editTaskId, setEditTaskId]     = useState<string | null>(null)
   const [historyTask, setHistoryTask]   = useState<Task | null>(null)
   const [statusFilter, setStatusFilter] = useState('')
+  const [showWizard, setShowWizard]     = useState(false)
+  const [showMarket, setShowMarket]     = useState(false)
 
   const { data, isLoading } = useQuery({
     queryKey: ['tasks', statusFilter],
@@ -23,7 +26,7 @@ export function TasksPage() {
   })
 
   // Fetch full task details when opening edit modal (list API returns TaskListItem with fewer fields)
-  const { data: editTaskFull } = useQuery({
+  const { data: editTaskFull, isFetching: isEditTaskLoading } = useQuery({
     queryKey: ['tasks-edit', editTaskId],
     queryFn: () => tasksApi.get(editTaskId!),
     enabled: !!editTaskId,
@@ -38,21 +41,27 @@ export function TasksPage() {
     setShowForm(false)
     setEditTaskId(null)
   }
-
   return (
     <div className="max-w-4xl mx-auto px-6 py-6">
       {/* Header */}
       <div className="flex items-center justify-between mb-5">
-        <div>
-          <h1 className="text-xl font-bold text-gray-900">任务管理</h1>
-          <p className="text-sm text-gray-500 mt-0.5">
-            {data ? `${data.total} 个任务` : '加载中…'}
-          </p>
+        <h1 className="text-xl font-semibold">Tasks</h1>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowMarket(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50"
+          >
+            <LayoutGrid className="h-4 w-4" />
+            Templates
+          </button>
+          <button
+            onClick={() => setShowWizard(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+          >
+            <Plus className="h-4 w-4" />
+            Add Source
+          </button>
         </div>
-        <button className="btn-primary" onClick={() => setShowForm(true)}>
-          <Plus className="h-4 w-4" />
-          新建任务
-        </button>
       </div>
 
       {/* Status filter tabs */}
@@ -106,13 +115,33 @@ export function TasksPage() {
       )}
 
       {/* Modals */}
-      {showForm && createPortal(
+      {/* U5: when editing, editTaskId is set immediately but the full task
+          fetch is still in flight — rendering TaskFormModal right away with
+          task={editTaskFull ?? null} showed a blank "create task" form for
+          a moment before the real data arrived and the form suddenly
+          populated. Wait for the fetch when we're editing an existing task;
+          creating a new one has no such fetch, so it still opens instantly. */}
+      {showForm && editTaskId && isEditTaskLoading && createPortal(
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50">
+          <Spinner className="h-8 w-8" />
+        </div>,
+        document.body
+      )}
+      {showForm && (!editTaskId || !isEditTaskLoading) && createPortal(
         <TaskFormModal task={editTaskFull ?? null} onClose={handleCloseForm} />,
         document.body
       )}
       {/* ✅ 修复：Portal 渲染，不受 overflow:hidden 容器影响 */}
       {historyTask && createPortal(
         <ExecutionHistoryPanel task={historyTask} onClose={() => setHistoryTask(null)} />,
+        document.body
+      )}
+      {showWizard && createPortal(
+        <SourceWizard onClose={() => setShowWizard(false)} onCreated={() => setShowWizard(false)} />,
+        document.body
+      )}
+      {showMarket && createPortal(
+        <TemplateMarket onClose={() => setShowMarket(false)} onCreated={() => setShowMarket(false)} />,
         document.body
       )}
     </div>

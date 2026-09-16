@@ -1,6 +1,6 @@
 import { AlertCircle, AlertTriangle, CheckCircle, Pause, Play, Trash2, Zap, Radio } from 'lucide-react'
 import { clsx } from 'clsx'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'react-hot-toast'
@@ -59,10 +59,26 @@ export function TaskCard({ task, onEdit, onViewHistory }: TaskCardProps) {
     },
   })
 
-  const handleDelete = () => {
-    if (confirm(`确认删除任务「${task.name}」？\n采集结果数据将保留 30 天。`)) {
-      deleteTask.mutate()
+  // U9: replaces window.confirm() — blocking native dialog, no visual
+  // consistency with the app, and untestable. Two-step inline confirm
+  // mirrors the pattern used in ItemsPage's batch-delete button.
+  const [confirmingDelete, setConfirmingDelete] = useState(false)
+
+  // U9: 4s inactivity timer disarms the confirm so a half-finished action
+  // can't linger (onBlur alone won't fire if the user switches tabs).
+  useEffect(() => {
+    if (!confirmingDelete) return
+    const id = setTimeout(() => setConfirmingDelete(false), 4000)
+    return () => clearTimeout(id)
+  }, [confirmingDelete])
+
+  const handleDeleteClick = () => {
+    if (!confirmingDelete) {
+      setConfirmingDelete(true)
+      return
     }
+    setConfirmingDelete(false)
+    deleteTask.mutate()
   }
 
   const hasConsecWarning = task.consecutive_empty >= 3 && task.status !== 'error'
@@ -100,46 +116,59 @@ export function TaskCard({ task, onEdit, onViewHistory }: TaskCardProps) {
           {/* Actions */}
           <div className="flex items-center gap-0.5 shrink-0">
             {/* 实时流按钮 */}
+            {/* U12: p-2.5 on mobile (~40px target, up from ~28px) approaches
+                the WCAG 2.5.5 44px touch-target guidance; sm: reverts to the
+                original tighter desktop spacing where mouse precision is fine. */}
             <button
               className={clsx(
-                'p-1.5 rounded transition-colors',
+                'p-2.5 sm:p-1.5 rounded transition-colors',
                 showStream
                   ? 'text-green-600 bg-green-50 hover:bg-green-100'
                   : 'text-gray-400 hover:text-green-600 hover:bg-gray-100'
               )}
               onClick={() => setShowStream(true)}
               title="查看实时执行流"
+              aria-label="查看实时执行流"
             >
               <Radio className="h-4 w-4" />
             </button>
 
             {/* 立即执行 */}
             <button
-              className="p-1.5 rounded text-gray-400 hover:text-yellow-600 hover:bg-gray-100 transition-colors"
+              className="p-2.5 sm:p-1.5 rounded text-gray-400 hover:text-yellow-600 hover:bg-gray-100 transition-colors"
               onClick={() => triggerNow.mutate()}
               disabled={triggerNow.isPending}
               title="立即执行"
+              aria-label="立即执行"
             >
               <Zap className="h-4 w-4" />
             </button>
 
             {/* 暂停/恢复 */}
             <button
-              className="p-1.5 rounded text-gray-400 hover:bg-gray-100 transition-colors"
+              className="p-2.5 sm:p-1.5 rounded text-gray-400 hover:bg-gray-100 transition-colors"
               onClick={() => togglePause.mutate()}
               disabled={togglePause.isPending}
               title={task.status === 'paused' ? '恢复' : '暂停'}
+              aria-label={task.status === 'paused' ? '恢复任务' : '暂停任务'}
             >
               {task.status === 'paused'
                 ? <Play className="h-4 w-4 text-green-600" />
                 : <Pause className="h-4 w-4" />}
             </button>
 
-            {/* 删除 */}
+            {/* 删除（二次确认） */}
             <button
-              className="p-1.5 rounded text-gray-300 hover:text-red-500 hover:bg-gray-100 transition-colors"
-              onClick={handleDelete}
-              title="删除"
+              className={clsx(
+                'p-2.5 sm:p-1.5 rounded transition-colors',
+                confirmingDelete
+                  ? 'text-white bg-red-600 hover:bg-red-500'
+                  : 'text-gray-300 hover:text-red-500 hover:bg-gray-100'
+              )}
+              onClick={handleDeleteClick}
+              onBlur={() => setConfirmingDelete(false)}
+              title={confirmingDelete ? '再次点击确认删除' : '删除'}
+              aria-label={confirmingDelete ? '再次点击确认删除任务' : '删除任务'}
             >
               <Trash2 className="h-4 w-4" />
             </button>

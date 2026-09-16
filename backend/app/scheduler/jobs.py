@@ -54,13 +54,27 @@ def _make_engine_callback(task_id: str):
 
 # ── 主执行函数 ───────────────────────────────────────────
 
-def execute_task(task_id: str) -> None:
-    """APScheduler 调度入口，防重入 + 异常兜底。"""
-    if not acquire_task_lock(task_id):
-        logger.warning("Task %s is already running, skip this trigger", task_id)
-        return
+def execute_task(
+    task_id: str,
+    exec_id: str | None = None,
+    _skip_lock: bool = False,
+) -> None:
+    """
+    APScheduler 调度入口，防重入 + 异常兜底。
 
-    exec_id      = str(uuid.uuid4())
+    exec_id: 若由外部（task_service.trigger_execute）传入，说明对应的
+        task_executions 行已经以 'running' 状态同步创建（F14），
+        本函数结束时改为 finalize 该行而非重新 insert。
+    _skip_lock: 手动触发场景下，锁已由调用方原子获取（F8），
+        此处跳过重复获取/释放，仅使用调用方持有的锁。
+    """
+    if not _skip_lock:
+        if not acquire_task_lock(task_id):
+            logger.warning("Task %s is already running, skip this trigger", task_id)
+            return
+
+    preset_exec = exec_id is not None
+    exec_id = exec_id or str(uuid.uuid4())
     started_at   = datetime.now(timezone.utc)
     executed_at_iso = started_at.strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -71,22 +85,48 @@ def execute_task(task_id: str) -> None:
     })
 
     try:
-        _run_task(task_id, exec_id, executed_at_iso, started_at)
+        _run_task(task_id, exec_id, executed_at_iso, started_at, preset_exec=preset_exec)
     except Exception as e:
+        # C6: 完整异常仅落盘日志，SSE/DB 只暴露清理后的通用消息，
+        # 避免异常文本中的文件路径/主机名等内部信息泄露给客户端
         logger.exception("Unexpected error in execute_task",
                          extra={"task_id": task_id, "execution_id": exec_id})
-        _pub(task_id, "failure", f"意外错误: {type(e).__name__}: {e}")
-        _record_failure(task_id, exec_id, executed_at_iso, str(e),
-                        int((time.time() - started_at.timestamp()) * 1000))
+        _pub(task_id, "failure", f"任务执行发生内部错误 ({type(e).__name__})，请查看服务端日志")
+        _record_failure(task_id, exec_id, executed_at_iso, f"{type(e).__name__}: {e}",
+                        int((time.time() - started_at.timestamp()) * 1000),
+                        preset_exec=preset_exec)
     finally:
-        release_task_lock(task_id)
+        if not _skip_lock:
+            release_task_lock(task_id)
 
 
-def _run_task(task_id: str, exec_id: str, executed_at_iso: str, started_at: datetime) -> None:
+def _save_result(
+    exec_id: str, task_id: str, status: str, items_fetched: int, items_new: int,
+    duration_ms: int, error_message: str | None, executed_at: str, preset_exec: bool,
+) -> None:
+    """写入执行结果：preset_exec=True 时 finalize 已存在的 'running' 行，否则 insert 新行。"""
+    from app.repositories.execution_repo import execution_repo
+    if preset_exec:
+        execution_repo.finalize(exec_id, {
+            "status": status, "items_fetched": items_fetched, "items_new": items_new,
+            "duration_ms": duration_ms, "error_message": error_message,
+        })
+    else:
+        execution_repo.insert({
+            "id": exec_id, "task_id": task_id, "status": status,
+            "items_fetched": items_fetched, "items_new": items_new,
+            "duration_ms": duration_ms, "error_message": error_message,
+            "executed_at": executed_at,
+        })
+
+
+def _run_task(
+    task_id: str, exec_id: str, executed_at_iso: str, started_at: datetime,
+    preset_exec: bool = False,
+) -> None:
     """核心执行逻辑，包含全链路事件发布。"""
     from app.crawler.dedup import deduplicate
     from app.crawler.engine import fetch_and_parse
-    from app.repositories.execution_repo import execution_repo
     from app.repositories.item_repo import item_repo
     from app.repositories.task_repo import task_repo
 
@@ -96,10 +136,16 @@ def _run_task(task_id: str, exec_id: str, executed_at_iso: str, started_at: date
     task = task_repo.get(task_id)
     if not task:
         _pub(task_id, "failure", "任务配置不存在，请刷新页面")
+        if preset_exec:
+            _save_result(exec_id, task_id, "failure", 0, 0, 0,
+                        "Task not found", executed_at_iso, preset_exec=True)
         return
 
     if task.get("status") == "paused":
         _pub(task_id, "step", "任务已暂停，本次触发已跳过")
+        if preset_exec:
+            _save_result(exec_id, task_id, "warning", 0, 0, 0,
+                        "Task is paused", executed_at_iso, preset_exec=True)
         return
 
     source_url = task["source_url"]
@@ -147,11 +193,8 @@ def _run_task(task_id: str, exec_id: str, executed_at_iso: str, started_at: date
         error_msg = result.error
         if result.retries_used > 0:
             error_msg = f"{error_msg} (retries used: {result.retries_used})"
-        execution_repo.insert({
-            "id": exec_id, "task_id": task_id, "status": "failure",
-            "items_fetched": 0, "items_new": 0, "duration_ms": duration_ms,
-            "error_message": error_msg, "executed_at": executed_at_iso,
-        })
+        _save_result(exec_id, task_id, "failure", 0, 0, duration_ms,
+                    error_msg, executed_at_iso, preset_exec=preset_exec)
         task_repo.update_execution_stats(task_id, success=False, empty=False,
                                          executed_at=executed_at_iso)
         _pub(task_id, "failure",
@@ -235,12 +278,8 @@ def _run_task(task_id: str, exec_id: str, executed_at_iso: str, started_at: date
     is_empty   = items_fetched == 0
     exec_status = "warning" if is_empty else "success"
 
-    execution_repo.insert({
-        "id": exec_id, "task_id": task_id, "status": exec_status,
-        "items_fetched": items_fetched, "items_new": items_new,
-        "duration_ms": duration_ms, "error_message": None,
-        "executed_at": executed_at_iso,
-    })
+    _save_result(exec_id, task_id, exec_status, items_fetched, items_new, duration_ms,
+                None, executed_at_iso, preset_exec=preset_exec)
     task_repo.update_execution_stats(task_id, success=True,
                                      empty=is_empty, executed_at=executed_at_iso)
 
@@ -264,15 +303,12 @@ def _run_task(task_id: str, exec_id: str, executed_at_iso: str, started_at: date
 
 
 def _record_failure(task_id: str, exec_id: str, executed_at: str,
-                    error: str, duration_ms: int) -> None:
+                    error: str, duration_ms: int, preset_exec: bool = False) -> None:
     try:
-        from app.repositories.execution_repo import execution_repo
         from app.repositories.task_repo import task_repo
-        execution_repo.insert({
-            "id": exec_id, "task_id": task_id, "status": "failure",
-            "items_fetched": 0, "items_new": 0, "duration_ms": duration_ms,
-            "error_message": error[:1000], "executed_at": executed_at,
-        })
+        # C6: 只记录经过清理的通用消息，完整异常已通过 logger.exception 落盘
+        _save_result(exec_id, task_id, "failure", 0, 0, duration_ms,
+                    error[:1000], executed_at, preset_exec=preset_exec)
         task_repo.update_execution_stats(task_id, success=False, empty=False,
                                          executed_at=executed_at)
     except Exception as e:

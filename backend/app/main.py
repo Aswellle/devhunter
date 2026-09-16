@@ -9,8 +9,12 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+
 from app.api.router import api_router
 from app.core.config import settings
+from app.core.rate_limit import limiter
 from app.core.database import close_database, init_database
 from app.core.exceptions import DevHunterError
 from app.core.http_client import close_http_client
@@ -25,6 +29,7 @@ async def lifespan(app: FastAPI):
     """应用生命周期管理：启动 → 提供服务 → 关闭"""
     setup_logging()
     logger.info("DevHunter starting up (env=%s)", settings.app_env)
+    settings.validate_production_secrets()
 
     init_database()
     scheduler_manager.start()
@@ -41,14 +46,22 @@ async def lifespan(app: FastAPI):
 
 
 def create_app() -> FastAPI:
+    # F10: docs/redoc 在生产环境关闭，避免未认证暴露完整 API schema
+    docs_url = None if settings.is_production else "/docs"
+    redoc_url = None if settings.is_production else "/redoc"
+
     app = FastAPI(
         title="DevHunter API",
         description="全网开发需求与创意自动采集系统",
         version="1.0.0",
-        docs_url="/docs",
-        redoc_url="/redoc",
+        docs_url=docs_url,
+        redoc_url=redoc_url,
         lifespan=lifespan,
     )
+
+    # ── 限流（登录接口专用，见 api/auth.py 的 @limiter.limit）──
+    app.state.limiter = limiter
+    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
     # ── CORS ────────────────────────────────────────────
     app.add_middleware(

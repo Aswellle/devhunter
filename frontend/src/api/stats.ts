@@ -9,7 +9,7 @@ export interface StatsData {
   total_executions_7d: number
   failures_7d: number
   daily_items: { date: string; count: number }[]
-  top_tasks_7d: { name: string; item_count: number }[]
+  top_tasks_7d: { id: string; name: string; item_count: number }[]
 }
 
 export const statsApi = {

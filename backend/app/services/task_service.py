@@ -93,25 +93,45 @@ class TaskService:
 
     def trigger_execute(self, task_id: str) -> str:
         """
-        手动触发执行，返回 exec_id 占位符。
+        手动触发执行，返回 exec_id。
         若任务正在执行中，抛出 TaskAlreadyRunningError。
-        """
-        task = self.get(task_id)
-        if scheduler_manager.is_running(task_id):
-            raise TaskAlreadyRunningError(f"Task {task_id} is already running")
 
-        from app.scheduler.jobs import execute_task
+        F8: acquire_task_lock 是唯一的原子检查-占用操作（内部持锁）。
+        直接尝试获取锁，成功即视为"未运行且已占用"，避免
+        「先检查 is_running 再启动线程」两步之间的竞态窗口。
+        """
+        self.get(task_id)
+
+        from app.scheduler.jobs import acquire_task_lock, execute_task, release_task_lock
         import uuid, threading
 
-        exec_id_holder = {"id": str(uuid.uuid4())}
+        if not acquire_task_lock(task_id):
+            raise TaskAlreadyRunningError(f"Task {task_id} is already running")
+
+        from app.repositories.execution_repo import execution_repo
+        from datetime import datetime, timezone
+
+        exec_id = str(uuid.uuid4())
+        executed_at_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        # F14: 同步创建 'running' 占位行，确保客户端立即轮询该 exec_id 不会 404
+        # F15: create_running 失败时必须释放已持有的锁，否则任务会永久卡在
+        # "running" 状态（内存中的 _running_tasks 字典），直到进程重启。
+        try:
+            execution_repo.create_running(exec_id, task_id, executed_at_iso)
+        except Exception:
+            release_task_lock(task_id)
+            raise
 
         def _run():
-            execute_task(task_id)
+            try:
+                execute_task(task_id, exec_id=exec_id, _skip_lock=True)
+            finally:
+                release_task_lock(task_id)
 
         t = threading.Thread(target=_run, daemon=True, name=f"manual-{task_id[:8]}")
         t.start()
 
-        return exec_id_holder["id"]
+        return exec_id
 
 
 # 全局单例

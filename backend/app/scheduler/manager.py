@@ -146,19 +146,29 @@ class SchedulerManager:
                 self._add_job(task_id, cron_expression)
 
     def trigger_now(self, task_id: str) -> None:
-        """立即触发一次执行（手动触发）"""
+        """
+        立即触发一次执行（手动触发）。
+
+        C7: 此 job 使用独立 id（f"{task_id}_manual"），不能复用 task_id ——
+        那是常规调度 job 的 id，若替换会连带覆盖其 CronTrigger，导致后续
+        定时执行永久失效。因此 APScheduler 的 max_instances=1（按 job id
+        生效）不会覆盖"定时执行"与"手动触发"之间的并发场景；真正的互斥保护
+        是 jobs.py 中基于 task_id 的进程内锁（acquire_task_lock /
+        is_task_running），该锁与 job id 无关，对两种触发方式都有效。
+        """
         from app.scheduler.jobs import execute_task
         from apscheduler.triggers.date import DateTrigger
         from datetime import datetime, timezone, timedelta
 
         run_at = datetime.now(timezone.utc) + timedelta(seconds=1)
-        self._scheduler.add_job(
-            execute_task,
-            trigger=DateTrigger(run_date=run_at),
-            args=[task_id],
-            id=f"{task_id}_manual",
-            replace_existing=True,
-        )
+        with self._lock:
+            self._scheduler.add_job(
+                execute_task,
+                trigger=DateTrigger(run_date=run_at),
+                args=[task_id],
+                id=f"{task_id}_manual",
+                replace_existing=True,
+            )
         logger.info("Manual trigger queued for task %s", task_id)
 
     def is_running(self, task_id: str) -> bool:
@@ -171,19 +181,30 @@ def _parse_cron_trigger(cron_expression: str) -> CronTrigger:
     """
     将 5 段 Cron 表达式解析为 APScheduler CronTrigger。
     格式：minute hour day month day_of_week
+
+    C8: 字段数错误、字段值非法（如 "99 * * * *"）均转换为 InvalidCronError
+    （400），而不是让 ValueError / APScheduler 自身异常以未处理形式冒泡到
+    路由层，变成用户看不懂的 500。
     """
+    from app.core.exceptions import InvalidCronError
+
     parts = cron_expression.strip().split()
     if len(parts) != 5:
-        raise ValueError(f"Expected 5-field cron, got: {cron_expression!r}")
+        raise InvalidCronError(
+            f"Cron 表达式需为 5 段（分 时 日 月 周），实际: {cron_expression!r}"
+        )
     minute, hour, day, month, day_of_week = parts
-    return CronTrigger(
-        minute=minute,
-        hour=hour,
-        day=day,
-        month=month,
-        day_of_week=day_of_week,
-        timezone=datetime.timezone.utc,  # stdlib UTC: no pytz pickle dependency
-    )
+    try:
+        return CronTrigger(
+            minute=minute,
+            hour=hour,
+            day=day,
+            month=month,
+            day_of_week=day_of_week,
+            timezone=datetime.timezone.utc,  # stdlib UTC: no pytz pickle dependency
+        )
+    except ValueError as e:
+        raise InvalidCronError(f"Cron 表达式字段值非法: {e}") from e
 
 
 # 全局单例

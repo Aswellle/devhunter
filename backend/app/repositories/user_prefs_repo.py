@@ -25,27 +25,29 @@ def _row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
 class UserTopicsRepository:
 
     def upsert(self, topic: str, category: str = "custom", weight: float = 1.0) -> dict:
-        """创建或更新用户主题偏好"""
+        """
+        创建或更新用户主题偏好。
+
+        D3: 原来的 SELECT-then-branch 非原子，两个并发请求可能同时读到
+        existing=None 并都执行 INSERT，在 007 迁移补上 UNIQUE(topic) 索引后
+        会导致其中一个抛出未处理的 IntegrityError。改为单条原子语句。
+        """
         topic_id = str(uuid.uuid4())
         now = _now_iso()
         with get_db() as conn:
-            # 尝试查找已存在
-            existing = conn.execute(
-                "SELECT id FROM user_topics WHERE topic = ?",
-                (topic,),
-            ).fetchone()
-            if existing:
-                conn.execute(
-                    "UPDATE user_topics SET weight = ?, category = ?, updated_at = ? WHERE topic = ?",
-                    (weight, category, now, topic),
-                )
-                return self.get_by_topic(topic)
             conn.execute(
                 """
                 INSERT INTO user_topics (id, topic, category, weight, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?)
+                VALUES (:id, :topic, :category, :weight, :now, :now)
+                ON CONFLICT (topic) DO UPDATE SET
+                    weight = :weight,
+                    category = :category,
+                    updated_at = :now
                 """,
-                (topic_id, topic, category, weight, now, now),
+                {
+                    "id": topic_id, "topic": topic, "category": category,
+                    "weight": weight, "now": now,
+                },
             )
         return self.get_by_topic(topic)
 
@@ -85,6 +87,16 @@ class UserTopicsRepository:
         """获取所有主题及其权重，返回 [(topic, weight)]"""
         rows = self.list_all()
         return [(r["topic"], r["weight"]) for r in rows]
+
+    def update_weight(self, topic: str, weight: float) -> bool:
+        """更新主题权重，返回是否有行被更新"""
+        now = _now_iso()
+        with get_db() as conn:
+            cursor = conn.execute(
+                "UPDATE user_topics SET weight = ?, updated_at = ? WHERE topic = ?",
+                (weight, now, topic),
+            )
+        return cursor.rowcount > 0
 
 
 class UserInteractionRepository:
@@ -129,28 +141,37 @@ class UserInteractionRepository:
         hours: int = 24,
         limit: int = 100,
     ) -> list[dict]:
-        """获取最近交互记录"""
+        """
+        获取最近交互记录。
+
+        D6: hours 原来通过 f-string 直接拼进 SQL 文本
+        (f"datetime('now', '-{hours} hours')")；调用方目前固定传 int，
+        但下一次接口改动就可能让它变成用户可控字符串，成为 SQL 注入面。
+        改为参数化：datetime('now', ? || ' hours') 让 SQLite 在拼接
+        modifier 字符串前先完成参数绑定，语义与原来完全一致。
+        """
+        neg_hours_modifier = f"-{int(hours)}"
         with get_db() as conn:
             if interaction_type:
                 rows = conn.execute(
-                    f"""
+                    """
                     SELECT * FROM user_interactions
                     WHERE interaction_type = ?
-                      AND created_at > datetime('now', '-{hours} hours')
+                      AND created_at > datetime('now', ? || ' hours')
                     ORDER BY created_at DESC
                     LIMIT ?
                     """,
-                    (interaction_type, limit),
+                    (interaction_type, neg_hours_modifier, limit),
                 ).fetchall()
             else:
                 rows = conn.execute(
-                    f"""
+                    """
                     SELECT * FROM user_interactions
-                    WHERE created_at > datetime('now', '-{hours} hours')
+                    WHERE created_at > datetime('now', ? || ' hours')
                     ORDER BY created_at DESC
                     LIMIT ?
                     """,
-                    (limit,),
+                    (neg_hours_modifier, limit),
                 ).fetchall()
         return [_row_to_dict(r) for r in rows]
 
@@ -173,6 +194,33 @@ class UserInteractionRepository:
             ).fetchone()
         return _row_to_dict(row) if row else {}
 
+    def get_engagement_stats_bulk(self, item_ids: list[str]) -> dict[str, dict]:
+        """
+        批量获取多条目的用户参与度统计，一次查询替代 N 次单条查询。
+        返回 {item_id: stats_dict}；未出现在结果中的 item_id 表示无交互记录。
+        """
+        if not item_ids:
+            return {}
+        placeholders = ",".join(["?"] * len(item_ids))
+        with get_db() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT
+                    item_id,
+                    COUNT(*) as total_interactions,
+                    SUM(CASE WHEN interaction_type = 'view' THEN 1 ELSE 0 END) as view_count,
+                    SUM(CASE WHEN interaction_type = 'dwell' THEN 1 ELSE 0 END) as dwell_count,
+                    SUM(CASE WHEN interaction_type = 'star' THEN 1 ELSE 0 END) as star_count,
+                    SUM(CASE WHEN interaction_type = 'click' THEN 1 ELSE 0 END) as click_count,
+                    AVG(CASE WHEN dwell_seconds IS NOT NULL THEN dwell_seconds ELSE 0 END) as avg_dwell_seconds
+                FROM user_interactions
+                WHERE item_id IN ({placeholders})
+                GROUP BY item_id
+                """,
+                item_ids,
+            ).fetchall()
+        return {r["item_id"]: _row_to_dict(r) for r in rows}
+
 
 class UserAffinityRepository:
 
@@ -189,35 +237,42 @@ class UserAffinityRepository:
         score_delta: 本次交互增加的得分（会被衰减）
         """
         now = _now_iso()
+        decay = 0.9  # 每次交互衰减10%
+        # D1: single atomic INSERT ... ON CONFLICT DO UPDATE replaces the
+        # previous SELECT-then-branch (INSERT or UPDATE). The old code let
+        # two threads (APScheduler worker + FastAPI request thread) both
+        # read existing=None for the same (affinity_type, affinity_value)
+        # and both attempt INSERT, with the loser crashing on the UNIQUE
+        # constraint (idx_affinity_unique) with an unhandled IntegrityError.
+        # The UPDATE branch here references the table's OWN current column
+        # values (not excluded.*, which would be the just-inserted delta),
+        # so the decay formula still reads the pre-conflict score/count.
         with get_db() as conn:
-            existing = conn.execute(
-                "SELECT * FROM user_topic_affinity WHERE affinity_type = ? AND affinity_value = ?",
-                (affinity_type, affinity_value),
-            ).fetchone()
-
-            if existing:
-                # 指数衰减更新：new_score = old_score * decay + delta
-                decay = 0.9  # 每次交互衰减10%
-                new_score = existing["affinity_score"] * decay + score_delta * (1 - decay)
-                new_score = min(1.0, max(0.0, new_score))  # 限制在 0-1
-                new_count = existing["interaction_count"] + interaction_increment
-                conn.execute(
-                    """
-                    UPDATE user_topic_affinity
-                    SET affinity_score = ?, interaction_count = ?, last_interacted_at = ?, updated_at = ?
-                    WHERE affinity_type = ? AND affinity_value = ?
-                    """,
-                    (new_score, new_count, now, now, affinity_type, affinity_value),
-                )
-            else:
-                affinity_id = str(uuid.uuid4())
-                conn.execute(
-                    """
-                    INSERT INTO user_topic_affinity (id, affinity_type, affinity_value, affinity_score, interaction_count, last_interacted_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (affinity_id, affinity_type, affinity_value, score_delta, interaction_increment, now, now),
-                )
+            conn.execute(
+                """
+                INSERT INTO user_topic_affinity
+                    (id, affinity_type, affinity_value, affinity_score,
+                     interaction_count, last_interacted_at, updated_at)
+                VALUES (:id, :affinity_type, :affinity_value, :score_delta,
+                        :interaction_increment, :now, :now)
+                ON CONFLICT (affinity_type, affinity_value) DO UPDATE SET
+                    affinity_score = MIN(1.0, MAX(0.0,
+                        user_topic_affinity.affinity_score * :decay
+                        + :score_delta * (1 - :decay))),
+                    interaction_count = user_topic_affinity.interaction_count + :interaction_increment,
+                    last_interacted_at = :now,
+                    updated_at = :now
+                """,
+                {
+                    "id": str(uuid.uuid4()),
+                    "affinity_type": affinity_type,
+                    "affinity_value": affinity_value,
+                    "score_delta": score_delta,
+                    "interaction_increment": interaction_increment,
+                    "decay": decay,
+                    "now": now,
+                },
+            )
 
     def get_top_affinities(self, affinity_type: str | None = None, limit: int = 20) -> list[dict]:
         """获取最高亲缘度的主题/任务/平台"""
@@ -253,8 +308,16 @@ class UserAffinityRepository:
         return row["affinity_score"] if row else 0.0
 
     def get_all_affinities_map(self) -> dict[str, float]:
-        """获取所有亲缘度得分，映射为 {type:value -> score}"""
-        rows = self.get_top_affinities(limit=100)
+        """
+        获取所有亲缘度得分，映射为 {type:value -> score}。
+
+        D8: 名为 get_all_ 却隐式截断到 100 行（get_top_affinities 的默认
+        limit）；用户使用越久，distinct affinity_value（task_id/platform/
+        keyword）越可能超过 100，导致推荐评分静默丢失部分亲缘度数据。
+        这里用一个足够大的上限（10000）近似"全部"——真正的无界只能等
+        表规模失控时再引入分页，目前的量级下 10000 足够覆盖。
+        """
+        rows = self.get_top_affinities(limit=10000)
         return {f"{r['affinity_type']}:{r['affinity_value']}": r["affinity_score"] for r in rows}
 
 

@@ -300,10 +300,15 @@ export function TaskExecutionStream({ taskId, taskName, onClose }: Props) {
             <p className="text-xs text-gray-500">实时执行流</p>
           </div>
           <StatusBadge status={status} />
-          {isDone && (
+          {/* U4/U10: previously only shown when isDone — once the stream's
+              retry loop exhausted and status became 'error', users saw a
+              permanent "连接失败" badge with no way to recover short of
+              closing and reopening the whole panel. */}
+          {(isDone || status === 'error') && (
             <button
               onClick={reset}
               title="重新连接"
+              aria-label="重新连接"
               className="p-1 rounded text-gray-500 hover:text-white hover:bg-gray-800 transition-colors"
             >
               <RefreshCw className="h-3.5 w-3.5" />
@@ -311,6 +316,7 @@ export function TaskExecutionStream({ taskId, taskName, onClose }: Props) {
           )}
           <button
             onClick={onClose}
+            aria-label="关闭"
             className="p-1 rounded text-gray-500 hover:text-white hover:bg-gray-800 transition-colors"
           >
             <X className="h-4 w-4" />

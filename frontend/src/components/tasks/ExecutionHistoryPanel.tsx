@@ -7,6 +7,7 @@
  */
 import { AlertTriangle, CheckCircle, X, XCircle } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
+import { useState } from 'react'
 import { tasksApi } from '../../api/tasks'
 import type { Task, TaskExecution } from '../../types'
 import { formatDateTime, formatDuration } from '../../utils/time'
@@ -25,6 +26,10 @@ const STATUS_ICONS = {
 
 function ExecRow({ exec }: { exec: TaskExecution }) {
   const { Icon, cls } = STATUS_ICONS[exec.status]
+  // U11: `truncate` cut the error message to a single line — exactly the
+  // moment a user most needs the full text to diagnose a failure. Clamp to
+  // 3 lines by default with a toggle to expand the rest instead of hiding it.
+  const [expanded, setExpanded] = useState(false)
   return (
     <div className="flex items-start gap-3 py-3 border-b border-gray-100 last:border-0">
       <Icon className={`h-4 w-4 mt-0.5 shrink-0 ${cls}`} />
@@ -42,9 +47,19 @@ function ExecRow({ exec }: { exec: TaskExecution }) {
           {formatDateTime(exec.executed_at)}
         </div>
         {exec.error_message && (
-          <p className="text-xs text-red-500 mt-1 bg-red-50 rounded px-2 py-1 truncate">
-            {exec.error_message}
-          </p>
+          <div className="mt-1 bg-red-50 rounded px-2 py-1">
+            <p className={`text-xs text-red-500 whitespace-pre-wrap ${expanded ? '' : 'line-clamp-3'}`}>
+              {exec.error_message}
+            </p>
+            {exec.error_message.length > 120 && (
+              <button
+                onClick={() => setExpanded((v) => !v)}
+                className="text-xs text-red-400 hover:text-red-600 underline mt-0.5"
+              >
+                {expanded ? '收起' : '展开全部'}
+              </button>
+            )}
+          </div>
         )}
       </div>
     </div>
@@ -87,7 +102,7 @@ export function ExecutionHistoryPanel({ task, onClose }: ExecutionHistoryPanelPr
           <h2 className="font-bold text-gray-900 text-base">执行历史</h2>
           <p className="text-xs text-gray-500 mt-0.5 truncate max-w-64">{task.name}</p>
         </div>
-        <button onClick={onClose} className="btn-ghost p-1" title="关闭">
+        <button onClick={onClose} className="btn-ghost p-1" title="关闭" aria-label="关闭">
           <X className="h-5 w-5" />
         </button>
       </div>

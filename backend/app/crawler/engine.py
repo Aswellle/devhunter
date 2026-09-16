@@ -115,9 +115,14 @@ def _is_ssrf_safe_url(url: str) -> tuple[bool, str]:
 
         # Try to resolve hostname to IP(s)
         import socket
+        # C1: DNS resolution failure must fail CLOSED (block), not open.
+        # Previously any getaddrinfo error (including a transient DNS blip)
+        # returned (True, "") — i.e. "safe" — permissively allowing requests
+        # that should have been blocked. Resolution errors are now caught by
+        # the outer except below and also treated as unsafe.
         addr_info = socket.getaddrinfo(hostname_lower, None)
         if not addr_info:
-            return True, ""  # Can't resolve, let it fail naturally
+            return False, "无法解析主机名对应的 IP 地址"
 
         for family, _, _, _, sockaddr in addr_info:
             if family == socket.AF_INET:
@@ -137,9 +142,10 @@ def _is_ssrf_safe_url(url: str) -> tuple[bool, str]:
         return True, ""
 
     except Exception as e:
-        # On resolution failure, let it fail naturally with a proper error
-        logger.debug("SSRF check error: %s", e)
-        return True, ""
+        # C1: fail closed — a malformed URL or DNS resolution error must
+        # block the request rather than silently letting it through.
+        logger.debug("SSRF check error, blocking as unsafe: %s", e)
+        return False, f"URL 安全校验失败: {e}"
 
 
 # ─── Mode Detection ────────────────────────────────────────────────────────────
@@ -458,6 +464,34 @@ def _fetch_page_with_retry(
                 )
             else:
                 response = client.get(url, headers=extra_headers, timeout=timeout)
+
+            # C1: redirects are followed manually so each hop's Location URL
+            # can be re-validated against the SSRF blocklist. The shared
+            # httpx.Client has follow_redirects=False for exactly this reason.
+            redirect_hops = 0
+            while getattr(response, "is_redirect", False) and redirect_hops < 5:
+                location = response.headers.get("location")
+                if not location:
+                    break
+                next_url = str(httpx.URL(location, base=response.url))
+                ssrf_safe, ssrf_msg = _is_ssrf_safe_url(next_url)
+                if not ssrf_safe:
+                    return _FetchOutcome(
+                        response=None,
+                        retries_used=attempt - 1,
+                        error=f"SSRF blocked on redirect: {ssrf_msg}",
+                        http_status=response.status_code,
+                    )
+                redirect_hops += 1
+                if mode == "json-post":
+                    response = client.post(
+                        next_url, json=post_body,
+                        headers={**extra_headers, "Content-Type": "application/json"},
+                        timeout=timeout,
+                    )
+                else:
+                    response = client.get(next_url, headers=extra_headers, timeout=timeout)
+
             response.raise_for_status()
             return _FetchOutcome(
                 response=response,
@@ -585,7 +619,11 @@ def _parse_one_page(
 
     if mode in ("json", "json-post"):
         try:
-            data = response.json()
+            # C2: parse from the already-truncated `content` bytes, not
+            # response.json() — the latter re-reads response.content directly
+            # and bypasses the MAX_RESPONSE_BYTES truncation done above,
+            # letting an oversized response be fully parsed anyway.
+            data = _json.loads(content)
         except Exception as exc:
             err = f"JSON 解析失败: {exc}"
             _emit(on_progress, "parse_error", err)
@@ -644,7 +682,16 @@ def _parse_one_page(
         _emit(on_progress, "parse_error", err)
         return [], 0, soup
 
-    list_items = soup.select(list_path)
+    # C3: soup.select can raise (e.g. cssselect.SelectorSyntaxError) on a
+    # malformed selector; this function's contract is "never raises", so
+    # an invalid list_path must degrade to an empty result + parse_error
+    # event, matching the pattern already used in _resolve_next_page_url.
+    try:
+        list_items = soup.select(list_path)
+    except Exception as exc:
+        err = f"Selector 语法错误: {exc}"
+        _emit(on_progress, "parse_error", err)
+        return [], 0, soup
     if not list_items:
         _emit(on_progress, "parse_done",
               f"Selector「{list_path[:40]}」匹配到 0 个元素，可能页面结构已变更",
@@ -845,6 +892,13 @@ def _paginate(
             # treat empty as a valid (warning-level) page and continue/stop.
             pass
 
+        # C5: snapshot pre-filter URLs for the loop guard below — the guard
+        # must detect a duplicate/looping PAGE (same page served twice),
+        # not "this page's keyword filter happened to reject everything
+        # twice in a row" (which would falsely look identical to an empty
+        # set on the previous page and abort pagination early).
+        pre_filter_hashes = {compute_url_hash(item.url) for item in parsed}
+
         # ── keyword filter (per page) ──────────────────────
         before_filter = len(parsed)
         if keywords:
@@ -874,8 +928,8 @@ def _paginate(
               f"第 {page_num} 页抓取完成，{len(parsed)} 条",
               {"page": page_num, "count": len(parsed), "retries_used": outcome.retries_used})
 
-        # ── loop guard: exact url_hash set of FILTERED items ─
-        current_hashes = {compute_url_hash(item.url) for item in parsed}
+        # ── loop guard: exact url_hash set of RAW (pre-filter) items ─
+        current_hashes = pre_filter_hashes
         if seen_hashes is not None and current_hashes == seen_hashes:
             _emit(on_progress, "page_fetched",
                   f"检测到第 {page_num} 页与上一页条目重复，停止分页",

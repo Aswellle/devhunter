@@ -11,6 +11,6 @@ docker-compose.override.yml
 # 打包产物（含历史快照，可能带旧密钥）
 devhunter.zip
 
-# 内部文档（不公开：架构约定 / 安全审计细节）
-CLAUDE.md
+# Future improvement records (local only, not for remote)
+.future-improvements/
 AUDIT.md

@@ -67,7 +67,7 @@ def get_stats(_: str = Depends(require_auth)):
 
         # ── 最近活跃任务 Top 5（按采集量） ────────────────
         top_tasks = conn.execute("""
-            SELECT t.name, COUNT(i.id) AS item_count
+            SELECT t.id, t.name, COUNT(i.id) AS item_count
             FROM tasks t
             LEFT JOIN items i ON i.task_id = t.id
                 AND i.fetched_at >= datetime('now', '-7 days')
@@ -92,7 +92,7 @@ def get_stats(_: str = Depends(require_auth)):
         "failures_7d":    failures,
         "daily_items":    daily_items,
         "top_tasks_7d": [
-            {"name": r["name"], "item_count": r["item_count"]}
+            {"id": r["id"], "name": r["name"], "item_count": r["item_count"]}
             for r in top_tasks
         ],
     }

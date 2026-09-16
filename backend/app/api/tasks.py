@@ -2,6 +2,7 @@
 app/api/tasks.py
 采集任务 API 端点：/api/tasks
 """
+from typing import Literal
 import logging
 import uuid
 
@@ -62,7 +63,7 @@ def create_task(body: TaskCreate, _: str = Depends(require_auth)):
 
 @router.get("", response_model=PaginatedResponse[TaskListItem])
 def list_tasks(
-    status_filter: str | None = Query(None, alias="status"),
+    status_filter: Literal["active", "paused", "error"] | None = Query(None, alias="status"),
     page: int = Query(1, ge=1),
     per_page: int = Query(20, ge=1, le=100),
     _: str = Depends(require_auth),

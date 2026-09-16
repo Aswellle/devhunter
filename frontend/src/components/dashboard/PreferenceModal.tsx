@@ -1,10 +1,11 @@
-import { useState } from 'react'
+import { useId, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { X, Plus, Sparkles, ThumbsUp } from 'lucide-react'
 import { clsx } from 'clsx'
 import { userPrefsApi } from '../../api/user_prefs'
 import { toast } from 'react-hot-toast'
 import type { UserTopic, RecommendedTopic } from '../../types'
+import { useModalA11y } from '../../hooks/useModalA11y'
 
 const CATEGORY_LABELS: Record<string, string> = {
   ai: 'AI / 大模型',
@@ -24,6 +25,14 @@ export function PreferenceModal({ isOpen, onClose }: PreferenceModalProps) {
   const [newTopic, setNewTopic] = useState('')
   const [selectedCategory, setSelectedCategory] = useState('custom')
   const qc = useQueryClient()
+  const titleId = useId()
+  // Hooks must run unconditionally every render (rules-of-hooks), so this
+  // is called before the `if (!isOpen) return null` guard below. Passing
+  // `isOpen` explicitly matters here — unlike TaskFormModal (which mounts
+  // fresh each time it opens via conditional rendering), this component
+  // stays mounted and toggles visibility through the `isOpen` prop, so the
+  // hook's effect must re-run when `isOpen` flips rather than only on mount.
+  const modalRef = useModalA11y(onClose, isOpen)
 
   const { data: topics = [] } = useQuery({
     queryKey: ['user-topics'],
@@ -95,7 +104,13 @@ export function PreferenceModal({ isOpen, onClose }: PreferenceModalProps) {
       />
 
       {/* Modal */}
-      <div className="relative w-full max-w-lg mx-4 bg-white rounded-2xl shadow-2xl overflow-hidden">
+      <div
+        ref={modalRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        className="relative w-full max-w-lg mx-4 bg-white rounded-2xl shadow-2xl overflow-hidden"
+      >
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
           <div className="flex items-center gap-2">
@@ -103,13 +118,14 @@ export function PreferenceModal({ isOpen, onClose }: PreferenceModalProps) {
               <Sparkles className="h-4 w-4 text-white" />
             </div>
             <div>
-              <h2 className="text-base font-semibold text-gray-900">兴趣偏好设置</h2>
+              <h2 id={titleId} className="text-base font-semibold text-gray-900">兴趣偏好设置</h2>
               <p className="text-xs text-gray-500">设置你感兴趣的话题，我们会为你推荐相关内容</p>
             </div>
           </div>
           <button
             onClick={onClose}
             className="p-2 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+            aria-label="关闭"
           >
             <X className="h-5 w-5" />
           </button>

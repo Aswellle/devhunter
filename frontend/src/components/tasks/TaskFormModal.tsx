@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useId, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'react-hot-toast'
 import { X } from 'lucide-react'
@@ -6,6 +6,7 @@ import { tasksApi } from '../../api/tasks'
 import type { SourceTemplate, Task, TaskCreate } from '../../types'
 import { CRON_PRESETS } from '../../types'
 import { Spinner } from '../ui/Spinner'
+import { useModalA11y } from '../../hooks/useModalA11y'
 
 interface TaskFormModalProps {
   task?: Task | null
@@ -28,6 +29,8 @@ const EMPTY_FORM: TaskCreate = {
 export function TaskFormModal({ task, onClose }: TaskFormModalProps) {
   const qc = useQueryClient()
   const isEdit = !!task
+  const titleId = useId()
+  const modalRef = useModalA11y(onClose)
 
   const [form, setForm] = useState<TaskCreate>(EMPTY_FORM)
   const [keywordsInput, setKeywordsInput] = useState('')
@@ -100,10 +103,19 @@ export function TaskFormModal({ task, onClose }: TaskFormModalProps) {
       .split(/[,，]/)
       .map((k) => k.trim())
       .filter(Boolean)
-    mutation.mutate({ ...form, keywords: kws })
+    // Optional selector fields are typed str | None in the schema. An empty
+    // string fails the backend's CSS-selector validator with a 422, so coerce
+    // blanks to null — "left blank" and "not set" are semantically identical.
+    const payload: TaskCreate = {
+      ...form,
+      keywords: kws,
+      selector_summary: form.selector_summary?.trim() || null,
+      selector_next_page: form.selector_next_page?.trim() || null,
+    }
+    mutation.mutate(payload)
   }
 
-  const set = (key: keyof TaskCreate, value: any) =>
+  const set = <K extends keyof TaskCreate>(key: K, value: TaskCreate[K]) =>
     setForm((f) => ({ ...f, [key]: value }))
 
   return (
@@ -112,13 +124,19 @@ export function TaskFormModal({ task, onClose }: TaskFormModalProps) {
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
 
       {/* Modal */}
-      <div className="relative bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+      <div
+        ref={modalRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        className="relative bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto"
+      >
         {/* Header */}
         <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between rounded-t-xl z-10">
-          <h2 className="text-lg font-bold text-gray-900">
+          <h2 id={titleId} className="text-lg font-bold text-gray-900">
             {isEdit ? '编辑采集任务' : '新建采集任务'}
           </h2>
-          <button onClick={onClose} className="btn-ghost p-1">
+          <button onClick={onClose} className="btn-ghost p-1" aria-label="关闭">
             <X className="h-5 w-5" />
           </button>
         </div>

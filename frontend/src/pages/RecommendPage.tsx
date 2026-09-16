@@ -91,7 +91,7 @@ function TabButton({
 
 // ── 为你推荐 Tab ─────────────────────────────────────────────
 function RecommendedTab() {
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['recommendations-home'],
     queryFn: () => userPrefsApi.getRecommendations({ limit: 20, exclude_read: true }),
     staleTime: 30_000,
@@ -99,6 +99,22 @@ function RecommendedTab() {
 
   if (isLoading) {
     return <div className="flex justify-center py-16"><Spinner /></div>
+  }
+
+  // U3: a failed request previously fell through to the same empty state
+  // as "no recommendations yet", with no way to tell the two apart.
+  if (isError) {
+    return (
+      <Empty
+        title="加载失败"
+        description="推荐内容加载出错，请检查网络连接后重试"
+        action={
+          <button onClick={() => refetch()} className="btn-primary">
+            重试
+          </button>
+        }
+      />
+    )
   }
 
   if (!data?.items.length) {
@@ -178,13 +194,34 @@ function RecommendedItemCard({ item }: { item: RecommendedItem }) {
 
 // ── 热点聚合 Tab ─────────────────────────────────────────────
 function ThreadsTab() {
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['threads-home'],
     queryFn: () => threadsApi.list({ per_page: 20 }),
+    // U14: sibling RecommendedTab already sets staleTime: 30_000; this
+    // query lacked it, so switching tabs back and forth re-fetched threads
+    // every single time instead of reusing the cached result like the
+    // recommendations tab does.
+    staleTime: 30_000,
   })
 
   if (isLoading) {
     return <div className="flex justify-center py-16"><Spinner /></div>
+  }
+
+  // U3: a failed request previously fell through to the same empty state
+  // as "no threads yet", with no way to tell the two apart.
+  if (isError) {
+    return (
+      <Empty
+        title="加载失败"
+        description="热点聚合加载出错，请检查网络连接后重试"
+        action={
+          <button onClick={() => refetch()} className="btn-primary">
+            重试
+          </button>
+        }
+      />
+    )
   }
 
   if (!data?.items.length) {

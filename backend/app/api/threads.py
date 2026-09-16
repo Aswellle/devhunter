@@ -48,5 +48,5 @@ def get_thread(thread_id: str, _: str = Depends(require_auth)):
     """
     thread = thread_service.get_thread(thread_id)
     if not thread:
-        raise HTTPException(status_code=404, detail={"message": "Thread not found"})
+        raise HTTPException(status_code=404, detail={"code": "NOT_FOUND", "message": "Thread not found"})
     return thread

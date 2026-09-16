@@ -63,6 +63,17 @@ export function ItemCard({ item }: ItemCardProps) {
               item.is_read ? 'text-gray-500' : 'text-gray-900'
             )}
           >
+            {/* U7: unread state was previously conveyed only by the card's
+                left border color — invisible to colorblind users and easy
+                to miss at a glance. This dot + sr-only label give it a
+                shape/text channel independent of color. */}
+            {!item.is_read && (
+              <span
+                className="inline-block h-1.5 w-1.5 rounded-full bg-primary-500 shrink-0"
+                aria-hidden="true"
+              />
+            )}
+            <span className="sr-only">{item.is_read ? '已读' : '未读'}</span>
             <span className="line-clamp-2">{item.title}</span>
             <ExternalLink className="h-3 w-3 shrink-0 opacity-0 group-hover:opacity-100" />
           </a>

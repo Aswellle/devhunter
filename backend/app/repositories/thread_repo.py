@@ -143,13 +143,18 @@ class ThreadRepository:
 
         with get_db() as conn:
             # 插入关联
-            conn.execute(
+            cursor = conn.execute(
                 """
                 INSERT OR IGNORE INTO thread_items (thread_id, item_id, similarity)
                 VALUES (?, ?, ?)
                 """,
                 (thread_id, item_id, similarity),
             )
+            # D4: INSERT OR IGNORE 在 (thread_id, item_id) 已存在时是空操作
+            # （rowcount=0），此时不应再把 item_count 计数 +1，否则同一个
+            # item 被重复关联到同一 thread 时，计数会脱离实际行数持续增长。
+            was_inserted = cursor.rowcount > 0
+
             # 更新 items.thread_id
             conn.execute(
                 "UPDATE items SET thread_id = ? WHERE id = ?",
@@ -165,7 +170,7 @@ class ThreadRepository:
                 current_platforms: list[str] = json.loads(th["platforms"]) if th["platforms"] else []
                 if platform and platform not in current_platforms:
                     current_platforms.append(platform)
-                new_count = th["item_count"] + 1
+                new_count = th["item_count"] + (1 if was_inserted else 0)
                 # title 取最长的（更完整的描述）
                 new_title = title if len(title) > len(th["title"]) else th["title"]
                 conn.execute(
@@ -213,18 +218,21 @@ class ThreadRepository:
         返回: list of (item_id, title, fetched_at)
         """
         # datetime('now', '-10 minutes') 排除刚刚插入的 Items（避免同批次自匹配）
+        # D6 (同类修复): min_age_seconds 目前调用方固定传 600，尚不构成实际注入面，
+        # 但改为参数化与 user_prefs_repo.get_recent_interactions 保持一致的防护模式。
+        neg_seconds_modifier = f"-{int(min_age_seconds)}"
         with get_db() as conn:
             rows = conn.execute(
-                f"""
+                """
                 SELECT i.id, i.title, i.fetched_at
                 FROM items i
                 LEFT JOIN thread_items ti ON i.id = ti.item_id
                 WHERE ti.item_id IS NULL
-                  AND i.created_at < datetime('now', '-{min_age_seconds} seconds')
+                  AND i.created_at < datetime('now', ? || ' seconds')
                 ORDER BY i.fetched_at DESC
                 LIMIT ?
                 """,
-                (limit,),
+                (neg_seconds_modifier, limit),
             ).fetchall()
         return [(r["id"], r["title"], r["fetched_at"]) for r in rows]
 

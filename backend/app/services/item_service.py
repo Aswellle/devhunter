@@ -40,11 +40,42 @@ class ItemService:
     def batch_patch(self, ids: list[str], data: dict) -> int:
         return item_repo.batch_patch(ids, data)
 
+    def get_item(self, item_id: str) -> dict:
+        item = item_repo.get(item_id)
+        if not item:
+            raise ItemNotFoundError(f"Item {item_id} not found")
+        return item
+
     def delete_item(self, item_id: str) -> bool:
+        item = item_repo.get(item_id)
+        if not item:
+            raise ItemNotFoundError(f"Item {item_id} not found")
+        from app.repositories.thread_repo import thread_repo
+        thread_repo.delete_item_from_thread(item_id)
+        if item.get("thread_id"):
+            thread_repo.rebuild_thread_stats(item["thread_id"])
         return item_repo.delete(item_id)
 
     def batch_delete(self, ids: list[str]) -> int:
-        return item_repo.batch_delete(ids)
+        from app.repositories.thread_repo import thread_repo
+        from app.core.database import get_db
+        # collect thread_ids before deletion
+        thread_ids: set[str] = set()
+        for item_id in ids:
+            item = item_repo.get(item_id)
+            if item and item.get("thread_id"):
+                thread_ids.add(item["thread_id"])
+            thread_repo.delete_item_from_thread(item_id)
+        count = item_repo.batch_delete(ids)
+        for tid in thread_ids:
+            thread_repo.rebuild_thread_stats(tid)
+        # clean up orphan user_interactions
+        with get_db() as conn:
+            placeholders = ",".join(["?"] * len(ids))
+            conn.execute(
+                f"DELETE FROM user_interactions WHERE item_id IN ({placeholders})", ids
+            )
+        return count
 
 
 # 全局单例

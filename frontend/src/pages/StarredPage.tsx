@@ -10,7 +10,7 @@ import { Star } from 'lucide-react'
 export function StarredPage() {
   const [page, setPage] = useState(1)
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isFetching, isError, refetch } = useQuery({
     queryKey: ['items-starred', page],
     queryFn: () => itemsApi.list({ starred: true, page, per_page: 20 }),
     placeholderData: (prev) => prev,
@@ -32,13 +32,30 @@ export function StarredPage() {
         <div className="flex justify-center py-20">
           <Spinner className="h-8 w-8" />
         </div>
+      ) : isError ? (
+        // U3: page turning or a stale token previously surfaced this
+        // failure as an identical "暂无收藏" empty state — indistinguishable
+        // from a genuinely empty starred list.
+        <Empty
+          title="加载失败"
+          description="收藏列表加载出错，请检查网络连接后重试"
+          action={
+            <button onClick={() => refetch()} className="btn-primary">
+              重试
+            </button>
+          }
+        />
       ) : !data?.items.length ? (
         <Empty
           title="暂无收藏"
           description="在「采集结果」页面点击条目右侧的 ☆ 图标即可收藏"
         />
       ) : (
-        <>
+        // U11: placeholderData keeps the previous page's items visible
+        // during a page turn with no visual cue that a fetch is in
+        // flight — opacity dims the list while isFetching is true so a
+        // slow page-turn doesn't look like the click did nothing.
+        <div className={isFetching ? 'opacity-60 transition-opacity' : 'transition-opacity'}>
           <div className="space-y-3">
             {data.items.map((item) => (
               <ItemCard key={item.id} item={item} />
@@ -50,7 +67,7 @@ export function StarredPage() {
             perPage={data.per_page}
             onChange={setPage}
           />
-        </>
+        </div>
       )}
     </div>
   )

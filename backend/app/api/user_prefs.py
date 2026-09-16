@@ -57,7 +57,7 @@ def update_topic_weight(topic: str, body: UserTopicUpdate, _: str = Depends(requ
     updated = recommendation_service.update_user_topic_weight(topic=topic, weight=body.weight)
     if not updated:
         from fastapi import HTTPException
-        raise HTTPException(status_code=404, detail={"message": "Topic not found"})
+        raise HTTPException(status_code=404, detail={"code": "NOT_FOUND", "message": "Topic not found"})
     return updated
 
 
@@ -67,7 +67,7 @@ def remove_topic(topic: str, _: str = Depends(require_auth)):
     removed = recommendation_service.remove_user_topic(topic=topic)
     if not removed:
         from fastapi import HTTPException
-        raise HTTPException(status_code=404, detail={"message": "Topic not found"})
+        raise HTTPException(status_code=404, detail={"code": "NOT_FOUND", "message": "Topic not found"})
     return {"deleted": True}
 
 

@@ -2,6 +2,8 @@
 app/core/http_client.py
 httpx.Client 单例工厂 - 同步客户端，强化浏览器指纹防反爬
 """
+import threading
+
 import httpx
 
 from app.core.config import settings
@@ -34,7 +36,12 @@ def _build_client() -> httpx.Client:
             write=10.0,
             pool=5.0,
         ),
-        follow_redirects=True,
+        # C1: redirects must NOT be auto-followed. Each hop's Location URL is
+        # re-validated against the SSRF blocklist by the crawler engine
+        # (see engine.py::_fetch_page_with_retry) before being followed
+        # manually — auto-following here would let a 301/302 to a private
+        # IP bypass the SSRF check entirely.
+        follow_redirects=False,
         limits=httpx.Limits(
             max_keepalive_connections=5,
             max_connections=10,
@@ -45,13 +52,23 @@ def _build_client() -> httpx.Client:
 
 
 _http_client: httpx.Client | None = None
+_client_lock = threading.Lock()
 
 
 def get_http_client() -> httpx.Client:
-    """获取全局 httpx.Client 单例"""
+    """
+    获取全局 httpx.Client 单例。
+
+    C4: 加锁保护单例构建。APScheduler 用 ThreadPoolExecutor 并发执行多个
+    Job，若不加锁，两个 Worker 线程可能同时看到 _http_client is None，
+    各自构建一个 httpx.Client —— 其中一个会被后写入的赋值覆盖引用，
+    连接池永远不会被 close_http_client() 关闭，造成连接泄漏。
+    """
     global _http_client
     if _http_client is None or _http_client.is_closed:
-        _http_client = _build_client()
+        with _client_lock:
+            if _http_client is None or _http_client.is_closed:
+                _http_client = _build_client()
     return _http_client
 
 
