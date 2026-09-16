@@ -24,6 +24,8 @@ class SourceTemplate:
     description: str
     default_keywords: list[str]
     recommended_cron: str
+    category: str = ""
+    subcategory: str = ""
 
 
 _templates: dict[str, SourceTemplate] = {}

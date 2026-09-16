@@ -45,9 +45,12 @@ def get_templates(_: str = Depends(require_auth)):
             "selector_summary": t.selector_summary,
             "description": t.description,
             "recommended_cron": t.recommended_cron,
+            "category": t.category,
+            "subcategory": t.subcategory,
         }
         for t in templates
     ]
+
 
 
 @router.post("", response_model=TaskResponse, status_code=status.HTTP_201_CREATED)

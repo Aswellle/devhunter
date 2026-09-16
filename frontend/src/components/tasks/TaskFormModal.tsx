@@ -35,13 +35,23 @@ export function TaskFormModal({ task, onClose }: TaskFormModalProps) {
   const [form, setForm] = useState<TaskCreate>(EMPTY_FORM)
   const [keywordsInput, setKeywordsInput] = useState('')
   const [useCustomCron, setUseCustomCron] = useState(false)
+  const [selectedCategory, setSelectedCategory] = useState<string>('')
 
   const { data: templates } = useQuery({
     queryKey: ['templates'],
     queryFn: tasksApi.templates,
   })
 
-  // Populate form when editing
+  // Extract unique categories from templates
+  const categories = templates
+    ? [...new Set(templates.map((t) => t.category).filter((c): c is string => Boolean(c)))]
+    : []
+  const filteredTemplates = templates
+    ? selectedCategory
+      ? templates.filter((t) => t.category === selectedCategory)
+      : templates
+    : []
+
   useEffect(() => {
     if (task) {
       setForm({
@@ -146,9 +156,38 @@ export function TaskFormModal({ task, onClose }: TaskFormModalProps) {
           {/* 预设模板选择（新建时显示） */}
           {!isEdit && templates && templates.length > 0 && (
             <div>
-              <label className="label">选择预设模板（可选）</label>
+              {/* Category tabs */}
+              {categories.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 mb-3">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedCategory('')}
+                    className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+                      !selectedCategory
+                        ? 'bg-primary-100 text-primary-700'
+                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                    }`}
+                  >
+                    全部
+                  </button>
+                  {categories.map((cat) => (
+                    <button
+                      key={cat}
+                      type="button"
+                      onClick={() => setSelectedCategory(cat)}
+                      className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+                        selectedCategory === cat
+                          ? 'bg-primary-100 text-primary-700'
+                          : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                      }`}
+                    >
+                      {cat}
+                    </button>
+                  ))}
+                </div>
+              )}
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                {templates.map((tpl) => (
+                {filteredTemplates.map((tpl) => (
                   <button
                     key={tpl.id}
                     type="button"
