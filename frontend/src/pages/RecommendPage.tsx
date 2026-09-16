@@ -1,5 +1,6 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { useSearchParams } from 'react-router-dom'
 import { Rss, Sparkles, TrendingUp } from 'lucide-react'
 import { clsx } from 'clsx'
 import { threadsApi } from '../api/threads'
@@ -25,7 +26,16 @@ const PLATFORM_COLORS: Record<string, string> = {
 }
 
 export function RecommendPage() {
-  const [tab, setTab] = useState<Tab>('recommended')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const [tab, setTab] = useState<Tab>((searchParams.get('tab') as Tab) || 'recommended')
+
+  // Sync tab to URL
+  useEffect(() => {
+    const params = new URLSearchParams(searchParams)
+    if (tab === 'recommended') params.delete('tab')
+    else params.set('tab', tab)
+    setSearchParams(params, { replace: true })
+  }, [tab, setSearchParams])
 
   return (
     <div className="max-w-4xl mx-auto px-4 sm:px-6 py-6">
@@ -247,18 +257,27 @@ function ThreadCard({ thread }: { thread: ThreadWithItems }) {
   const [expanded, setExpanded] = useState(false)
   const platforms = thread.platforms ?? []
 
+  // Fetch thread details (with items) only when expanded
+  const { data: details } = useQuery({
+    queryKey: ['thread-detail', thread.id],
+    queryFn: () => threadsApi.get(thread.id),
+    enabled: expanded,
+  })
+
+  const items = details?.items || []
+
   return (
     <div className="card overflow-hidden">
-      {/* Thread Header */}
+      {/* Thread header */}
       <button
-        onClick={() => setExpanded(!expanded)}
+        onClick={() => setExpanded(e => !e)}
         className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-gray-50 transition-colors"
       >
         <span className="text-gray-400">
           {expanded ? (
-            <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="6 9 12 15 18 9" /></svg>
+            <ChevronDown className="h-5 w-5" />
           ) : (
-            <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="9 18 15 12 9 6" /></svg>
+            <ChevronRight className="h-5 w-5" />
           )}
         </span>
         <Rss className="h-4 w-4 text-primary-500 shrink-0" />
@@ -288,38 +307,44 @@ function ThreadCard({ thread }: { thread: ThreadWithItems }) {
 
       {/* Expanded items */}
       {expanded && (
-        <div className="border-t border-gray-100 divide-y divide-gray-100">
-          {thread.items?.map((item) => (
-            <div key={item.id} className="flex items-start gap-2 px-4 py-3">
-              <div className="flex-1 min-w-0">
-                <a
-                  href={item.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-sm text-gray-700 hover:text-primary-600 transition-colors line-clamp-2"
-                  onClick={() => {
-                    userPrefsApi.recordInteraction({ item_id: item.id, interaction_type: 'click' })
-                  }}
-                >
-                  {item.title}
-                </a>
-                {item.summary && (
-                  <p className="text-xs text-gray-400 mt-0.5 line-clamp-1">{item.summary}</p>
-                )}
-                <div className="flex items-center gap-2 mt-1">
-                  {item.task_name && (
-                    <span className={clsx('text-xs', PLATFORM_COLORS[item.task_name] ?? 'text-gray-400')}>
-                      {item.task_name}
-                    </span>
+        items.length > 0 ? (
+          <div className="border-t border-gray-100 divide-y divide-gray-100">
+            {items.map((item) => (
+              <div key={item.id} className="flex items-start gap-2 px-4 py-3">
+                <div className="flex-1 min-w-0">
+                  <a
+                    href={item.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-sm text-gray-700 hover:text-primary-600 transition-colors line-clamp-2"
+                    onClick={() => {
+                      userPrefsApi.recordInteraction({ item_id: item.id, interaction_type: 'click' })
+                    }}
+                  >
+                    {item.title}
+                  </a>
+                  {item.summary && (
+                    <p className="text-xs text-gray-400 mt-0.5 line-clamp-1">{item.summary}</p>
                   )}
-                  <span className="text-xs text-gray-400">
-                    {formatDistanceToNow(item.fetched_at)}
-                  </span>
+                  <div className="flex items-center gap-2 mt-1">
+                    {item.task_name && (
+                      <span className={clsx('text-xs', PLATFORM_COLORS[item.task_name] ?? 'text-gray-400')}>
+                        {item.task_name}
+                      </span>
+                    )}
+                    <span className="text-xs text-gray-400">
+                      {formatDistanceToNow(item.fetched_at)}
+                    </span>
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        ) : (
+          <div className="border-t border-gray-100 px-4 py-3 text-sm text-gray-500">
+            {details ? '暂无内容' : '加载中...'}
+          </div>
+        )
       )}
     </div>
   )

@@ -57,7 +57,7 @@ export function DashboardPage() {
               onClick={() => setSettingsOpen(true)}
               className="text-sm text-gray-500 hover:text-gray-700"
             >
-              Recommendation Settings
+              推荐设置
             </button>
           </div>
           {settingsOpen && (

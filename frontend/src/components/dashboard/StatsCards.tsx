@@ -1,11 +1,12 @@
 import { useQuery } from '@tanstack/react-query'
+import { Activity, CheckCircle, Download, RefreshCw, Zap } from 'lucide-react'
 import { statsApi } from '../../api/stats'
 import { Spinner } from '../ui/Spinner'
 
 interface StatCardProps {
   label: string
   value: string | number
-  icon: string
+  icon: React.ReactNode
   sub?: string
   colorClass?: string
 }
@@ -13,7 +14,7 @@ interface StatCardProps {
 function StatCard({ label, value, icon, sub, colorClass = 'text-gray-900' }: StatCardProps) {
   return (
     <div className="card px-4 py-3 flex items-center gap-3">
-      <span className="text-2xl select-none">{icon}</span>
+      <span className="text-gray-400">{icon}</span>
       <div className="min-w-0">
         <p className="text-xs text-gray-500 leading-tight">{label}</p>
         <p className={`text-xl font-bold leading-tight ${colorClass}`}>{value}</p>
@@ -59,13 +60,13 @@ export function StatsCards() {
       <StatCard
         label="今日采集"
         value={data.items_today.toLocaleString()}
-        icon="📥"
+        icon={<Download className="h-5 w-5" />}
         sub={`总计 ${data.total_items.toLocaleString()} 条`}
       />
       <StatCard
         label="运行中任务"
         value={data.tasks.active}
-        icon="⚡"
+        icon={<Zap className="h-5 w-5" />}
         sub={
           data.tasks.error > 0
             ? `${data.tasks.error} 个错误`
@@ -78,13 +79,13 @@ export function StatsCards() {
       <StatCard
         label="今日执行"
         value={data.executions_today}
-        icon="🔄"
+        icon={<RefreshCw className="h-5 w-5" />}
         sub={`7 日共 ${data.total_executions_7d} 次`}
       />
       <StatCard
         label="7 日成功率"
         value={successRateStr}
-        icon="✅"
+        icon={<CheckCircle className="h-5 w-5" />}
         sub={data.failures_7d > 0 ? `${data.failures_7d} 次失败` : '运行良好'}
         colorClass={successColor}
       />
