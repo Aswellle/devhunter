@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { ChevronDown, ChevronRight, ExternalLink, Star, Rss } from 'lucide-react'
 import { clsx } from 'clsx'
 import { useQuery } from '@tanstack/react-query'
-import type { Thread, ThreadWithItems } from '../../types'
+import type { Thread } from '../../types'
 import { formatDistanceToNow } from '../../utils/time'
 import { threadsApi } from '../../api/threads'
 

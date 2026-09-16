@@ -5,7 +5,6 @@
  */
 import { useQuery } from '@tanstack/react-query'
 import { userPrefsApi } from '../api/user_prefs'
-import { Spinner } from '../components/ui/Spinner'
 import { Empty } from '../components/ui/Empty'
 import { SkeletonList } from '../components/ui/Skeleton'
 
@@ -81,7 +80,7 @@ export function ProfilePage() {
             <h2 className="text-lg font-semibold mb-3">阅读偏好</h2>
             {affinities?.length ? (
               <div className="grid gap-3 sm:grid-cols-2">
-                {affinities.map((aff) => (
+                {affinities.map((aff: { affinity_type: string; affinity_value: string; affinity_score: number }) => (
                   <div key={`${aff.affinity_type}:${aff.affinity_value}`} className="p-3 border rounded-lg">
                     <div className="flex items-center justify-between mb-1">
                       <span className="font-medium">{aff.affinity_value}</span>

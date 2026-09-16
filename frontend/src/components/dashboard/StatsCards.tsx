@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import { Activity, CheckCircle, Download, RefreshCw, Zap } from 'lucide-react'
+import { CheckCircle, Download, RefreshCw, Zap } from 'lucide-react'
 import { statsApi } from '../../api/stats'
 import { Spinner } from '../ui/Spinner'
 

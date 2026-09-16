@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
-import { Rss, Sparkles, TrendingUp } from 'lucide-react'
+import { ChevronDown, ChevronRight, Rss, Sparkles, TrendingUp } from 'lucide-react'
 import { clsx } from 'clsx'
 import { threadsApi } from '../api/threads'
 import { userPrefsApi } from '../api/user_prefs'
