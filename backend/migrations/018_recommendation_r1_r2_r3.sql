@@ -20,7 +20,13 @@ CREATE TABLE IF NOT EXISTS user_interactions_new (
 );
 
 INSERT INTO user_interactions_new (id, item_id, interaction_type, dwell_seconds, weight, created_at)
-SELECT id, item_id, interaction_type, dwell_seconds, 1.0, created_at
+SELECT id, item_id,
+    CASE interaction_type
+        WHEN 'view' THEN 'impression'
+        WHEN 'click' THEN 'click_source'
+        ELSE interaction_type
+    END,
+    dwell_seconds, 1.0, created_at
 FROM user_interactions;
 
 DROP TABLE user_interactions;
