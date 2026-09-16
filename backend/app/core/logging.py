@@ -9,7 +9,17 @@ from typing import Any
 from app.core.config import settings
 
 
-class JSONFormatter(logging.Formatter):
+class _RequestIdFilter(logging.Filter):
+    """
+    A1: 从 contextvars 注入 request_id 到 log record。
+    由 RequestIdMiddleware 在请求处理前设置，确保全链路日志可关联。
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        from app.core.request_id import get_current_request_id
+        record.request_id = get_current_request_id()
+        return True
+
     """将日志格式化为 JSON 单行输出"""
 
     def format(self, record: logging.LogRecord) -> str:
@@ -23,8 +33,8 @@ class JSONFormatter(logging.Formatter):
             "message": record.getMessage(),
         }
 
-        # 注入上下文字段（task_id, execution_id 等）
-        for key in ("task_id", "execution_id", "url"):
+        # 注入上下文字段（task_id, execution_id, request_id 等）
+        for key in ("task_id", "execution_id", "request_id", "url"):
             if hasattr(record, key):
                 log_data[key] = getattr(record, key)
 
@@ -49,7 +59,7 @@ def setup_logging() -> None:
 
     handler = logging.StreamHandler(sys.stdout)
     handler.setLevel(log_level)
-
+    handler.addFilter(_RequestIdFilter())
     if settings.log_format == "json":
         handler.setFormatter(JSONFormatter(datefmt="%Y-%m-%dT%H:%M:%S"))
     else:

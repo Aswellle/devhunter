@@ -5,6 +5,11 @@ app/core/exceptions.py
 from typing import Any
 
 
+
+
+# ── 4xx 客户端错误 ────────────────────────────────────────
+
+
 class DevHunterError(Exception):
     """所有业务异常的基类"""
 
@@ -17,8 +22,10 @@ class DevHunterError(Exception):
         self.extra = kwargs
         super().__init__(self.message)
 
-
-# ── 4xx 客户端错误 ────────────────────────────────────────
+    @property
+    def details(self) -> dict:
+        """A2: 额外错误详情，会出现在统一错误响应中。"""
+        return dict(self.extra) if self.extra else {}
 
 class BadRequestError(DevHunterError):
     status_code = 400
