@@ -16,6 +16,19 @@ from app.services.item_service import item_service
 router = APIRouter(prefix="/items", tags=["items"])
 
 
+class ItemCountResponse(BaseModel):
+    total: int
+    by_task: dict[str, dict[str, int]]
+
+
+@router.get("/counts", response_model=ItemCountResponse)
+def get_counts(_: str = Depends(require_auth)):
+    """Get item counts per task for filter bar badges"""
+    counts = item_service.get_counts_by_task()
+    total = item_service.get_total_count()
+    return ItemCountResponse(total=total, by_task=counts)
+
+
 class ItemBatchDelete(BaseModel):
     ids: list[str] = Field(..., min_length=1, max_length=500)
 

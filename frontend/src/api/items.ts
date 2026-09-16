@@ -10,9 +10,17 @@ export interface ItemsQuery {
   per_page?: number
 }
 
+export interface ItemCounts {
+  total: number
+  by_task: Record<string, { total: number; unread: number }>
+}
+
 export const itemsApi = {
   list: (params?: ItemsQuery) =>
     client.get<PaginatedResponse<Item>>('/items', { params }).then((r) => r.data),
+
+  counts: () =>
+    client.get<ItemCounts>('/items/counts').then((r) => r.data),
 
   patch: (id: string, data: { is_read?: boolean; is_starred?: boolean }) =>
     client.patch<Item>(`/items/${id}`, data).then((r) => r.data),

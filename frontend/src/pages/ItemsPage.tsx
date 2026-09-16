@@ -91,6 +91,13 @@ export function ItemsPage() {
     queryFn: () => tasksApi.list({ per_page: 100 }),
   })
 
+  // Fetch counts for filter bar badges (independent of item list pagination)
+  const { data: countsData } = useQuery({
+    queryKey: ['items-counts'],
+    queryFn: itemsApi.counts,
+    staleTime: 30_000,
+  })
+
   // Fetch Threads (only when in thread view)
   const { data: threadsPage } = useQuery({
     queryKey: ['threads', filters.task_id],
@@ -102,18 +109,10 @@ export function ItemsPage() {
     enabled: viewMode === 'thread',
   })
 
-  // Compute category counts
+  // Compute category counts from dedicated counts API (stable across filter changes)
   const categoryCounts = useMemo<Record<string, { total: number; unread: number }>>(() => {
-    if (!data?.items) return {}
-    const counts: Record<string, { total: number; unread: number }> = {}
-    for (const item of data.items) {
-      const key = item.task_id || 'unknown'
-      if (!counts[key]) counts[key] = { total: 0, unread: 0 }
-      counts[key].total++
-      if (!item.is_read) counts[key].unread++
-    }
-    return counts
-  }, [data?.items])
+    return countsData?.by_task || {}
+  }, [countsData])
 
   // Group items by task_id
   const groupedItems = useMemo<GroupedItems[]>(() => {
@@ -285,7 +284,7 @@ export function ItemsPage() {
   }
 
   return (
-    <div className={clsx('max-w-4xl mx-auto px-4 sm:px-6 py-6', totalSelected > 0 && 'pb-24')}>
+    <div className="max-w-4xl mx-auto px-4 sm:px-6 py-6">
 
       {/* Page header */}
       <div className="mb-5">
@@ -342,7 +341,7 @@ export function ItemsPage() {
           onChange={handleFilterChange}
           tasks={tasksPage?.items ?? []}
           categoryCounts={categoryCounts}
-          totalCount={data?.total}
+          totalCount={countsData?.total ?? data?.total}
           useNewLayout={true}
         />
       </div>
@@ -553,7 +552,7 @@ export function ItemsPage() {
 
             {/* Batch actions bar */}
             {totalSelected > 0 && (
-              <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50">
+              <div className="sticky bottom-4 z-50 flex justify-center pt-4">
                 <div className="flex items-center gap-3 px-4 py-3 bg-gray-900 text-white rounded-xl shadow-2xl">
                   <span className="text-sm font-medium">
                     已选择 <b>{totalSelected}</b> 条

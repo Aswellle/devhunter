@@ -78,6 +78,26 @@ class ItemRepository:
             ).fetchall()
         return {row["url_hash"] for row in rows}
 
+    def get_counts_by_task(self) -> dict[str, dict[str, int]]:
+        """Get total and unread counts per task_id"""
+        with get_db() as conn:
+            rows = conn.execute("""
+                SELECT task_id,
+                       COUNT(*) as total,
+                       SUM(CASE WHEN is_read = 0 THEN 1 ELSE 0 END) as unread
+                FROM items
+                GROUP BY task_id
+            """).fetchall()
+        return {
+            (row[0] or 'unknown'): {'total': row[1], 'unread': row[2]}
+            for row in rows
+        }
+
+    def get_total_count(self) -> int:
+        """Get total item count"""
+        with get_db() as conn:
+            return conn.execute("SELECT COUNT(*) FROM items").fetchone()[0]
+
     def query(
         self,
         task_id: str | None = None,

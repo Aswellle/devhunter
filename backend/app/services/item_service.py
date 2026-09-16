@@ -12,6 +12,14 @@ logger = logging.getLogger(__name__)
 
 class ItemService:
 
+    def get_counts_by_task(self) -> dict[str, dict[str, int]]:
+        """Get counts per task_id for filter bar badges"""
+        return item_repo.get_counts_by_task()
+
+    def get_total_count(self) -> int:
+        """Get total item count"""
+        return item_repo.get_total_count()
+
     def list_items(
         self,
         task_id: str | None = None,

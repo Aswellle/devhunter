@@ -1,8 +1,10 @@
 import { useState } from 'react'
 import { ChevronDown, ChevronRight, ExternalLink, Star, Rss } from 'lucide-react'
 import { clsx } from 'clsx'
-import type { ThreadWithItems } from '../../types'
+import { useQuery } from '@tanstack/react-query'
+import type { Thread, ThreadWithItems } from '../../types'
 import { formatDistanceToNow } from '../../utils/time'
+import { threadsApi } from '../../api/threads'
 
 // Platform display name mapping
 const PLATFORM_NAMES: Record<string, string> = {
@@ -24,18 +26,27 @@ function PlatformBadge({ name }: { name: string }) {
 }
 
 interface ThreadCardProps {
-  thread: ThreadWithItems
+  thread: Thread
   defaultExpanded?: boolean
 }
 
 export function ThreadCard({ thread, defaultExpanded = false }: ThreadCardProps) {
   const [expanded, setExpanded] = useState(defaultExpanded)
 
+  // Fetch thread details (with items) only when expanded
+  const { data: details } = useQuery({
+    queryKey: ['thread-detail', thread.id],
+    queryFn: () => threadsApi.get(thread.id),
+    enabled: expanded,
+  })
+
   const timeSpan =
     new Date(thread.last_seen_at).getTime() - new Date(thread.first_seen_at).getTime()
   const timeSpanText = timeSpan > 0
     ? `${formatDistanceToNow(thread.first_seen_at)} ~ ${formatDistanceToNow(thread.last_seen_at)}`
     : formatDistanceToNow(thread.first_seen_at)
+
+  const items = details?.items || []
 
   return (
     <div className="card overflow-hidden">
@@ -68,11 +79,11 @@ export function ThreadCard({ thread, defaultExpanded = false }: ThreadCardProps)
           </div>
           <div className="flex items-center gap-2 mt-1 flex-wrap">
             {/* Platform badges */}
-            {thread.platforms.slice(0, 5).map(p => (
+            {(thread.platforms || []).slice(0, 5).map(p => (
               <PlatformBadge key={p} name={p} />
             ))}
-            {thread.platforms.length > 5 && (
-              <span className="text-xs text-gray-400">+{thread.platforms.length - 5}</span>
+            {(thread.platforms?.length || 0) > 5 && (
+              <span className="text-xs text-gray-400">+{(thread.platforms?.length || 0) - 5}</span>
             )}
           </div>
         </div>
@@ -86,55 +97,58 @@ export function ThreadCard({ thread, defaultExpanded = false }: ThreadCardProps)
 
       {/* Items in thread */}
       {expanded && (
-        <div className="border-t border-gray-100">
-          <div className="divide-y divide-gray-100">
-            {thread.items.map(item => (
-              <div key={item.id} className="flex items-start gap-0">
-                {/* Source indicator */}
-                <div className="w-1 self-stretch shrink-0 bg-primary-200" />
-
-                {/* Item content */}
-                <div className="flex-1 min-w-0 pl-3 pr-4 py-3">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="text-xs text-gray-400">{item.task_name}</span>
-                        {!item.is_read && (
-                          <span className="inline-block h-1.5 w-1.5 rounded-full bg-primary-500" />
+        items.length > 0 ? (
+          <div className="border-t border-gray-100">
+            <div className="divide-y divide-gray-100">
+              {items.map(item => (
+                <div key={item.id} className="flex items-start gap-0">
+                  <div className="w-1 self-stretch shrink-0 bg-primary-200" />
+                  <div className="flex-1 min-w-0 pl-3 pr-4 py-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-xs text-gray-400">{item.task_name}</span>
+                          {!item.is_read && (
+                            <span className="inline-block h-1.5 w-1.5 rounded-full bg-primary-500" />
+                          )}
+                        </div>
+                        <h3 className="text-sm font-medium text-gray-900 leading-snug">
+                          <a
+                            href={item.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="hover:text-primary-600 transition-colors"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            {item.title}
+                            <ExternalLink className="h-3 w-3 inline ml-1 opacity-50" />
+                          </a>
+                        </h3>
+                        {item.summary && (
+                          <p className="text-xs text-gray-500 mt-1 line-clamp-2">
+                            {item.summary}
+                          </p>
                         )}
                       </div>
-                      <h3 className="text-sm font-medium text-gray-900 leading-snug">
-                        <a
-                          href={item.url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="hover:text-primary-600 transition-colors"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          {item.title}
-                          <ExternalLink className="h-3 w-3 inline ml-1 opacity-50" />
-                        </a>
-                      </h3>
-                      {item.summary && (
-                        <p className="text-xs text-gray-500 mt-1 line-clamp-2">
-                          {item.summary}
-                        </p>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-1 shrink-0">
-                      {item.is_starred && (
-                        <Star className="h-4 w-4 text-yellow-400 fill-yellow-400" />
-                      )}
-                      <span className="text-xs text-gray-400">
-                        {formatDistanceToNow(item.fetched_at)}
-                      </span>
+                      <div className="flex items-center gap-1 shrink-0">
+                        {item.is_starred && (
+                          <Star className="h-4 w-4 text-yellow-400 fill-yellow-400" />
+                        )}
+                        <span className="text-xs text-gray-400">
+                          {formatDistanceToNow(item.fetched_at)}
+                        </span>
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
-        </div>
+        ) : (
+          <div className="border-t border-gray-100 px-4 py-3 text-sm text-gray-500">
+            {details ? '暂无内容' : '加载中...'}
+          </div>
+        )
       )}
     </div>
   )
