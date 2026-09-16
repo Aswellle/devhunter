@@ -61,6 +61,15 @@ class SchedulerManager:
         从 tasks 表重新加载所有 active 任务并注册 Job。
         启动时调用，确保 Scheduler 与 DB 状态一致。
         """
+        # R1: 进程重启恢复 — 先将所有 stale 'running' 记录标记为 'interrupted'
+        try:
+            from app.repositories.execution_repo import execution_repo
+            recovered = execution_repo.recover_stale_executions()
+            if recovered:
+                logger.info("Recovery: %d stale executions marked as interrupted", recovered)
+        except Exception as e:
+            logger.error("Failed to recover stale executions: %s", e)
+
         from app.repositories.task_repo import task_repo
 
         # 先清空 JobStore（避免旧 Job 与新配置不一致）

@@ -103,22 +103,31 @@ def execute_task(
 def _save_result(
     exec_id: str, task_id: str, status: str, items_fetched: int, items_new: int,
     duration_ms: int, error_message: str | None, executed_at: str, preset_exec: bool,
+    # R2: 新增执行指标参数
+    pages_count: int = 0, items_seen: int = 0, items_created: int = 0,
+    items_deduped: int = 0, last_error_code: str | None = None,
 ) -> None:
     """写入执行结果：preset_exec=True 时 finalize 已存在的 'running' 行，否则 insert 新行。"""
     from app.repositories.execution_repo import execution_repo
-    if preset_exec:
-        execution_repo.finalize(exec_id, {
-            "status": status, "items_fetched": items_fetched, "items_new": items_new,
-            "duration_ms": duration_ms, "error_message": error_message,
-        })
-    else:
-        execution_repo.insert({
-            "id": exec_id, "task_id": task_id, "status": status,
-            "items_fetched": items_fetched, "items_new": items_new,
-            "duration_ms": duration_ms, "error_message": error_message,
-            "executed_at": executed_at,
-        })
 
+    result_data = {
+        "status": status, "items_fetched": items_fetched, "items_new": items_new,
+        "duration_ms": duration_ms, "error_message": error_message,
+        # R2: 执行指标
+        "pages_count": pages_count,
+        "items_seen": items_seen,
+        "items_created": items_created,
+        "items_deduped": items_deduped,
+        "last_error_code": last_error_code,
+    }
+
+    if preset_exec:
+        execution_repo.finalize(exec_id, result_data)
+    else:
+        result_data["id"] = exec_id
+        result_data["task_id"] = task_id
+        result_data["executed_at"] = executed_at
+        execution_repo.insert(result_data)
 
 def _run_task(
     task_id: str, exec_id: str, executed_at_iso: str, started_at: datetime,
@@ -218,6 +227,7 @@ def _run_task(
          {"new": items_new, "duplicates": dup_count})
 
     # ── Step 5: 写入数据库 ───────────────────────────────
+    _save_called = False  # R3: 标记是否已在事务中写入执行结果
     if new_items:
         _pub(task_id, "save_start",
              f"正在写入 {items_new} 条新数据…",
@@ -229,38 +239,56 @@ def _run_task(
             "url_hash":  item.url_hash,
             "summary":   item.summary,
             "fetched_at": executed_at_iso,
+            "external_id": item.external_id or None,
+            "content_hash": item.content_hash or None,
         } for item in new_items]
-        item_repo.bulk_insert(records)
+
+        # R3: 将 item 插入和执行结果记录包装在同一事务中，
+        # 防止进程崩溃导致"有 items 无 execution record"或反之。
+        if preset_exec:
+            from app.core.database import transaction
+            with transaction() as conn:
+                item_repo.bulk_insert(records, conn=conn)
+                execution_repo.finalize(exec_id, {
+                    "status": "success", "items_fetched": items_fetched,
+                    "items_new": items_new, "duration_ms": duration_ms,
+                    "error_message": None, "pages_count": result.pages_fetched,
+                    "items_seen": result.list_count, "items_created": items_new,
+                    "items_deduped": dup_count,
+                }, conn=conn)
+            _save_called = True
+        else:
+            item_repo.bulk_insert(records)
+
         _pub(task_id, "save_done",
              f"已保存 {items_new} 条到数据库",
              {"saved": items_new})
 
         # ── Step 5.5: 计算 Thread 归属 ─────────────────────
-        if new_items:
-            _pub(task_id, "thread_start", "正在计算多平台聚合…")
-            try:
-                from app.services.thread_service import thread_service
-                # 重新获取刚插入的 items（带 DB ID）
-                recent = item_repo.query(
-                    task_id=task_id,
-                    search=None,
-                    starred=None,
-                    is_read=None,
-                    page=1,
-                    per_page=items_new,
-                )[0]
-                # 只取当前批次刚插入的（按 fetched_at 匹配）
-                new_records = [
-                    r for r in recent
-                    if r.get("fetched_at", "") == executed_at_iso
-                ]
-                if new_records:
-                    thread_service.compute_threads_for_items(new_records)
-                    _pub(task_id, "thread_done",
-                         f"Thread 聚合完成")
-            except Exception as e:
-                logger.warning("Thread compute failed: %s", e)
-                _pub(task_id, "thread_skip", "Thread 聚合跳过")
+        _pub(task_id, "thread_start", "正在计算多平台聚合…")
+        try:
+            from app.services.thread_service import thread_service
+            # 重新获取刚插入的 items（带 DB ID）
+            recent = item_repo.query(
+                task_id=task_id,
+                search=None,
+                starred=None,
+                is_read=None,
+                page=1,
+                per_page=items_new,
+            )[0]
+            # 只取当前批次刚插入的（按 fetched_at 匹配）
+            new_records = [
+                r for r in recent
+                if r.get("fetched_at", "") == executed_at_iso
+            ]
+            if new_records:
+                thread_service.compute_threads_for_items(new_records)
+                _pub(task_id, "thread_done",
+                     f"Thread 聚合完成")
+        except Exception as e:
+            logger.warning("Thread compute failed: %s", e)
+            _pub(task_id, "thread_skip", "Thread 聚合跳过")
 
         # 推送前 3 条新条目预览
         preview = [
@@ -278,8 +306,15 @@ def _run_task(
     is_empty   = items_fetched == 0
     exec_status = "warning" if is_empty else "success"
 
-    _save_result(exec_id, task_id, exec_status, items_fetched, items_new, duration_ms,
-                None, executed_at_iso, preset_exec=preset_exec)
+    # R3: 如果已在 Step 5 的事务中 finalize，跳过重复写入
+    if not _save_called:
+        _save_result(exec_id, task_id, exec_status, items_fetched, items_new, duration_ms,
+                    None, executed_at_iso, preset_exec=preset_exec,
+                    pages_count=result.pages_fetched,
+                    items_seen=result.list_count,
+                    items_created=items_new,
+                    items_deduped=dup_count)
+
     task_repo.update_execution_stats(task_id, success=True,
                                      empty=is_empty, executed_at=executed_at_iso)
 

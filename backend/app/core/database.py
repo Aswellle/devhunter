@@ -39,6 +39,30 @@ def get_db() -> Generator[sqlite3.Connection, None, None]:
         conn.close()
 
 
+@contextmanager
+def transaction() -> Generator[sqlite3.Connection, None, None]:
+    """
+    R3: 显式事务上下文管理器。
+    用于需要跨多个 Repository 方法保持原子性的场景（如 item insert + execution finalize）。
+
+    用法::
+
+        with transaction() as conn:
+            item_repo.bulk_insert(records, conn=conn)
+            execution_repo.finalize(exec_id, data, conn=conn)
+    """
+    conn = get_connection()
+    conn.execute("BEGIN")
+    try:
+        yield conn
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
 def _strip_line_comment(line: str) -> str:
     """
     去除行尾的单行注释（-- ...），保留字符串字面量内的 --。
