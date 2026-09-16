@@ -1,0 +1,11 @@
+# 开发环境 override：docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+# 用途：将后端端口映射到宿主机，便于本地直接访问 API 进行开发调试。
+# 生产环境请勿使用此文件。
+
+services:
+  backend:
+    ports:
+      - "8001:8000"
+    environment:
+      APP_ENV: development
+      APP_DEBUG: "true"

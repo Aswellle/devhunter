@@ -15,5 +15,6 @@ devhunter.zip
 .future-improvements/
 AUDIT.md
 ---
-# Review report - not tracked in git
-DevHunter_全面综合审查与优化实施方案.md
+# Review report - not tracked in git (all variants)
+DevHunter_*.md
+prompt.md

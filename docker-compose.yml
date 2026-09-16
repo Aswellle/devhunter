@@ -9,13 +9,11 @@ services:
     container_name: devhunter-backend
     restart: unless-stopped
     environment:
-      APP_ENV: production
-      APP_HOST: 0.0.0.0
-      APP_PORT: 8000
-      APP_DEBUG: "false"
-      DB_PATH: /data/devhunter.db
-      AUTH_PASSWORD: ${AUTH_PASSWORD:-devhunter123}
-      SECRET_KEY: ${SECRET_KEY:-change-me-please-use-openssl-rand-hex-32}
+      # ⚠️ 生产环境必须通过 .env 文件设置真实值，不提供任何 fallback 默认值。
+      # 若 AUTH_PASSWORD 或 SECRET_KEY 为空/占位符，后端启动时会拒绝启动。
+      # 使用方式：cp backend/.env.example backend/.env 并填写真实值
+      AUTH_PASSWORD: ${AUTH_PASSWORD}
+      SECRET_KEY: ${SECRET_KEY}
       JWT_EXPIRE_MINUTES: "10080"
       CRAWLER_TIMEOUT: "15"
       CRAWLER_MAX_RESPONSE_MB: "5"
@@ -24,11 +22,14 @@ services:
       LOG_FORMAT: json
       # 浏览器可见的前端 origin；http://frontend 是 Docker 内部服务名，
       # 浏览器永远不会把它当作 Origin 发送，此前留在这里是死配置。
-      CORS_ORIGINS: http://localhost,http://localhost:80
+      CORS_ORIGINS: http://localhost,http://localhost:80,https://localhost
     volumes:
       - devhunter_data:/data
-    ports:
-      - "8001:8000"
+    # 生产环境通过内部网络通信，不再映射宿主机端口。
+    # 前端 Nginx 通过服务名 backend:8000 反向代理访问后端。
+    # 开发环境如需直连 API，使用 docker-compose.dev.yml override。
+    expose:
+      - "8000"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
