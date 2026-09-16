@@ -2,6 +2,9 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   U1: Global Design Tokens
+   ═══════════════════════════════════════════════════════════════════════════ */
 @layer base {
   * {
     box-sizing: border-box;
@@ -12,147 +15,248 @@
   body {
     @apply bg-gray-50 text-gray-900 antialiased;
   }
-}
 
-@layer components {
-  .btn {
-    @apply inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed;
-  }
-  .btn-primary {
-    @apply btn bg-primary-600 text-white hover:bg-primary-700;
-  }
-  .btn-ghost {
-    @apply btn text-gray-600 hover:bg-gray-100;
-  }
-  .btn-danger {
-    @apply btn bg-red-600 text-white hover:bg-red-700;
-  }
-  .input {
-    @apply block w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500;
-  }
-  .label {
-    @apply block text-sm font-medium text-gray-700 mb-1;
-  }
-  .card {
-    @apply bg-white rounded-lg border border-gray-200 shadow-sm;
-  }
-  .badge {
-    @apply inline-flex items-center px-2 py-0.5 rounded text-xs font-medium;
-  }
-  .badge-green  { @apply badge bg-green-100 text-green-800; }
-  .badge-red    { @apply badge bg-red-100 text-red-800; }
-  .badge-yellow { @apply badge bg-yellow-100 text-yellow-800; }
-  .badge-primary { @apply badge bg-primary-100 text-primary-800; }
-  .badge-gray   { @apply badge bg-gray-100 text-gray-600; }
+  /* U1: Semantic design tokens — 全局视觉变量 */
+  :root {
+    /* Surfaces */
+    --bg:               #f9fafb;
+    --surface:          #ffffff;
+    --surface-elevated: #ffffff;
+    --surface-hover:    #f3f4f6;
+    --surface-active:   #eff6ff;
 
-  /* Focus visible ring for custom interactive elements */
-  [role="checkbox"]:focus-visible {
-    @apply ring-2 ring-primary-500 ring-offset-1;
+    /* Borders */
+    --border-subtle:    #e5e7eb;
+    --border-default:   #d1d5db;
+    --border-strong:    #9ca3af;
+
+    /* Text */
+    --text-primary:     #111827;
+    --text-secondary:   #4b5563;
+    --text-muted:       #9ca3af;
+
+    /* Accent */
+    --accent:           #2563eb;
+    --accent-hover:     #1d4ed8;
+    --accent-light:     #dbeafe;
+
+    /* Semantic */
+    --success:          #16a34a;
+    --success-light:    #dcfce7;
+    --warning:          #d97706;
+    --warning-light:    #fef3c7;
+    --danger:           #dc2626;
+    --danger-light:     #fee2e2;
+
+    /* Focus */
+    --focus-ring:       0 0 0 2px #dbeafe;
+    --focus-ring-color: #3b82f6;
+
+    /* Shadows */
+    --shadow-sm:        0 1px 2px rgba(0,0,0,0.05);
+    --shadow-md:        0 4px 6px -1px rgba(0,0,0,0.1);
+
+    /* Radius */
+    --radius-sm:        0.375rem;
+    --radius-md:        0.5rem;
+    --radius-lg:        0.75rem;
+    --radius-full:      9999px;
+  }
+
+  /* U7: Visible focus ring for keyboard users */
+  :focus-visible {
+    outline: 2px solid var(--focus-ring-color);
+    outline-offset: 2px;
+  }
+
+  /* U7: Reduced motion respect */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
   }
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
+   U2: Unified Component Classes
+   ═══════════════════════════════════════════════════════════════════════════ */
+@layer components {
+  /* U2/U5: Button system with full interaction states */
+  .btn {
+    @apply inline-flex items-center justify-center gap-1.5 rounded-md text-sm font-medium transition-all;
+    padding: 0.375rem 0.75rem;
+    line-height: 1.25rem;
+    border: 1px solid transparent;
+  }
+  .btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    pointer-events: none;
+  }
+  .btn:focus-visible {
+    box-shadow: var(--focus-ring);
+  }
+  .btn-primary {
+    background: var(--accent);
+    color: #ffffff;
+    border-color: var(--accent);
+  }
+  .btn-primary:hover:not(:disabled) {
+    background: var(--accent-hover);
+    border-color: var(--accent-hover);
+  }
+  .btn-ghost {
+    background: transparent;
+    color: var(--text-secondary);
+    border-color: transparent;
+  }
+  .btn-ghost:hover:not(:disabled) {
+    background: var(--surface-hover);
+  }
+  .btn-danger {
+    background: var(--danger);
+    color: #ffffff;
+    border-color: var(--danger);
+  }
+  .btn-danger:hover:not(:disabled) {
+    background: #b91c1c;
+  }
+  .btn-sm {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.8125rem;
+  }
+
+  /* U2: Input */
+  .input {
+    @apply block w-full rounded-md text-sm;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--border-default);
+    background: var(--surface);
+    color: var(--text-primary);
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  }
+  .input:focus {
+    border-color: var(--accent);
+    box-shadow: var(--focus-ring);
+    outline: none;
+  }
+  .input:disabled {
+    background: var(--bg);
+    color: var(--text-muted);
+  }
+
+  /* U3: Card — surface contrast instead of heavy borders */
+  .card {
+    background: var(--surface);
+    border-radius: var(--radius-lg);
+    /* U3: subtle border + shadow instead of strong border */
+    border: 1px solid var(--border-subtle);
+    box-shadow: var(--shadow-sm);
+    transition: box-shadow 0.15s ease;
+  }
+  .card:hover {
+    box-shadow: var(--shadow-md);
+  }
+
+  /* U2: Badge system */
+  .badge {
+    @apply inline-flex items-center rounded-full font-medium;
+    padding: 0.125rem 0.5rem;
+    font-size: 0.6875rem;
+    line-height: 1rem;
+    font-weight: 600;
+  }
+  .badge-green  { background: var(--success-light); color: var(--success); }
+  .badge-red    { background: var(--danger-light); color: var(--danger); }
+  .badge-yellow { background: var(--warning-light); color: var(--warning); }
+  .badge-primary { background: var(--accent-light); color: var(--accent); }
+  .badge-gray   { background: var(--surface-hover); color: var(--text-muted); }
+
+  /* U5: Loading state */
+  .loading-pulse {
+    animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+  }
+
+  /* U6: Mobile responsive container */
+  .page-container {
+    @apply max-w-4xl mx-auto px-4 sm:px-6 py-6;
+  }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
    FilterBar Component System - CSS Custom Properties
-   ═══════════════════════════════════════════════════════════════════════════
-
-   Theming approach: All visual properties are controlled via CSS variables.
-   Override these variables to customize the filter bar appearance without
-   touching the component code.
-
-   Usage example in your custom CSS:
-   ```css
-   .my-custom-theme {
-     --filter-pill-bg: #f3f4f6;
-     --filter-pill-active-bg: #6366f1;
-     --filter-pill-active-color: #ffffff;
-     --filter-pill-border-radius: 9999px;
-   }
-   ```
    ═══════════════════════════════════════════════════════════════════════════ */
 
 :root {
-  /* ── Filter Pill (Base) ───────────────────────────────────── */
   --filter-pill-bg: theme('colors.gray.100');
   --filter-pill-color: theme('colors.gray.600');
-  --filter-pill-border-radius: 9999px;      /* fully rounded */
-  --filter-pill-padding-x: 0.75rem;          /* 12px */
-  --filter-pill-padding-y: 0.375rem;        /* 6px */
-  --filter-pill-font-size: 0.8125rem;        /* 13px */
+  --filter-pill-border-radius: 9999px;
+  --filter-pill-padding-x: 0.75rem;
+  --filter-pill-padding-y: 0.375rem;
+  --filter-pill-font-size: 0.8125rem;
   --filter-pill-font-weight: 500;
-  --filter-pill-gap: 0.25rem;               /* gap between label and badge */
+  --filter-pill-gap: 0.25rem;
   --filter-pill-transition: background-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
-
-  /* ── Filter Pill (Active state) ────────────────────────────── */
   --filter-pill-active-bg: theme('colors.primary.600');
   --filter-pill-active-color: theme('colors.white');
   --filter-pill-active-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
-
-  /* ── Filter Pill (Hover state) ────────────────────────────── */
   --filter-pill-hover-bg: theme('colors.gray.200');
-
-  /* ── Filter Pill Badge ──────────────────────────────────────── */
   --filter-pill-badge-bg: theme('colors.gray.200');
   --filter-pill-badge-active-bg: theme('colors.primary.200');
   --filter-pill-badge-color: theme('colors.gray.500');
   --filter-pill-badge-active-color: theme('colors.primary.800');
-  --filter-pill-badge-font-size: 0.6875rem;  /* 11px */
-  --filter-pill-badge-min-width: 1.25rem;    /* 20px - ensures circular badge */
+  --filter-pill-badge-font-size: 0.6875rem;
+  --filter-pill-badge-min-width: 1.25rem;
   --filter-pill-badge-height: 1.25rem;
   --filter-pill-badge-border-radius: 9999px;
-
-  /* ── Filter Pill Group ─────────────────────────────────────── */
-  --filter-pill-group-gap: 0.5rem;           /* gap between pills */
-  --filter-pill-group-padding: 0.25rem;     /* inner padding */
-
-  /* ── Filter Pill Group (Horizontal scroll variant) ─────────── */
-  --filter-pill-group-scroll-padding: 1rem; /* edge padding for scroll container */
+  --filter-pill-group-gap: 0.5rem;
+  --filter-pill-group-padding: 0.25rem;
+  --filter-pill-group-scroll-padding: 1rem;
   --filter-pill-group-scroll-overflow-x: auto;
   --filter-pill-group-scroll-snap-type: x mandatory;
   --filter-pill-group-scroll-hide-scrollbar: hidden;
-
-  /* ── Filter Bar Layout ─────────────────────────────────────── */
-  --filter-bar-row-gap: 0.75rem;            /* vertical gap between rows */
+  --filter-bar-row-gap: 0.75rem;
   --filter-bar-row-padding: 0.5rem;
   --filter-bar-bg: transparent;
-
-  /* ── Focus ring ─────────────────────────────────────────────── */
   --filter-pill-focus-ring: 0 0 0 2px theme('colors.primary.200');
 }
 
-/* ── Dark theme (via data-theme="dark" on html) ──────────────────── */
 [data-theme="dark"] {
   --filter-pill-bg: theme('colors.gray.700');
   --filter-pill-color: theme('colors.gray.300');
   --filter-pill-hover-bg: theme('colors.gray.600');
-
   --filter-pill-active-bg: theme('colors.primary.500');
   --filter-pill-active-color: theme('colors.white');
   --filter-pill-active-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
-
   --filter-pill-badge-bg: theme('colors.gray.600');
   --filter-pill-badge-active-bg: theme('colors.primary.900');
   --filter-pill-badge-color: theme('colors.gray.400');
   --filter-pill-badge-active-color: theme('colors.primary.200');
-
   --filter-bar-row-bg: theme('colors.gray.800/50');
 }
 
-/* ── System preference dark mode ────────────────────────────────── */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     --filter-pill-bg: theme('colors.gray.700');
     --filter-pill-color: theme('colors.gray.300');
     --filter-pill-hover-bg: theme('colors.gray.600');
-
     --filter-pill-active-bg: theme('colors.primary.500');
     --filter-pill-active-color: theme('colors.white');
     --filter-pill-active-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
-
     --filter-pill-badge-bg: theme('colors.gray.600');
     --filter-pill-badge-active-bg: theme('colors.primary.900');
     --filter-pill-badge-color: theme('colors.gray.400');
     --filter-pill-badge-active-color: theme('colors.primary.200');
-
     --filter-bar-row-bg: theme('colors.gray.800/50');
   }
 }
@@ -161,7 +265,6 @@
    FilterBar Component Styles
    ═══════════════════════════════════════════════════════════════════════════ */
 
-/* ── Filter bar root ─────────────────────────────────────────────── */
 .filter-bar {
   display: flex;
   flex-direction: column;
@@ -169,7 +272,6 @@
   background: var(--filter-bar-bg);
 }
 
-/* ── Filter bar rows ─────────────────────────────────────────────── */
 .filter-bar__row {
   display: flex;
   align-items: center;
@@ -179,7 +281,6 @@
   background: var(--filter-bar-row-bg, transparent);
 }
 
-/* ── Pill group (role=radiogroup) ───────────────────────────────── */
 .filter-pill-group {
   display: flex;
   align-items: center;
@@ -187,7 +288,6 @@
   padding: var(--filter-pill-group-padding);
 }
 
-/* Horizontal scroll variant */
 .filter-pill-group--scroll {
   overflow-x: var(--filter-pill-group-scroll-overflow-x);
   scroll-snap-type: var(--filter-pill-group-scroll-snap-type);
@@ -200,14 +300,12 @@
   visibility: hidden;
 }
 
-/* Add edge padding when scrolling */
 @supports (padding-inline: 1px) {
   .filter-pill-group--scroll {
     padding-inline: var(--filter-pill-group-scroll-padding, 1rem);
   }
 }
 
-/* ── Filter pill (role=radio button) ────────────────────────────── */
 .filter-pill {
   display: inline-flex;
   align-items: center;
@@ -242,14 +340,12 @@
   box-shadow: var(--filter-pill-active-shadow);
 }
 
-/* ── Pill label ──────────────────────────────────────────────────── */
 .filter-pill__label {
   display: inline-flex;
   align-items: center;
   gap: 0.25rem;
 }
 
-/* ── Pill badge (count) ──────────────────────────────────────────── */
 .filter-pill__badge {
   display: inline-flex;
   align-items: center;
@@ -270,14 +366,12 @@
   background: var(--filter-pill-badge-active-bg);
 }
 
-/* ── Pill icon ──────────────────────────────────────────────────── */
 .filter-pill__icon {
   display: inline-flex;
   align-items: center;
   flex-shrink: 0;
 }
 
-/* ── Read status pills ──────────────────────────────────────────── */
 .filter-pill--read-status .filter-pill__icon {
   margin-right: 0.125rem;
 }
@@ -290,5 +384,5 @@
 
 /* ── 移动端安全区域 ──────────────────────────────────── */
 @media (max-width: 767px) {
-  .card { border-radius: 0.5rem; }
+  .card { border-radius: var(--radius-md); }
 }
