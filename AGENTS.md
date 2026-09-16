@@ -949,3 +949,14 @@ observability + regression tests
   - **禁止通过 `gh repo edit --visibility` 切换任何仓库的可见性**：除非用户明确要求且已书面确认接受丢失 star/fork 的后果。
 
   - **禁止通过其他任何手段（API、浏览器设置等）修改仓库可见性**：本规则覆盖所有可能的可见性修改方式。
+### 设计系统规范
+
+所有视觉和 UI 决策必须遵循 `DESIGN.md` 中定义的设计系统。
+
+核心规则：
+- 颜色使用 DESIGN.md 中定义的色板，不引入新颜色
+- 字体使用 Geist（正文）、General Sans（标题）、Geist Mono（数据/代码）
+- 间距使用 8px 基准的紧凑密度
+- 强调色 #2563EB 只用于可交互元素，不做装饰
+- 侧边栏保持高对比度：#D1D5DB（未激活）/ #FFFFFF（激活）/ #2563EB（激活背景）
+- 在 QA 模式下，任何不符合 DESIGN.md 的代码都应被标记
