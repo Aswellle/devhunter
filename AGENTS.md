@@ -935,7 +935,10 @@ observability + regression tests
 
   - commit message 中禁止包含任何 `Co-Authored-By` 署名（包括但不限于 Claude、Anthropic、noreply@anthropic.com 等任何 AI 相关署名）
 
-  - 所有提交仅保留用户本人的 git 作者信息（`用户名 <邮箱>`）
+
+  - **禁止在提交信息中包含审查报告相关信息**：任何提交的 message 中不得出现 `DevHunter_全面综合审查与优化实施方案`、`审查报告`、`audit report` 等字样
+
+  - **禁止将审查报告推送到远程仓库**：`DevHunter_全面综合审查与优化实施方案.md` 已被移除并加入 `.gitignore`，不得以任何形式（文件、片段、引用）推送到远程
 
   - 创建 PR 时同样不添加任何 AI 合作者信息
 
