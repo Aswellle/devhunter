@@ -27,10 +27,11 @@ def _row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
 
 class ItemRepository:
 
-    def bulk_insert(self, items: list[dict]) -> int:
+    def bulk_insert(self, items: list[dict], conn: sqlite3.Connection | None = None) -> int:
         """
         批量插入新条目（已经过去重，直接插入）。
         返回成功插入数量。
+        R3: 支持传入外部 connection 以参与事务。
         """
         if not items:
             return 0
@@ -38,15 +39,17 @@ class ItemRepository:
         now = _now_iso()
         inserted = 0
 
-        with get_db() as conn:
+        def _do_insert(conn_: sqlite3.Connection) -> int:
+            ins = 0
             for item in items:
                 item_id = item.get("id") or str(uuid.uuid4())
                 try:
-                    conn.execute(
+                    conn_.execute(
                         """
                         INSERT INTO items
-                            (id, task_id, title, url, url_hash, summary, fetched_at, created_at)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                            (id, task_id, title, url, url_hash, summary, fetched_at, created_at,
+                             external_id, content_hash)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                         (
                             item_id,
@@ -57,15 +60,46 @@ class ItemRepository:
                             item.get("summary") or "",
                             item.get("fetched_at") or now,
                             now,
+                            item.get("external_id") or None,
+                            item.get("content_hash") or None,
                         ),
                     )
-                    inserted += 1
+                    ins += 1
                 except sqlite3.IntegrityError:
                     # url_hash UNIQUE 冲突（极少数竞争情况）
                     logger.debug("Duplicate url_hash, skip: %s", item.get("url_hash", "")[:16])
-
+            return ins
         return inserted
 
+    # D1: 按 external_id 批量查询已存在的 ID
+    def find_existing_external_ids(self, external_ids: list[str], task_id: str = "") -> set[str]:
+        """查询哪些 external_id 已存在，返回已存在的 ID 集合。
+        若提供 task_id，则只查该任务内的；否则全局查询。
+        """
+        if not external_ids:
+            return set()
+        placeholders = ",".join(["?"] * len(external_ids))
+        params: list[Any] = list(external_ids)
+        sql = f"SELECT external_id FROM items WHERE external_id IN ({placeholders})"
+        if task_id:
+            sql += " AND task_id = ?"
+            params.append(task_id)
+        with get_db() as conn:
+            rows = conn.execute(sql, params).fetchall()
+        return {row["external_id"] for row in rows if row["external_id"]}
+
+    # D1: 按 content_hash 批量查询已存在的内容指纹
+    def find_existing_content_hashes(self, content_hashes: list[str]) -> set[str]:
+        """查询哪些 content_hash 已存在，返回已存在的 hash 集合。"""
+        if not content_hashes:
+            return set()
+        placeholders = ",".join(["?"] * len(content_hashes))
+        with get_db() as conn:
+            rows = conn.execute(
+                f"SELECT content_hash FROM items WHERE content_hash IN ({placeholders})",
+                content_hashes,
+            ).fetchall()
+        return {row["content_hash"] for row in rows if row["content_hash"]}
     def find_existing_hashes(self, hashes: list[str]) -> set[str]:
         """批量查询哪些 url_hash 已存在，返回已存在的 hash 集合"""
         if not hashes:
@@ -159,7 +193,7 @@ class ItemRepository:
                     SELECT i.*, t.name AS task_name
                     {base_from}
                     {where}
-                    ORDER BY i.fetched_at DESC
+                    ORDER BY i.created_at DESC, i.id DESC
                     LIMIT ? OFFSET ?
                     """,
                     params + [per_page, offset],
@@ -211,7 +245,7 @@ class ItemRepository:
                 f"""
                 SELECT i.*, t.name AS task_name
                 {base_from} {where}
-                ORDER BY i.fetched_at DESC
+                ORDER BY i.created_at DESC, i.id DESC
                 LIMIT ? OFFSET ?
                 """,
                 params + [per_page, offset],
