@@ -20,6 +20,8 @@ class _RequestIdFilter(logging.Filter):
         record.request_id = get_current_request_id()
         return True
 
+
+class JSONFormatter(logging.Formatter):
     """将日志格式化为 JSON 单行输出"""
 
     def format(self, record: logging.LogRecord) -> str:
@@ -45,6 +47,7 @@ class _RequestIdFilter(logging.Filter):
             log_data["stack_info"] = self.formatStack(record.stack_info)
 
         return json.dumps(log_data, ensure_ascii=False)
+
 
 
 def setup_logging() -> None:
