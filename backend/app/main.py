@@ -18,7 +18,11 @@ from app.core.rate_limit import limiter
 from app.core.database import close_database, init_database
 from app.core.exceptions import DevHunterError
 from app.core.http_client import close_http_client
-from app.core.logging import setup_logging
+from app.core.logging import setup_logging, get_logger
+from app.core.request_id import RequestIdMiddleware
+from app.scheduler.manager import scheduler_manager
+
+logger = get_logger(__name__)
 from app.core.request_id import RequestIdMiddleware
 from app.scheduler.manager import scheduler_manager
 

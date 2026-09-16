@@ -66,9 +66,11 @@ class TestRecommendationScorer:
 
     def test_recency_score_recent(self):
         """最近内容 → 高分"""
+        from datetime import datetime, timezone
+        now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         item = {
             "title": "Test",
-            "fetched_at": "2026-09-15T10:00:00Z",
+            "fetched_at": now_iso,
         }
         user_profile = {"topics": {}, "affinities": {}, "engagement_stats": {}}
 

@@ -262,8 +262,10 @@ export function useTaskEventStream({ taskId, active }: { taskId: string | null; 
               type: 'warning',
               message: `⚠️ 连接中断，${(delay / 1000).toFixed(0)}s 后自动重试 (${retryCount.current}/${MAX_RETRIES})`,
             }])
-            const { promise, resolve } = Promise.withResolvers<void>()
-            retryTimer.current = setTimeout(resolve, delay)
+            let retryResolve: () => void
+            const promise = new Promise<void>((r) => { retryResolve = r })
+            retryTimer.current = setTimeout(() => retryResolve(), delay)
+
             await promise
           } else {
             clearTimeout(stuckTimerId)

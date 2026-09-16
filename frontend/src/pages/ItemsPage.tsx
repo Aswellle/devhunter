@@ -23,6 +23,7 @@ interface Filters {
   task_id: string
   starred: boolean | undefined
   is_read: boolean | undefined
+  [key: string]: unknown
 }
 
 interface GroupedItems {

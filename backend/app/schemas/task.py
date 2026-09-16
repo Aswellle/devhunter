@@ -46,7 +46,29 @@ PRESET_TEMPLATES = {
     "reddit_ideas",
 }
 
-# ── Selector 复杂度限制（ReDoS 防护）──────────────────────
+
+_MAX_SELECTOR_LEN = 500
+
+
+def _validate_selector(v: str | None, field_name: str = "selector") -> str | None:
+    """
+    通用 selector 校验：长度限制 + soupsieve 语法校验。
+    允许 None/空，允许 json:/json-post: 前缀路径。
+    """
+    if v is None or not v.strip():
+        return None
+    v = v.strip()
+    if len(v) > _MAX_SELECTOR_LEN:
+        raise ValueError(f"{field_name} exceeds max length {_MAX_SELECTOR_LEN}")
+    if v.startswith("json:") or v.startswith("json-post:"):
+        return v
+    # 纯 CSS：走 soupsieve 校验
+    try:
+        sv.compile(v)
+    except sv.SelectorSyntaxError as e:
+        raise ValueError(f"{field_name} is not a valid CSS selector: {e}")
+    return v
+
 def _validate_next_page_selector(v: str | None) -> str | None:
     """
     selector_next_page 校验：允许 None/空，允许 json:/json-post: 前缀路径，
