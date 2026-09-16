@@ -15,10 +15,14 @@ interface TaskCardProps {
   onViewHistory: (task: Task) => void
 }
 
+// 连续空结果次数阈值：超过此值显示警告
+const CONSECUTIVE_EMPTY_WARNING_THRESHOLD = 3
+
 const STATUS_CONFIG = {
   active:  { label: '运行中', badgeClass: 'badge-green',  Icon: CheckCircle },
   paused:  { label: '已暂停', badgeClass: 'badge-gray',   Icon: Pause },
   error:   { label: '错误',   badgeClass: 'badge-red',    Icon: AlertCircle },
+  draft:   { label: '草稿',   badgeClass: 'badge-gray',   Icon: Pause },
 }
 
 export function TaskCard({ task, onEdit, onViewHistory }: TaskCardProps) {
@@ -81,7 +85,7 @@ export function TaskCard({ task, onEdit, onViewHistory }: TaskCardProps) {
     deleteTask.mutate()
   }
 
-  const hasConsecWarning = task.consecutive_empty >= 3 && task.status !== 'error'
+  const hasConsecWarning = task.consecutive_empty >= CONSECUTIVE_EMPTY_WARNING_THRESHOLD && task.status !== 'error'
 
   return (
     <>

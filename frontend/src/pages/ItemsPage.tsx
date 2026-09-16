@@ -1,5 +1,6 @@
 import { useState, useMemo, useCallback, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useSearchParams } from 'react-router-dom'
 import { ChevronDown, ChevronRight, CheckCheck, Check, Star, Rss, Trash2, X, Layers } from 'lucide-react'
 import { clsx } from 'clsx'
 import { itemsApi } from '../api/items'
@@ -10,6 +11,7 @@ import { ItemsFilterBar } from '../components/items/ItemsFilterBar'
 import { ThreadCard } from '../components/items/ThreadCard'
 import { Spinner } from '../components/ui/Spinner'
 import { Empty } from '../components/ui/Empty'
+import { SkeletonList } from '../components/ui/Skeleton'
 import { toast } from 'react-hot-toast'
 import type { Item, ThreadWithItems } from '../types'
 
@@ -31,8 +33,26 @@ interface GroupedItems {
 }
 
 export function ItemsPage() {
-  const [filters, setFilters] = useState<Filters>({ search: '', task_id: '', starred: undefined, is_read: undefined })
-  const [viewMode, setViewMode] = useState<ViewMode>('source')
+  const [searchParams, setSearchParams] = useSearchParams()
+
+  const [filters, setFilters] = useState<Filters>({
+    search: searchParams.get('search') || '',
+    task_id: searchParams.get('task_id') || '',
+    starred: searchParams.get('starred') === 'true' ? true : searchParams.get('starred') === 'false' ? false : undefined,
+    is_read: searchParams.get('is_read') === 'true' ? true : searchParams.get('is_read') === 'false' ? false : undefined,
+  })
+  const [viewMode, setViewMode] = useState<ViewMode>((searchParams.get('view') as ViewMode) || 'source')
+  // Sync filter state to URL
+  useEffect(() => {
+    const params = new URLSearchParams()
+    if (filters.search) params.set('search', filters.search)
+    if (filters.task_id) params.set('task_id', filters.task_id)
+    if (filters.starred !== undefined) params.set('starred', String(filters.starred))
+    if (filters.is_read !== undefined) params.set('is_read', String(filters.is_read))
+    if (viewMode !== 'source') params.set('view', viewMode)
+    setSearchParams(params, { replace: true })
+  }, [filters, viewMode, setSearchParams])
+
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   // U9: replaces window.confirm() for batch delete — a blocking native
@@ -193,7 +213,7 @@ export function ItemsPage() {
       toast.success(`${batchStarMutation.variables?.starred ? '已收藏' : '已取消收藏'} ${result.updated} 条`)
       setSelectedIds(new Set())
     },
-    onError: () => toast.error('操作失败'),
+    onError: () => toast.error('操作失败', { duration: 5000 }),
   })
 
   const batchDeleteMutation = useMutation({
@@ -207,7 +227,7 @@ export function ItemsPage() {
       toast.success(`已删除 ${result.deleted} 条`)
       setSelectedIds(new Set())
     },
-    onError: () => toast.error('删除失败'),
+    onError: () => toast.error('删除失败', { duration: 5000 }),
   })
 
   const batchMarkReadMutation = useMutation({
@@ -220,7 +240,7 @@ export function ItemsPage() {
       toast.success(`已标记 ${result.updated} 条为已读`)
       setSelectedIds(new Set())
     },
-    onError: () => toast.error('操作失败'),
+    onError: () => toast.error('操作失败', { duration: 5000 }),
   })
 
   const handleFilterChange = (partial: Partial<Filters>) => {
@@ -265,7 +285,7 @@ export function ItemsPage() {
   }
 
   return (
-    <div className="max-w-4xl mx-auto px-4 sm:px-6 py-6">
+    <div className={clsx('max-w-4xl mx-auto px-4 sm:px-6 py-6', totalSelected > 0 && 'pb-24')}>
 
       {/* Page header */}
       <div className="mb-5">
@@ -359,8 +379,8 @@ export function ItemsPage() {
         // U3: surface isError with a retry action instead of silently
         // rendering the same empty state as "no data" on a failed request.
         isFetching && !data ? (
-          <div className="flex justify-center py-12">
-            <Spinner />
+          <div className="max-w-4xl mx-auto px-4 sm:px-6">
+            <SkeletonList count={5} />
           </div>
         ) : isError ? (
           <Empty
@@ -377,8 +397,18 @@ export function ItemsPage() {
             title="暂无采集结果"
             description={
               filters.search || filters.task_id || filters.starred
-                ? '当前筛选条件无匹配结果，请调整过滤项'
+                ? '当前筛选条件无匹配结果'
                 : '前往「任务管理」创建采集任务，系统将自动抓取数据'
+            }
+            action={
+              filters.search || filters.task_id || filters.starred ? (
+                <button
+                  onClick={() => setFilters({ search: '', task_id: '', starred: undefined, is_read: undefined })}
+                  className="btn-ghost"
+                >
+                  清除筛选
+                </button>
+              ) : undefined
             }
           />
         ) : (
@@ -475,13 +505,24 @@ export function ItemsPage() {
                         <div className="divide-y divide-gray-100">
                           {group.items.map(item => (
                             <div key={item.id} className="flex items-start gap-0">
-                              <button
+                              <div
+                                role="checkbox"
+                                aria-checked={selectedIds.has(item.id)}
+                                aria-label={selectedIds.has(item.id) ? '取消选择' : '选择'}
+                                tabIndex={0}
                                 onClick={() => toggleSelect(item.id)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter' || e.key === ' ') {
+                                    e.preventDefault()
+                                    toggleSelect(item.id)
+                                  }
+                                }}
                                 className={clsx(
-                                  'p-3 shrink-0 transition-colors',
+                                  'p-3 shrink-0 transition-colors cursor-pointer rounded',
                                   selectedIds.has(item.id)
                                     ? 'text-primary-600 bg-primary-50 hover:bg-primary-100'
-                                    : 'text-gray-300 hover:text-primary-500 hover:bg-gray-50'
+                                    : 'text-gray-300 hover:text-primary-500 hover:bg-gray-50',
+                                  'focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-1'
                                 )}
                               >
                                 <div className={clsx(
@@ -496,7 +537,7 @@ export function ItemsPage() {
                                     </svg>
                                   )}
                                 </div>
-                              </button>
+                              </div>
                               <div className="flex-1 min-w-0 pl-0">
                                 <ItemCard item={item} />
                               </div>
@@ -522,7 +563,8 @@ export function ItemsPage() {
                     <>
                       <button
                         onClick={handleBatchMarkRead}
-                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-blue-900 hover:bg-blue-800 text-blue-200 transition-colors"
+                        disabled={batchMarkReadMutation.isPending}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-blue-900 hover:bg-blue-800 text-blue-200 transition-colors disabled:opacity-50"
                       >
                         <Check className="h-4 w-4" />
                         标记已读
@@ -532,7 +574,8 @@ export function ItemsPage() {
                   )}
                   <button
                     onClick={handleBatchStar}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-gray-800 hover:bg-gray-700 transition-colors"
+                    disabled={batchStarMutation.isPending}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-gray-800 hover:bg-gray-700 transition-colors disabled:opacity-50"
                   >
                     <Star className="h-4 w-4" />
                     {data?.items.find(i => selectedIds.has(i.id))?.is_starred ? '取消收藏' : '收藏'}
@@ -545,15 +588,16 @@ export function ItemsPage() {
                       }}
                       onBlur={() => setConfirmingDelete(false)}
                       autoFocus
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-red-600 hover:bg-red-500 text-white transition-colors"
+                      disabled={batchDeleteMutation.isPending}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-red-600 hover:bg-red-500 text-white transition-colors disabled:opacity-50"
                     >
                       <Trash2 className="h-4 w-4" />
-                      确认删除 {totalSelected} 条？
+                      确认删除 {totalSelected} 条
                     </button>
                   ) : (
                     <button
                       onClick={() => setConfirmingDelete(true)}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-red-900 hover:bg-red-800 text-red-200 transition-colors"
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-gray-800 hover:bg-gray-700 text-red-300 transition-colors"
                     >
                       <Trash2 className="h-4 w-4" />
                       删除

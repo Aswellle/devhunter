@@ -64,7 +64,7 @@ function SidebarContent({ onLinkClick }: SidebarContentProps) {
             onClick={onLinkClick}
             className={({ isActive }) =>
               clsx(
-                'flex items-center gap-2.5 px-3 py-2 rounded-md text-sm font-medium transition-colors',
+                'flex items-center gap-2.5 px-3 py-2 rounded-md text-sm font-medium transition-colors focus-visible:ring-2 focus-visible:ring-primary-400 focus-visible:ring-inset',
                 isActive
                   ? 'bg-primary-600 text-white'
                   : 'text-gray-300 hover:bg-gray-800 hover:text-white',
@@ -120,7 +120,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
             {/* 关闭按钮 */}
             <div className="flex justify-end px-3 pt-3">
               <button
-                className="text-gray-400 hover:text-white p-1 rounded"
+                className="text-gray-400 hover:text-white p-2 rounded-md min-w-[44px] min-h-[44px] flex items-center justify-center"
                 onClick={() => setSidebarOpen(false)}
                 aria-label="关闭导航菜单"
               >
@@ -144,7 +144,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         <header className="md:hidden flex items-center gap-3 px-4 py-3
                             bg-gray-900 border-b border-gray-700 shrink-0 z-10">
           <button
-            className="text-gray-300 hover:text-white p-1"
+            className="text-gray-300 hover:text-white p-2 rounded-md min-w-[44px] min-h-[44px] flex items-center justify-center"
             onClick={() => setSidebarOpen(true)}
             aria-label="打开导航菜单"
           >
@@ -153,7 +153,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           <span className="text-white font-bold text-sm">DevHunter</span>
         </header>
 
-        <main className="flex-1 overflow-y-auto bg-gray-50">
+        <main id="main-content" tabIndex={-1} className="flex-1 overflow-y-auto bg-gray-50">
           {children}
         </main>
       </div>
