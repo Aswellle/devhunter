@@ -38,17 +38,17 @@ export function LoginPage() {
             <span className="text-white font-bold text-xl">DevHunter</span>
           </div>
           <p className="text-gray-400 text-sm leading-relaxed">
-            全网开发需求与创意自动采集系统<br/>
-            定时抓取 Hacker News、V2EX、GitHub 等平台
+            全网内容聚合与智能推荐平台<br/>
+            自动抓取、聚合、推荐多源内容
           </p>
         </div>
 
         {/* Feature highlights */}
         <div className="space-y-4">
           {[
-            { label: '多平台采集', desc: '支持 5 大预设数据源模板' },
-            { label: '智能去重', desc: '基于 URL Hash 的高效去重' },
-            { label: '个性化推荐', desc: '基于阅读偏好智能推荐' },
+            { label: '多源聚合', desc: '28+ 模板，多平台覆盖' },
+            { label: '智能聚类', desc: '多因素聚合，事件追踪' },
+            { label: '自适应推荐', desc: '越用越懂你的推荐' },
           ].map((f) => (
             <div key={f.label} className="flex items-start gap-3">
               <div className="w-1.5 h-1.5 rounded-full bg-primary-400 mt-1.5 shrink-0" />
