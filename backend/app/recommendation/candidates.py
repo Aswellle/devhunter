@@ -45,6 +45,7 @@ class CandidateGenerator:
         Returns:
             候选 Item 列表（去重后）
         """
+        # 收集候选
         candidates: dict[str, dict[str, Any]] = {}
 
         # A. Topic match - 用户主题匹配
@@ -76,6 +77,9 @@ class CandidateGenerator:
         exploration_candidates = self._get_exploration_candidates(limit=50)
         for item in exploration_candidates:
             candidates[item["id"]] = item
+
+        # R3: 排除负反馈内容（不感兴趣的 item、隐藏的来源、屏蔽的主题）
+        candidates = self._filter_negative_feedback(candidates)
 
         result = list(candidates.values())
         logger.info("Generated %d candidates from %d sources", len(result), 8)
@@ -148,11 +152,50 @@ class CandidateGenerator:
         """获取探索候选（随机采样）"""
         import random
         items, _ = item_repo.query(page=1, per_page=500)
+        sample_size = min(limit, len(items))
         if not items:
             return []
-        # 随机采样
-        sample_size = min(limit, len(items))
         return random.sample(items, sample_size)
+
+    def _filter_negative_feedback(
+        self, candidates: dict[str, dict[str, Any]]
+    ) -> dict[str, dict[str, Any]]:
+        """
+        R3: 排除用户负反馈内容。
+        排除规则：
+        - not_interested: 排除特定 item_id
+        - hide_source: 排除特定 task_id / source
+        - mute_topic: 排除标题包含屏蔽关键词的 item
+        """
+        from app.repositories.user_prefs_repo import user_interaction_repo
+
+        negative = user_interaction_repo.get_negative_feedback_map()
+        if not negative:
+            return candidates
+
+        not_interested = negative.get("not_interested", set())
+        hidden_sources = negative.get("hide_source", set())
+        muted_topics = negative.get("mute_topic", set())
+
+        filtered: dict[str, dict[str, Any]] = {}
+        for item_id, item in candidates.items():
+            # 排除不感兴趣的 item
+            if item_id in not_interested:
+                continue
+            # 排除隐藏来源
+            task_id = item.get("task_id", "")
+            if task_id in hidden_sources:
+                continue
+            # 排除屏蔽主题
+            title = item.get("title", "").lower()
+            if any(topic.lower() in title for topic in muted_topics):
+                continue
+            filtered[item_id] = item
+
+        return filtered
+
+
+ # 全局单例
 
 
 # 全局单例

@@ -4,6 +4,9 @@ Recommendation Service V2：个性化推荐引擎。
 
 数据流：
 Candidate Generation → Feature Extraction → Scoring → Ranking → Diversification → Explanation
+
+R1: 支持完整交互分类（impression/open/dwell/star/hide/...）
+R3: 负反馈持久化到 user_negative_feedback 表，并在候选生成时排除
 """
 import logging
 from typing import Any
@@ -15,6 +18,22 @@ from app.recommendation.explanations import explanation_generator
 from app.recommendation.profile import user_profile_builder
 
 logger = logging.getLogger(__name__)
+
+# R1: 交互类型权重映射
+INTERACTION_WEIGHTS = {
+    "impression": 0.1,
+    "open": 0.3,
+    "click_source": 0.4,
+    "dwell": 0.5,
+    "read": 0.6,
+    "star": 1.0,
+    "unstar": -0.5,
+    "thread_expand": 0.4,
+    "search": 0.2,
+    "hide": -0.8,
+    "not_interested": -1.0,
+    "share": 0.8,
+}
 
 
 class RecommendationEngine:
@@ -40,14 +59,6 @@ class RecommendationEngine:
     ) -> list[dict[str, Any]]:
         """
         获取个性化推荐。
-
-        Args:
-            user_id: 用户 ID
-            limit: 返回数量
-            exclude_read: 排除已读
-
-        Returns:
-            推荐 Item 列表（含得分和解释）
         """
         # 1. 构建用户画像
         user_profile = user_profile_builder.build(user_id)
@@ -93,40 +104,60 @@ class RecommendationEngine:
         )
         return result
 
-    def record_feedback(
+    def record_interaction(
         self,
         item_id: str,
-        feedback_type: str,
-        reason: str = "",
+        interaction_type: str,
+        dwell_seconds: int | None = None,
     ) -> dict[str, Any]:
         """
-        记录用户反馈（负反馈）。
+        R1: 记录用户交互事件（完整分类）。
 
         Args:
             item_id: Item ID
-            feedback_type: 反馈类型 (not_interested, dismiss, hide)
-            reason: 原因 (topic, source, keyword)
+            interaction_type: 交互类型 (impression/open/dwell/star/hide/...)
+            dwell_seconds: 停留秒数
+
+        Returns:
+            交互记录
+        """
+        from app.repositories.user_prefs_repo import user_interaction_repo
+
+        weight = INTERACTION_WEIGHTS.get(interaction_type, 0.1)
+        return user_interaction_repo.record(
+            item_id=item_id,
+            interaction_type=interaction_type,
+            dwell_seconds=dwell_seconds,
+            weight=weight,
+        )
+
+    def record_feedback(
+        self,
+        feedback_type: str,
+        target_value: str,
+        reason: str = "",
+    ) -> dict[str, Any]:
+        """
+        R3: 记录用户负反馈。
+
+        Args:
+            feedback_type: 反馈类型 (not_interested, hide_source, mute_topic)
+            target_value: 目标值 (item_id / source_id / topic_keyword)
+            reason: 原因说明
 
         Returns:
             反馈记录
         """
         from app.repositories.user_prefs_repo import user_interaction_repo
 
-        # 记录负反馈
-        interaction = user_interaction_repo.record(
-            item_id=item_id,
-            interaction_type=feedback_type,
+        fid = user_interaction_repo.record_negative_feedback(
+            feedback_type=feedback_type,
+            target_value=target_value,
+            reason=reason,
         )
 
-        # 根据原因调整亲缘度
-        if reason == "topic":
-            # 降低主题亲缘度
-            pass
-        elif reason == "source":
-            # 降低来源亲缘度
-            pass
-
-        return interaction
+        logger.info("Negative feedback recorded: %s -> %s", feedback_type, target_value[:40])
+        return {"id": fid, "feedback_type": feedback_type, "target_value": target_value}
 
 
 # 全局单例

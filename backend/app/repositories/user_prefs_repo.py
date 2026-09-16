@@ -106,25 +106,63 @@ class UserInteractionRepository:
         item_id: str,
         interaction_type: str,
         dwell_seconds: int | None = None,
+        weight: float = 1.0,
     ) -> dict:
-        """记录一次用户交互，返回完整记录"""
+        """记录一次用户交互。R1: 支持权重参数。"""
         interaction_id = str(uuid.uuid4())
         now = _now_iso()
         with get_db() as conn:
             conn.execute(
                 """
-                INSERT INTO user_interactions (id, item_id, interaction_type, dwell_seconds, created_at)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO user_interactions
+                    (id, item_id, interaction_type, dwell_seconds, weight, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                (interaction_id, item_id, interaction_type, dwell_seconds, now),
+                (interaction_id, item_id, interaction_type, dwell_seconds, weight, now),
             )
         return {
             "id": interaction_id,
             "item_id": item_id,
             "interaction_type": interaction_type,
             "dwell_seconds": dwell_seconds,
+            "weight": weight,
             "created_at": now,
         }
+
+    # R3: 记录负反馈
+    def record_negative_feedback(
+        self,
+        feedback_type: str,
+        target_value: str,
+        reason: str = "",
+    ) -> str:
+        """记录用户负反馈（not_interested / hide_source / mute_topic）。"""
+        fid = str(uuid.uuid4())
+        with get_db() as conn:
+            conn.execute(
+                """
+                INSERT INTO user_negative_feedback (id, feedback_type, target_value, reason)
+                VALUES (?, ?, ?, ?)
+                """,
+                (fid, feedback_type, target_value, reason),
+            )
+        return fid
+
+    # R3: 获取负反馈映射（用于推荐排除）
+    def get_negative_feedback_map(self) -> dict[str, set[str]]:
+        """获取所有负反馈，按类型分组。返回 {feedback_type: set(target_value)}。"""
+        with get_db() as conn:
+            rows = conn.execute(
+                "SELECT feedback_type, target_value FROM user_negative_feedback"
+            ).fetchall()
+        result: dict[str, set[str]] = {}
+        for r in rows:
+            ft = r["feedback_type"]
+            tv = r["target_value"]
+            if ft not in result:
+                result[ft] = set()
+            result[ft].add(tv)
+        return result
 
     def get_item_interactions(self, item_id: str) -> list[dict]:
         """获取某条目的所有交互"""
@@ -274,6 +312,7 @@ class UserAffinityRepository:
                 },
             )
 
+
     def get_top_affinities(self, affinity_type: str | None = None, limit: int = 20) -> list[dict]:
         """获取最高亲缘度的主题/任务/平台"""
         with get_db() as conn:
@@ -297,6 +336,7 @@ class UserAffinityRepository:
                     (limit,),
                 ).fetchall()
         return [_row_to_dict(r) for r in rows]
+
 
     def get_affinity_score(self, affinity_type: str, affinity_value: str) -> float:
         """获取特定亲缘度得分"""
