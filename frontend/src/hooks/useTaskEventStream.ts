@@ -11,12 +11,13 @@ export interface StepState {
   label: string
   status: StepStatus
   detail: string
-  startedAt: number | null   // performance.now()
+  startedAt: number | null
   durationMs: number | null
 }
 
 // ── 原始事件 ─────────────────────────────────────────────
 export interface StreamEvent {
+  id: string
   type: string
   message: string
   data?: Record<string, unknown>
@@ -50,16 +51,30 @@ const EVENT_TO_STEP: Record<string, { step: StepId; activate?: boolean; done?: b
 }
 
 const INITIAL_STEPS: StepState[] = [
-  { id: 'init',   label: '初始化', status: 'pending', detail: '',  startedAt: null, durationMs: null },
-  { id: 'fetch',  label: '页面抓取', status: 'pending', detail: '', startedAt: null, durationMs: null },
-  { id: 'parse',  label: 'HTML 解析', status: 'pending', detail: '', startedAt: null, durationMs: null },
-  { id: 'filter', label: '关键词过滤', status: 'pending', detail: '', startedAt: null, durationMs: null },
-  { id: 'dedup',  label: '去重检查', status: 'pending', detail: '', startedAt: null, durationMs: null },
-  { id: 'save',   label: '写入数据库', status: 'pending', detail: '', startedAt: null, durationMs: null },
+  { id: 'init',  label: '加载配置',  status: 'pending', detail: '', startedAt: null, durationMs: null },
+  { id: 'fetch', label: '网络抓取',  status: 'pending', detail: '', startedAt: null, durationMs: null },
+  { id: 'parse', label: '解析内容',  status: 'pending', detail: '', startedAt: null, durationMs: null },
+  { id: 'filter',label: '关键词过滤',status: 'pending', detail: '', startedAt: null, durationMs: null },
+  { id: 'dedup', label: '去重',      status: 'pending', detail: '', startedAt: null, durationMs: null },
+  { id: 'save',  label: '写入数据库',status: 'pending', detail: '', startedAt: null, durationMs: null },
 ]
 
 function cloneSteps(steps: StepState[]): StepState[] {
   return steps.map((s) => ({ ...s }))
+}
+
+// E2: 指数退避 — 1s → 2s → 4s → 8s → 16s → 30s max
+function backoffDelay(attempt: number): number {
+  return Math.min(1000 * Math.pow(2, attempt), 30_000)
+}
+
+// E1: 安全提取 hint 字段（避免 any）
+function extractHint(data: Record<string, unknown> | undefined): string | undefined {
+  if (data && typeof data === "object" && "hint" in data) {
+    const hint = data.hint
+    return typeof hint === "string" ? hint : undefined
+  }
+  return undefined
 }
 
 // ── Hook ─────────────────────────────────────────────────
@@ -75,10 +90,11 @@ export function useTaskEventStream({ taskId, active }: { taskId: string | null; 
   const stepsRef   = useRef<StepState[]>(cloneSteps(INITIAL_STEPS))
   const retryCount = useRef(0)
   const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const lastEventIdRef = useRef<string>("")
 
   const reset = useCallback(() => {
     abortRef.current?.abort()
-    if (retryTimer.current) clearTimeout(retryTimer.current)
+    clearTimeout(retryTimer.current ?? undefined)
     const fresh = cloneSteps(INITIAL_STEPS)
     stepsRef.current = fresh
     setSteps(fresh)
@@ -87,9 +103,9 @@ export function useTaskEventStream({ taskId, active }: { taskId: string | null; 
     setFinalData(null)
     setStatus('idle')
     retryCount.current = 0
+    lastEventIdRef.current = ""
   }, [])
 
-  // 根据事件更新步骤状态机
   const applyEvent = useCallback((evt: StreamEvent) => {
     const mapping = EVENT_TO_STEP[evt.type]
     if (!mapping) return
@@ -125,7 +141,7 @@ export function useTaskEventStream({ taskId, active }: { taskId: string | null; 
     if (!taskId || !active) return
 
     abortRef.current?.abort()
-    if (retryTimer.current) clearTimeout(retryTimer.current)
+    clearTimeout(retryTimer.current ?? undefined)
     const controller = new AbortController()
     abortRef.current = controller
 
@@ -137,27 +153,33 @@ export function useTaskEventStream({ taskId, active }: { taskId: string | null; 
     setFinalData(null)
     setStatus('waiting')
     retryCount.current = 0
+    lastEventIdRef.current = ""
 
-    // Token 通过 httpOnly Cookie 自动发送，无需手动携带
-
-    // Stuck timer: fires 25s after transition to 'waiting' if no real event arrived
     const stuckTimerId = setTimeout(() => {
+      if (controller.signal.aborted) return
       setEvents((prev) => [...prev, {
+        id: 'stuck-warning',
         type: 'warning',
         message: '⚠️ 超过 20 秒无活动，执行可能卡住。请检查任务状态是否为 active，或重启服务。',
       }])
     }, 25_000)
 
     ;(async () => {
-      const MAX_RETRIES = 3
-      const RETRY_DELAY = 2000
+      const MAX_RETRIES = 5
 
-      // eslint-disable-next-line no-constant-condition
       while (true) {
+        if (controller.signal.aborted) break
+
         try {
+          const headers: Record<string, string> = {}
+          if (lastEventIdRef.current) {
+            headers["Last-Event-ID"] = lastEventIdRef.current
+          }
+
           const res = await fetch(`/api/tasks/${taskId}/events`, {
             credentials: 'include',
             signal: controller.signal,
+            headers,
           })
 
           if (!res.ok || !res.body) {
@@ -166,7 +188,6 @@ export function useTaskEventStream({ taskId, active }: { taskId: string | null; 
             return
           }
 
-          // Real event arrived → worker is alive, switch to running
           clearTimeout(stuckTimerId)
           setStatus('running')
           retryCount.current = 0
@@ -175,7 +196,6 @@ export function useTaskEventStream({ taskId, active }: { taskId: string | null; 
           const decoder = new TextDecoder()
           let   buffer  = ''
 
-          // eslint-disable-next-line no-constant-condition
           while (true) {
             const { done, value } = await reader.read()
             if (done) break
@@ -189,15 +209,16 @@ export function useTaskEventStream({ taskId, active }: { taskId: string | null; 
               try {
                 const evt: StreamEvent = JSON.parse(line.slice(6))
 
-                // 步骤状态机
+                if (evt.id && evt.id !== 'connected' && evt.id !== 'timeout') {
+                  lastEventIdRef.current = evt.id
+                }
+
                 applyEvent(evt)
 
-                // 条目预览
                 if (evt.type === 'items_preview' && Array.isArray(evt.data?.items)) {
                   setPreview(evt.data.items as ItemPreview[])
                 }
 
-                // 最终事件
                 if (['success', 'failure', 'warning'].includes(evt.type)) {
                   setFinalData(evt.data ?? null)
                   setStatus('done')
@@ -205,16 +226,15 @@ export function useTaskEventStream({ taskId, active }: { taskId: string | null; 
                   return
                 }
 
-                // Add to log
                 if (evt.type !== 'connected') {
                   setEvents((prev) => [...prev, evt])
                 }
 
-                // Handle diagnostic events
                 if (evt.type === 'diagnostic') {
-                  const hint = (evt.data as any)?.hint
+                  const hint = extractHint(evt.data)
                   if (hint === 'worker_not_started') {
                     setEvents((prev) => [...prev, {
+                      id: 'diagnostic-warn',
                       type: 'warning',
                       message: '⚠️ Worker 尚未响应，任务可能卡在队列中，或 APScheduler 未正确加载该任务。请检查任务状态是否为 active。',
                     }])
@@ -225,7 +245,6 @@ export function useTaskEventStream({ taskId, active }: { taskId: string | null; 
             }
           }
 
-          // Stream ended without terminal event → attempt retry
           setStatus((s) => s === 'running' ? 'waiting' : s)
           break
 
@@ -234,19 +253,23 @@ export function useTaskEventStream({ taskId, active }: { taskId: string | null; 
             clearTimeout(stuckTimerId)
             return
           }
-          // Non-abort error: attempt retry
-          if (retryCount.current < MAX_RETRIES) {
+          if (retryCount.current < MAX_RETRIES && !controller.signal.aborted) {
             retryCount.current++
+            const delay = backoffDelay(retryCount.current - 1)
             setStatus('connecting')
             setEvents((prev) => [...prev, {
+              id: `retry-${retryCount.current}`,
               type: 'warning',
-              message: `⚠️ 连接中断，${RETRY_DELAY / 1000}s 后自动重试 (${retryCount.current}/${MAX_RETRIES})`,
+              message: `⚠️ 连接中断，${(delay / 1000).toFixed(0)}s 后自动重试 (${retryCount.current}/${MAX_RETRIES})`,
             }])
-            await new Promise((r) => { retryTimer.current = setTimeout(r, RETRY_DELAY) })
+            const { promise, resolve } = Promise.withResolvers<void>()
+            retryTimer.current = setTimeout(resolve, delay)
+            await promise
           } else {
             clearTimeout(stuckTimerId)
             setStatus('error')
             setEvents((prev) => [...prev, {
+              id: 'final-error',
               type: 'warning',
               message: `⚠️ 连接失败，已重试 ${MAX_RETRIES} 次。请手动刷新页面重试。`,
             }])
@@ -256,11 +279,14 @@ export function useTaskEventStream({ taskId, active }: { taskId: string | null; 
       }
     })()
 
-    return () => controller.abort()
+    return () => {
+      controller.abort()
+      clearTimeout(stuckTimerId)
+      clearTimeout(retryTimer.current ?? undefined)
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [taskId, active])
 
-  // 自动滚动
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [events])

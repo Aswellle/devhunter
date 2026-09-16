@@ -63,13 +63,17 @@ class EventBus:
         # 持久化到 execution_events 表（durable execution events）
         try:
             from app.repositories.execution_event_repo import execution_event_repo
-            execution_event_repo.record(
-                execution_id=event.data.get("execution_id", event.task_id),
+            execution_id = event.data.get("execution_id", event.task_id)
+            persisted = execution_event_repo.record(
+                execution_id=execution_id,
                 task_id=event.task_id,
                 event_type=event.event_type,
                 message=event.message,
                 data=event.data,
             )
+            # E1: 将持久化 ID 存回 event.data，供 SSE 端点作为 Last-Event-ID 游标
+            if persisted and persisted.get("id"):
+                event.data["event_id"] = persisted["id"]
         except Exception:
             pass  # 持久化失败不影响实时流
 
