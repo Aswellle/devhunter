@@ -3,6 +3,7 @@ app/core/security.py
 MVP 极简认证：单用户密码 + JWT Token
 """
 import logging
+import secrets
 from datetime import datetime, timedelta, timezone
 
 from jose import JWTError, jwt
@@ -20,8 +21,8 @@ _ADMIN_USERNAME = settings.auth_username
 
 
 def verify_password(plain_password: str) -> bool:
-    """验证明文密码是否与配置密码一致（MVP：直接字符串比较）"""
-    return plain_password == settings.auth_password
+    """验证明文密码是否与配置密码一致（timing-safe 比较）"""
+    return secrets.compare_digest(plain_password, settings.auth_password)
 
 
 def create_access_token(data: dict, expires_delta: timedelta | None = None) -> str:

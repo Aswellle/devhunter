@@ -86,6 +86,7 @@ class ItemRepository:
         is_read: bool | None = None,
         page: int = 1,
         per_page: int = 20,
+        created_after: str | None = None,
     ) -> tuple[list[dict], int]:
         """
         分页查询采集结果，支持多维度过滤。
@@ -110,6 +111,10 @@ class ItemRepository:
         if is_read is not None:
             conditions.append("i.is_read = ?")
             params.append(1 if is_read else 0)
+
+        if created_after:
+            conditions.append("i.created_at >= ?")
+            params.append(created_after)
 
         # 全文搜索逻辑
         if search and search.strip():

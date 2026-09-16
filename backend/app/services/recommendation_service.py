@@ -6,7 +6,7 @@ app/services/recommendation_service.py
 import logging
 import math
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from app.repositories.item_repo import item_repo
@@ -20,6 +20,9 @@ from app.repositories.user_prefs_repo import (
 from app.utils.similarity import tokenize
 
 logger = logging.getLogger(__name__)
+
+# 解析失败时的默认年龄（小时）：使新鲜度得分衰减至接近 0
+_MAX_HOURS_AGE = 999.0
 
 # 默认推荐配置
 DEFAULT_CONFIG = {
@@ -39,10 +42,6 @@ def _get_config(key: str) -> float:
     return recommendation_config_repo.get(key, DEFAULT_CONFIG.get(key, 0.0))
 
 
-def _now_iso() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-
 def _hours_since(iso_date: str) -> float:
     """计算距离 ISO 日期的小时数"""
     try:
@@ -51,7 +50,8 @@ def _hours_since(iso_date: str) -> float:
         delta = now - dt
         return delta.total_seconds() / 3600
     except Exception:
-        return 999.0  # 默认极大值
+        logger.debug("Failed to parse date: %s", iso_date)
+        return _MAX_HOURS_AGE
 
 
 class RecommendationService:
@@ -104,9 +104,15 @@ class RecommendationService:
         }
 
         # 4. 获取候选 Items（最近 7 天）
-        items, total = item_repo.query(page=1, per_page=500)
+        cutoff_date = (datetime.now(timezone.utc) - timedelta(days=7)).strftime('%Y-%m-%dT%H:%M:%SZ')
+        items, total = item_repo.query(page=1, per_page=500, created_after=cutoff_date)
         if not items:
             return []
+
+        # F1: 批量预取所有候选 item 的参与度统计，避免循环内逐条查询（N+1）
+        engagement_stats_map = user_interaction_repo.get_engagement_stats_bulk(
+            [item["id"] for item in items if item.get("id")]
+        )
 
         # 5. 计算每条 Item 的推荐得分
         scored_items: list[tuple[float, dict]] = []
@@ -121,6 +127,7 @@ class RecommendationService:
                 task_affinities=task_affinities,
                 platform_affinities=platform_affinities,
                 config=config,
+                engagement_stats_map=engagement_stats_map,
             )
 
             if score >= config["min_score_threshold"]:
@@ -143,6 +150,7 @@ class RecommendationService:
         task_affinities: dict[str, float],
         platform_affinities: dict[str, float],
         config: dict,
+        engagement_stats_map: dict[str, dict] | None = None,
     ) -> float:
         """
         计算单条 Item 的推荐得分。
@@ -174,7 +182,7 @@ class RecommendationService:
         recency_score = self._calc_recency_score(fetched_at)
 
         # ── 4. 参与度得分 ───────────────────────────────
-        engagement_score = self._calc_engagement_score(item)
+        engagement_score = self._calc_engagement_score(item, engagement_stats_map)
 
         # ── 综合得分 ───────────────────────────────────
         total = (
@@ -226,13 +234,18 @@ class RecommendationService:
         decay = math.pow(0.5, (hours - 24) / 6)
         return max(0.0, decay)
 
-    def _calc_engagement_score(self, item: dict) -> float:
+    def _calc_engagement_score(
+        self, item: dict, engagement_stats_map: dict[str, dict] | None = None
+    ) -> float:
         """参与度得分：根据已有交互数据计算"""
         item_id = item.get("id", "")
         if not item_id:
             return 0.0
 
-        stats = user_interaction_repo.get_user_engagement_stats(item_id)
+        if engagement_stats_map is not None:
+            stats = engagement_stats_map.get(item_id, {})
+        else:
+            stats = user_interaction_repo.get_user_engagement_stats(item_id)
         view_count = stats.get("view_count", 0) or 0
         avg_dwell = stats.get("avg_dwell_seconds", 0) or 0
 
@@ -320,12 +333,7 @@ class RecommendationService:
         existing = user_topics_repo.get_by_topic(topic)
         if not existing:
             return None
-        now = _now_iso()
-        with __import__("app.core.database", fromlist=["get_db"]).get_db() as conn:
-            conn.execute(
-                "UPDATE user_topics SET weight = ?, updated_at = ? WHERE topic = ?",
-                (weight, now, topic),
-            )
+        user_topics_repo.update_weight(topic, weight)
         return user_topics_repo.get_by_topic(topic)
 
     def get_recommended_topics(self, limit: int = 10) -> list[dict]:
