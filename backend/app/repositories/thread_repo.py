@@ -34,8 +34,18 @@ class ThreadRepository:
 
     # ── Thread CRUD ─────────────────────────────────────────────
 
-    def create(self, title: str, item_id: str, platform: str) -> str:
-        """创建新 Thread，关联第一个 Item。返回 thread_id"""
+    def create(
+        self,
+        title: str,
+        item_id: str,
+        platform: str,
+        algorithm_version: str = "v2",
+        similarity_threshold: float = 0.45,
+        match_reason: str = "",
+    ) -> str:
+        """创建新 Thread，关联第一个 Item。返回 thread_id。
+        T2: 存储 algorithm_version 和 similarity_threshold。
+        """
         thread_id = str(uuid.uuid4())
         now = _now_iso()
         platforms = json.dumps([platform], ensure_ascii=False)
@@ -43,17 +53,20 @@ class ThreadRepository:
         with get_db() as conn:
             conn.execute(
                 """
-                INSERT INTO threads (id, title, first_seen_at, last_seen_at, item_count, platforms)
-                VALUES (?, ?, ?, ?, 1, ?)
+                INSERT INTO threads
+                    (id, title, first_seen_at, last_seen_at, item_count, platforms,
+                     algorithm_version, similarity_threshold, clustered_at)
+                VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?)
                 """,
-                (thread_id, title, now, now, platforms),
+                (thread_id, title, now, now, platforms,
+                 algorithm_version, similarity_threshold, now),
             )
             conn.execute(
                 """
-                INSERT INTO thread_items (thread_id, item_id, similarity)
-                VALUES (?, ?, 1.0)
+                INSERT INTO thread_items (thread_id, item_id, similarity, match_reason)
+                VALUES (?, ?, 1.0, ?)
                 """,
-                (thread_id, item_id),
+                (thread_id, item_id, match_reason or "initial_item"),
             )
             # 更新 items.thread_id
             conn.execute(
@@ -134,10 +147,12 @@ class ThreadRepository:
         similarity: float,
         title: str,
         platform: str,
+        match_reason: str = "",
     ) -> None:
         """
         将已有 Item 加入现有 Thread。
         更新 Thread 元数据（item_count、last_seen_at、platforms、title 取最长的）。
+        T2: 记录 match_reason 到 thread_items。
         """
         now = _now_iso()
 
@@ -145,10 +160,10 @@ class ThreadRepository:
             # 插入关联
             cursor = conn.execute(
                 """
-                INSERT OR IGNORE INTO thread_items (thread_id, item_id, similarity)
-                VALUES (?, ?, ?)
+                INSERT OR IGNORE INTO thread_items (thread_id, item_id, similarity, match_reason)
+                VALUES (?, ?, ?, ?)
                 """,
-                (thread_id, item_id, similarity),
+                (thread_id, item_id, similarity, match_reason or None),
             )
             # D4: INSERT OR IGNORE 在 (thread_id, item_id) 已存在时是空操作
             # （rowcount=0），此时不应再把 item_count 计数 +1，否则同一个
@@ -276,6 +291,50 @@ class ThreadRepository:
                 """,
                 (len(rows), json.dumps(platforms, ensure_ascii=False), longest_title, thread_id),
             )
+
+    # ── T3: 人工纠错 ────────────────────────────────────────────
+
+    def record_override(
+        self,
+        thread_id: str,
+        override_type: str,
+        item_id: str | None = None,
+        target_thread_id: str | None = None,
+        reason: str = "",
+    ) -> str:
+        """
+        T3: 记录用户的 Thread 纠错操作（split/merge/reject_merge/force_join）。
+        用于后续算法改进和避免重复错误聚合。
+        """
+        override_id = str(uuid.uuid4())
+        with get_db() as conn:
+            conn.execute(
+                """
+                INSERT INTO thread_overrides
+                    (id, thread_id, override_type, item_id, target_thread_id, reason)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (override_id, thread_id, override_type, item_id, target_thread_id, reason),
+            )
+        return override_id
+
+    def get_overrides_for_thread(self, thread_id: str) -> list[dict]:
+        """获取 Thread 的所有纠错记录"""
+        with get_db() as conn:
+            rows = conn.execute(
+                "SELECT * FROM thread_overrides WHERE thread_id = ? ORDER BY created_at DESC",
+                (thread_id,),
+            ).fetchall()
+        return [_row_to_dict(r) for r in rows]
+
+    def get_recent_overrides(self, limit: int = 100) -> list[dict]:
+        """获取最近的纠错记录（用于算法改进分析）"""
+        with get_db() as conn:
+            rows = conn.execute(
+                "SELECT * FROM thread_overrides ORDER BY created_at DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        return [_row_to_dict(r) for r in rows]
 
 
 # 全局单例

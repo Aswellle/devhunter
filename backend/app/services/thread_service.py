@@ -55,9 +55,10 @@ class ThreadService:
                     title=item["title"],
                     item_id=item["id"],
                     platform=platform,
+                    algorithm_version="v2",
+                    similarity_threshold=0.45,
+                    match_reason="no_candidates",
                 )
-            logger.info("Thread compute: %d new items, all created as new threads", len(new_items))
-            return len(new_items)
 
         # 构建候选 Thread 列表（从 existing items 中提取）
         candidate_threads = self._get_candidate_threads(existing)
@@ -80,17 +81,11 @@ class ThreadService:
                     similarity=result.score.total_score if result.score else 0.5,
                     title=title,
                     platform=platform,
-                )
-                matched_count += 1
-                logger.debug(
-                    "Thread match: %s -> %s (score=%.2f, confidence=%s)",
-                    title[:40], result.thread_id[:8],
-                    result.score.total_score if result.score else 0,
-                    result.score.confidence if result.score else "unknown",
+                    match_reason=result.match_reason,
                 )
             else:
                 # 创建新 Thread
-                thread_repo.create(title=title, item_id=item_id, platform=platform)
+                thread_repo.create(title=title, item_id=item_id, platform=platform, algorithm_version="v2", similarity_threshold=0.45, match_reason="no_match")
 
         logger.info(
             "Thread compute: %d new items, %d matched to existing threads, %d created new",
