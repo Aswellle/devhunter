@@ -33,10 +33,13 @@ from app.utils.url import compute_url_hash
 
 logger = logging.getLogger(__name__)
 
+
 MAX_RESPONSE_BYTES = settings.crawler_max_response_mb * 1024 * 1024
 MAX_RETRY_ATTEMPTS = 3
 RETRY_DELAY_SECONDS = 2
 MAX_PAGES = 10
+MAX_ITEMS_PER_EXECUTION = 500
+MAX_REDIRECTS = 5
 ProgressCallback = Callable[[str, str, dict], None]
 
 
@@ -46,6 +49,9 @@ class CrawlItem:
     url: str
     summary: str = ""
     url_hash: str = ""
+    # D1: 去重优先级字段
+    external_id: str = ""   # 来源平台的原生 ID（如 GitHub issue number, RSS GUID）
+    content_hash: str = ""  # 内容指纹（title + summary 的 hash）
 
 
 @dataclass
@@ -439,16 +445,16 @@ def _fetch_page_with_retry(
     on_progress: ProgressCallback | None,
 ) -> _FetchOutcome:
     """
-    Fetch one page with a fixed 3-attempt / 2s-delay retry loop.
+    Retryable: httpx.TimeoutException, httpx.RequestError (network), HTTP 5xx
+    for GET/HTML/RSS modes only.
 
-    Retryable: httpx.TimeoutException, httpx.RequestError (network), HTTP 5xx.
-    Terminal (no retry): HTTP 4xx. SSRF is checked by the caller BEFORE this
-    function is invoked, so a blocked URL never reaches here.
+    S6: POST (json-post mode) is NOT retried on 5xx because the server may have
+    partially processed the request; retrying risks duplicating side effects.
+    POST is still retried on network-level failures (TimeoutException,
+    RequestError) where the request likely never reached the server.
 
-    retries_used = number of *extra* attempts beyond the first (0..MAX_RETRY_ATTEMPTS-1).
-    Never raises; on exhaustion returns an outcome with error set.
+    Terminal (no retry): HTTP 4xx (all modes), HTTP 5xx (POST only).
     """
-    post_body = mode_extra.get("post_body", {})
     last_error = ""
     last_status = 0
     attempt = 0
@@ -469,7 +475,7 @@ def _fetch_page_with_retry(
             # can be re-validated against the SSRF blocklist. The shared
             # httpx.Client has follow_redirects=False for exactly this reason.
             redirect_hops = 0
-            while getattr(response, "is_redirect", False) and redirect_hops < 5:
+            while getattr(response, "is_redirect", False) and redirect_hops < MAX_REDIRECTS:
                 location = response.headers.get("location")
                 if not location:
                     break
@@ -511,15 +517,24 @@ def _fetch_page_with_retry(
             last_error = f"HTTP {status} {e.response.reason_phrase}"
             _emit(on_progress, "fetch_error", last_error, {"status": status, "attempt": attempt})
             if 400 <= status < 500:
-                # 4xx is terminal; do not retry. Use a plain HTTP message so
-                # operators can distinguish a one-shot 4xx from retry exhaustion.
+                # 4xx is terminal; do not retry.
                 return _FetchOutcome(
                     response=None,
                     retries_used=attempt - 1,
                     error=last_error,
                     http_status=status,
                 )
-            # 5xx falls through to the retry delay below
+            # S6: POST 5xx may indicate partial server processing — do NOT retry
+            # to avoid duplicating side effects (e.g. double-submit). Only
+            # GET/HTML/RSS 5xx are safe to retry.
+            if mode == "json-post":
+                return _FetchOutcome(
+                    response=None,
+                    retries_used=attempt - 1,
+                    error=f"{last_error} (POST 5xx not retried for safety)",
+                    http_status=status,
+                )
+            # GET 5xx falls through to the retry delay below
         except Exception as e:
             last_error = f"Unknown error: {type(e).__name__}: {e}"
             _emit(on_progress, "fetch_error", f"未知错误: {type(e).__name__}", {"attempt": attempt})
@@ -864,11 +879,30 @@ def _paginate(
         assert response is not None  # outcome.error is None ⇒ response set
         last_http_status = response.status_code
 
-        # response body size (truncate)
+        # S4: 响应体超限 → 拒绝（不截断）。截断会继续解析残缺 JSON/HTML，
+        # 浪费 CPU 并污染数据。此处直接终止整个 crawl。
+        content_length_hdr = response.headers.get("content-length")
+        if content_length_hdr:
+            try:
+                if int(content_length_hdr) > MAX_RESPONSE_BYTES:
+                    return CrawlResult(
+                        error=f"Response too large: Content-Length {content_length_hdr} exceeds limit {MAX_RESPONSE_BYTES}",
+                        http_status=response.status_code,
+                        pages_fetched=page_num,
+                        retries_used=max_retries_used,
+                    )
+            except ValueError:
+                pass  # malformed Content-Length, fall through to post-read check
+
         content = response.content
         if len(content) > MAX_RESPONSE_BYTES:
-            logger.warning("Response too large (%d bytes), truncating: %s", len(content), page_url)
-            content = content[:MAX_RESPONSE_BYTES]
+            return CrawlResult(
+                error=f"Response too large: {len(content)} bytes exceeds limit {MAX_RESPONSE_BYTES}",
+                http_status=response.status_code,
+                pages_fetched=page_num,
+                retries_used=max_retries_used,
+                html_size_kb=round(total_html_size_kb, 1),
+            )
         size_kb = round(len(content) / 1024, 1)
         total_html_size_kb += size_kb
         _emit(on_progress, "fetch_done",
@@ -937,6 +971,14 @@ def _paginate(
             break
         seen_hashes = current_hashes
         all_items.extend(parsed)
+
+        # S5: 单任务 item 数上限，防止无界分页导致内存爆炸
+        if len(all_items) >= MAX_ITEMS_PER_EXECUTION:
+            _emit(on_progress, "fetch_error",
+                  f"达到单任务最大 item 数限制 ({MAX_ITEMS_PER_EXECUTION})，停止分页",
+                  {"limit": MAX_ITEMS_PER_EXECUTION})
+            all_items = all_items[:MAX_ITEMS_PER_EXECUTION]
+            break
 
         # ── resolve next page ───────────────────────────────
         if not next_page_selector:
