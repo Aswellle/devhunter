@@ -5,6 +5,7 @@ import { ChevronDown, ChevronRight, Rss, Sparkles, TrendingUp } from 'lucide-rea
 import { clsx } from 'clsx'
 import { threadsApi } from '../api/threads'
 import { userPrefsApi } from '../api/user_prefs'
+import { queryKeys } from '../api/queryKeys'
 import { formatDistanceToNow } from '../utils/time'
 import { Spinner } from '../components/ui/Spinner'
 import { Empty } from '../components/ui/Empty'
@@ -39,7 +40,6 @@ export function RecommendPage() {
 
   return (
     <div className="max-w-4xl mx-auto px-4 sm:px-6 py-6">
-
       {/* Header */}
       <div className="mb-5">
         <h1 className="text-xl font-bold text-gray-900">今日推荐</h1>
@@ -101,8 +101,9 @@ function TabButton({
 
 // ── 为你推荐 Tab ─────────────────────────────────────────────
 function RecommendedTab() {
+  // F2: 使用规范化的 query key
   const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: ['recommendations-home'],
+    queryKey: queryKeys.recommendations.home(),
     queryFn: () => userPrefsApi.getRecommendations({ limit: 20, exclude_read: true }),
     staleTime: 30_000,
   })
@@ -111,8 +112,6 @@ function RecommendedTab() {
     return <div className="flex justify-center py-16"><Spinner /></div>
   }
 
-  // U3: a failed request previously fell through to the same empty state
-  // as "no recommendations yet", with no way to tell the two apart.
   if (isError) {
     return (
       <Empty
@@ -159,7 +158,7 @@ function RecommendedItemCard({ item }: { item: RecommendedItem }) {
       )}>
         <span className={clsx(
           'text-lg font-bold',
-          score >= 80 ? 'text-primary-600' : 'text-gray-500',
+          score >= 80 ? 'text-primary-600' : 'text-gray-600',
         )}>
           {score}
         </span>
@@ -204,13 +203,10 @@ function RecommendedItemCard({ item }: { item: RecommendedItem }) {
 
 // ── 热点聚合 Tab ─────────────────────────────────────────────
 function ThreadsTab() {
+  // F2: 使用规范化的 query key
   const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: ['threads-home'],
+    queryKey: queryKeys.threads.list({ per_page: 20 }),
     queryFn: () => threadsApi.list({ per_page: 20 }),
-    // U14: sibling RecommendedTab already sets staleTime: 30_000; this
-    // query lacked it, so switching tabs back and forth re-fetched threads
-    // every single time instead of reusing the cached result like the
-    // recommendations tab does.
     staleTime: 30_000,
   })
 
@@ -218,8 +214,6 @@ function ThreadsTab() {
     return <div className="flex justify-center py-16"><Spinner /></div>
   }
 
-  // U3: a failed request previously fell through to the same empty state
-  // as "no threads yet", with no way to tell the two apart.
   if (isError) {
     return (
       <Empty
@@ -257,9 +251,9 @@ function ThreadCard({ thread }: { thread: ThreadWithItems }) {
   const [expanded, setExpanded] = useState(false)
   const platforms = thread.platforms ?? []
 
-  // Fetch thread details (with items) only when expanded
+  // F2: 使用规范化的 query key
   const { data: details } = useQuery({
-    queryKey: ['thread-detail', thread.id],
+    queryKey: queryKeys.threads.detail(thread.id),
     queryFn: () => threadsApi.get(thread.id),
     enabled: expanded,
   })

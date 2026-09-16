@@ -1,30 +1,17 @@
 /**
- * sources API client
+ * F1: sources API — 使用统一 axios client（而非裸 fetch），
+ * 确保 401 拦截、Cookie 传递、错误格式一致。
  */
+import client from './client'
 import type { DiscoveryResult, PreviewResult, TestResult } from '../types'
-
-const BASE = '/api/sources'
-
-async function post<T>(path: string, body: unknown): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  })
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}))
-    throw new Error(err.detail || err.message || `Request failed: ${res.status}`)
-  }
-  return res.json()
-}
 
 export const sourcesApi = {
   discover: (url: string) =>
-    post<DiscoveryResult>('/discover', { url }),
+    client.post<DiscoveryResult>('/sources/discover', { url }).then((r) => r.data),
 
   preview: (url: string, discoveryResult?: DiscoveryResult) =>
-    post<PreviewResult>('/preview', { url, discovery_result: discoveryResult }),
+    client.post<PreviewResult>('/sources/preview', { url, discovery_result: discoveryResult }).then((r) => r.data),
 
   test: (url: string, selectors: Record<string, string>, expectedMinItems?: number) =>
-    post<TestResult>('/test', { url, selectors, expected_min_items: expectedMinItems }),
+    client.post<TestResult>('/sources/test', { url, selectors, expected_min_items: expectedMinItems }).then((r) => r.data),
 }

@@ -4,6 +4,7 @@ import { useSearchParams } from 'react-router-dom'
 import { ChevronDown, ChevronRight, CheckCheck, Check, Star, Rss, Trash2, X, Layers } from 'lucide-react'
 import { clsx } from 'clsx'
 import { itemsApi } from '../api/items'
+import { queryKeys } from '../api/queryKeys'
 import { tasksApi } from '../api/tasks'
 import { threadsApi } from '../api/threads'
 import { ItemCard } from '../components/items/ItemCard'
@@ -74,7 +75,7 @@ export function ItemsPage() {
 
   // Fetch items
   const { data, isFetching, isError, refetch } = useQuery({
-    queryKey: ['items-grouped', filters],
+    queryKey: queryKeys.items.grouped(filters),
     queryFn: () =>
       itemsApi.list({
         search: filters.search || undefined,
@@ -87,20 +88,20 @@ export function ItemsPage() {
 
   // Fetch tasks for filter bar
   const { data: tasksPage } = useQuery({
-    queryKey: ['tasks-all'],
+    queryKey: queryKeys.tasks.all,
     queryFn: () => tasksApi.list({ per_page: 100 }),
   })
 
   // Fetch counts for filter bar badges (independent of item list pagination)
   const { data: countsData } = useQuery({
-    queryKey: ['items-counts'],
+    queryKey: queryKeys.items.counts(),
     queryFn: itemsApi.counts,
     staleTime: 30_000,
   })
 
   // Fetch Threads (only when in thread view)
   const { data: threadsPage } = useQuery({
-    queryKey: ['threads', filters.task_id],
+    queryKey: queryKeys.threads.list({ task_id: filters.task_id }),
     queryFn: () =>
       threadsApi.list({
         task_id: filters.task_id || undefined,
@@ -200,46 +201,113 @@ export function ItemsPage() {
     })
   }, [])
 
+  // F3: 乐观更新 + 回滚
   const batchStarMutation = useMutation({
     mutationFn: ({ ids, starred }: { ids: string[]; starred: boolean }) =>
       itemsApi.batchPatch(ids, { is_starred: starred }),
+    onMutate: async ({ ids, starred }) => {
+      // 取消正在进行的查询，避免覆盖乐观更新
+      await qc.cancelQueries({ queryKey: queryKeys.items.all })
+      // 保存当前状态用于回滚
+      const previousData = qc.getQueryData(queryKeys.items.grouped(filters))
+      // 乐观更新：立即修改缓存
+      qc.setQueryData(queryKeys.items.grouped(filters), (old: unknown) => {
+        if (!old || typeof old !== 'object' || !('items' in old)) return old
+        const o = old as { items: Array<Record<string, unknown>> }
+        const idSet = new Set(ids)
+        return {
+          ...o,
+          items: o.items.map((item) =>
+            idSet.has(item.id as string) ? { ...item, is_starred: starred } : item
+          ),
+        }
+      })
+      return { previousData }
+    },
+    onError: (_err, _vars, context) => {
+      // 回滚到变更前的状态
+      if (context?.previousData) {
+        qc.setQueryData(queryKeys.items.grouped(filters), context.previousData)
+      }
+      toast.error('操作失败', { duration: 5000 })
+    },
     onSuccess: (result) => {
-      qc.invalidateQueries({ queryKey: ['items'] })
-      qc.invalidateQueries({ queryKey: ['items-starred'] })
-      qc.invalidateQueries({ queryKey: ['items-grouped'] })
-      qc.invalidateQueries({ queryKey: ['threads'] })
-      qc.invalidateQueries({ queryKey: ['recommendations'] })
       toast.success(`${batchStarMutation.variables?.starred ? '已收藏' : '已取消收藏'} ${result.updated} 条`)
       setSelectedIds(new Set())
     },
-    onError: () => toast.error('操作失败', { duration: 5000 }),
+    onSettled: () => {
+      // 最终与服务端同步
+      qc.invalidateQueries({ queryKey: queryKeys.items.all })
+      qc.invalidateQueries({ queryKey: queryKeys.threads.all })
+      qc.invalidateQueries({ queryKey: queryKeys.recommendations.all })
+    },
   })
 
+  // F3: 乐观更新 + 回滚
   const batchDeleteMutation = useMutation({
     mutationFn: (ids: string[]) => itemsApi.batchDelete(ids),
+    onMutate: async (ids) => {
+      await qc.cancelQueries({ queryKey: queryKeys.items.all })
+      const previousData = qc.getQueryData(queryKeys.items.grouped(filters))
+      qc.setQueryData(queryKeys.items.grouped(filters), (old: unknown) => {
+        if (!old || typeof old !== 'object' || !('items' in old)) return old
+        const o = old as { items: Array<Record<string, unknown>> }
+        const idSet = new Set(ids)
+        return { ...o, items: o.items.filter((item) => !idSet.has(item.id as string)) }
+      })
+      return { previousData }
+    },
+    onError: (_err, _vars, context) => {
+      if (context?.previousData) {
+        qc.setQueryData(queryKeys.items.grouped(filters), context.previousData)
+      }
+      toast.error('删除失败', { duration: 5000 })
+    },
     onSuccess: (result) => {
-      qc.invalidateQueries({ queryKey: ['items'] })
-      qc.invalidateQueries({ queryKey: ['items-grouped'] })
-      qc.invalidateQueries({ queryKey: ['items-starred'] })
-      qc.invalidateQueries({ queryKey: ['threads'] })
-      qc.invalidateQueries({ queryKey: ['recommendations'] })
       toast.success(`已删除 ${result.deleted} 条`)
       setSelectedIds(new Set())
     },
-    onError: () => toast.error('删除失败', { duration: 5000 }),
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.items.all })
+      qc.invalidateQueries({ queryKey: queryKeys.threads.all })
+      qc.invalidateQueries({ queryKey: queryKeys.recommendations.all })
+    },
   })
 
+  // F3: 乐观更新 + 回滚
   const batchMarkReadMutation = useMutation({
     mutationFn: (ids: string[]) => itemsApi.batchPatch(ids, { is_read: true }),
+    onMutate: async (ids) => {
+      await qc.cancelQueries({ queryKey: queryKeys.items.all })
+      const previousData = qc.getQueryData(queryKeys.items.grouped(filters))
+      qc.setQueryData(queryKeys.items.grouped(filters), (old: unknown) => {
+        if (!old || typeof old !== 'object' || !('items' in old)) return old
+        const o = old as { items: Array<Record<string, unknown>> }
+        const idSet = new Set(ids)
+        return {
+          ...o,
+          items: o.items.map((item) =>
+            idSet.has(item.id as string) ? { ...item, is_read: true } : item
+          ),
+        }
+      })
+      return { previousData }
+    },
+    onError: (_err, _vars, context) => {
+      if (context?.previousData) {
+        qc.setQueryData(queryKeys.items.grouped(filters), context.previousData)
+      }
+      toast.error('操作失败', { duration: 5000 })
+    },
     onSuccess: (result) => {
-      qc.invalidateQueries({ queryKey: ['items'] })
-      qc.invalidateQueries({ queryKey: ['items-grouped'] })
-      qc.invalidateQueries({ queryKey: ['threads'] })
-      qc.invalidateQueries({ queryKey: ['recommendations'] })
       toast.success(`已标记 ${result.updated} 条为已读`)
       setSelectedIds(new Set())
     },
-    onError: () => toast.error('操作失败', { duration: 5000 }),
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.items.all })
+      qc.invalidateQueries({ queryKey: queryKeys.threads.all })
+      qc.invalidateQueries({ queryKey: queryKeys.recommendations.all })
+    },
   })
 
   const handleFilterChange = (partial: Partial<Filters>) => {
