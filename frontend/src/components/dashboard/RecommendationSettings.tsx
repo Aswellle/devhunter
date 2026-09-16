@@ -16,17 +16,17 @@ interface RecommendationSettingsProps {
 type PreferenceMode = 'interest_first' | 'balanced' | 'fresh_first' | 'exploration_first'
 
 const MODE_LABELS: Record<PreferenceMode, string> = {
-  interest_first: 'Interest First',
-  balanced: 'Balanced',
-  fresh_first: 'Fresh First',
-  exploration_first: 'Exploration First',
+  interest_first: '兴趣优先',
+  balanced: '平衡模式',
+  fresh_first: '最新优先',
+  exploration_first: '探索发现',
 }
 
 const MODE_DESCRIPTIONS: Record<PreferenceMode, string> = {
-  interest_first: 'Prioritize your interests and reading history',
-  balanced: 'Mix of interests, fresh content, and exploration',
-  fresh_first: 'Prioritize the latest content',
-  exploration_first: 'Discover new topics and sources',
+  interest_first: '优先展示与你的兴趣和阅读历史匹配的内容',
+  balanced: '平衡兴趣、新鲜内容和探索发现',
+  fresh_first: '优先展示最新的内容',
+  exploration_first: '发现新的主题和数据源',
 }
 
 export function RecommendationSettings({ onClose }: RecommendationSettingsProps) {
@@ -73,7 +73,7 @@ export function RecommendationSettings({ onClose }: RecommendationSettingsProps)
         <div className="flex items-center justify-between px-6 py-4 border-b">
           <h2 className="text-lg font-semibold flex items-center gap-2">
             <Settings className="h-5 w-5" />
-            Recommendation Settings
+            推荐设置
           </h2>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
             ✕
@@ -83,7 +83,7 @@ export function RecommendationSettings({ onClose }: RecommendationSettingsProps)
         <div className="px-6 py-4 space-y-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              Preference Mode
+              偏好模式
             </label>
             <div className="grid grid-cols-2 gap-2">
               {(Object.keys(MODE_LABELS) as PreferenceMode[]).map((m) => (
@@ -109,7 +109,7 @@ export function RecommendationSettings({ onClose }: RecommendationSettingsProps)
               className="flex items-center gap-2 text-sm text-gray-600 hover:text-gray-900"
             >
               <Sliders className="h-4 w-4" />
-              {showAdvanced ? 'Hide' : 'Show'} Advanced Settings
+              {showAdvanced ? '隐藏' : '显示'}高级设置
             </button>
           </div>
 
@@ -117,7 +117,7 @@ export function RecommendationSettings({ onClose }: RecommendationSettingsProps)
             <div className="space-y-3 p-4 bg-gray-50 rounded-lg">
               <div>
                 <label className="block text-sm text-gray-600 mb-1">
-                  Topic Match Weight: {weights.topic_match.toFixed(2)}
+                  主题匹配权重: {weights.topic_match.toFixed(2)}
                 </label>
                 <input
                   type="range"
@@ -131,7 +131,7 @@ export function RecommendationSettings({ onClose }: RecommendationSettingsProps)
               </div>
               <div>
                 <label className="block text-sm text-gray-600 mb-1">
-                  Affinity Weight: {weights.affinity.toFixed(2)}
+                  亲缘度权重: {weights.affinity.toFixed(2)}
                 </label>
                 <input
                   type="range"
@@ -145,7 +145,7 @@ export function RecommendationSettings({ onClose }: RecommendationSettingsProps)
               </div>
               <div>
                 <label className="block text-sm text-gray-600 mb-1">
-                  Recency Weight: {weights.recency.toFixed(2)}
+                  新鲜度权重: {weights.recency.toFixed(2)}
                 </label>
                 <input
                   type="range"
@@ -159,7 +159,7 @@ export function RecommendationSettings({ onClose }: RecommendationSettingsProps)
               </div>
               <div>
                 <label className="block text-sm text-gray-600 mb-1">
-                  Engagement Weight: {weights.engagement.toFixed(2)}
+                  参与度权重: {weights.engagement.toFixed(2)}
                 </label>
                 <input
                   type="range"
@@ -175,19 +175,12 @@ export function RecommendationSettings({ onClose }: RecommendationSettingsProps)
           )}
         </div>
 
-        <div className="px-6 py-4 border-t flex justify-end gap-2">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
-          >
-            Cancel
+        <div className="flex justify-end gap-3 px-6 py-4 border-t">
+          <button onClick={onClose} className="btn-ghost">
+            取消
           </button>
-          <button
-            onClick={() => saveMutation.mutate()}
-            disabled={saveMutation.isPending}
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
-          >
-            Save
+          <button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending} className="btn-primary">
+            {saveMutation.isPending ? '保存中...' : '保存'}
           </button>
         </div>
       </div>

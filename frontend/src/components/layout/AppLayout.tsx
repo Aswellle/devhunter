@@ -11,6 +11,8 @@ import { Link, NavLink, useNavigate } from 'react-router-dom'
 import { BarChart2, Cloud, LayoutDashboard, LogOut, Menu, Rss, Sparkles, Star, User, X } from 'lucide-react'
 import { useAuthStore } from '../../stores/authStore'
 import { clsx } from 'clsx'
+import { ConfirmDialog } from '../ui/ConfirmDialog'
+
 
 const navItems = [
   { to: '/',          label: '采集结果', icon: LayoutDashboard },
@@ -29,8 +31,13 @@ interface SidebarContentProps {
 function SidebarContent({ onLinkClick }: SidebarContentProps) {
   const { logout } = useAuthStore()
   const navigate   = useNavigate()
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false)
 
   const handleLogout = () => {
+    setShowLogoutConfirm(true)
+  }
+
+  const confirmLogout = () => {
     logout()
     navigate('/login')
   }
@@ -42,8 +49,7 @@ function SidebarContent({ onLinkClick }: SidebarContentProps) {
         <Link to="/" className="flex items-center gap-2" onClick={onLinkClick}>
           {/* SVG 搜索图标替代 emoji */}
           <svg className="h-5 w-5 text-primary-400 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <circle cx="11" cy="11" r="8"/>
-            <path d="m21 21-4.35-4.35"/>
+
           </svg>
           <div>
             <span className="text-white font-bold text-base block leading-tight">
@@ -88,6 +94,20 @@ function SidebarContent({ onLinkClick }: SidebarContentProps) {
           退出登录
         </button>
       </div>
+
+
+
+      {showLogoutConfirm && (
+        <ConfirmDialog
+          title="退出登录"
+          message="确定要退出登录吗？"
+          confirmText="退出"
+          cancelText="取消"
+          variant="danger"
+          onConfirm={confirmLogout}
+          onCancel={() => setShowLogoutConfirm(false)}
+        />
+      )}
     </>
   )
 }

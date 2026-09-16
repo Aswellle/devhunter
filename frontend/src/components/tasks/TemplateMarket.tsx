@@ -1,7 +1,8 @@
 /**
- * TemplateMarket：模板市场式体验。
-
+ * TemplateMarket：模板市场模态框。
+ *
  * 按类别分组展示预设模板，支持一键启用。
+ * 模态框使用固定宽高，避免切换类别时视口摇晃。
  */
 import { useState } from 'react'
 import { useQuery, useMutation } from '@tanstack/react-query'
@@ -31,26 +32,27 @@ export function TemplateMarket({ onClose, onCreated }: TemplateMarketProps) {
 
   const { data: templates, isLoading } = useQuery({
     queryKey: ['templates'],
-    queryFn: () => tasksApi.templates(),
+    queryFn: tasksApi.templates,
   })
 
   const templateList: SourceTemplate[] = templates || []
 
   const enableMutation = useMutation({
-    mutationFn: (template: SourceTemplate) =>
+    mutationFn: (tpl: SourceTemplate) =>
       tasksApi.create({
-        name: template.name,
-        source_url: template.source_url,
-        selector_list: template.selector_list,
-        selector_title: template.selector_title,
-        selector_link: template.selector_link,
-        selector_summary: template.selector_summary,
-        keywords: template.default_keywords,
-        cron_expression: template.recommended_cron,
-        template_id: template.id,
+        name: tpl.name,
+        source_url: tpl.source_url,
+        template_id: tpl.id,
+        selector_list: tpl.selector_list,
+        selector_title: tpl.selector_title,
+        selector_link: tpl.selector_link,
+        selector_summary: tpl.selector_summary ?? null,
+        selector_next_page: null,
+        keywords: tpl.default_keywords || [],
+        cron_expression: tpl.recommended_cron,
       }),
-    onSuccess: (_data, variables) => {
-      setEnabledTemplates((prev) => new Set(prev).add(variables.id))
+    onSuccess: (data) => {
+      setEnabledTemplates((prev) => new Set([...prev, data.id]))
       onCreated?.()
     },
   })
@@ -70,7 +72,7 @@ export function TemplateMarket({ onClose, onCreated }: TemplateMarketProps) {
 
   return (
     <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-5xl mx-4 max-h-[90vh] overflow-hidden flex flex-col">
+      <div className="bg-white rounded-lg shadow-xl w-[900px] h-[600px] max-w-[90vw] max-h-[85vh] flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b shrink-0">
           <h2 className="text-lg font-semibold">模板市场</h2>
@@ -102,8 +104,8 @@ export function TemplateMarket({ onClose, onCreated }: TemplateMarketProps) {
           </div>
         </div>
 
-        {/* Content */}
-        <div className="flex-1 overflow-y-auto px-6 py-4">
+        {/* Content - Fixed height scrollable area */}
+        <div className="flex-1 overflow-y-auto px-6 py-4" style={{ minHeight: '400px' }}>
           {isLoading ? (
             <div className="flex justify-center py-10">
               <Spinner className="h-8 w-8" />
@@ -134,7 +136,7 @@ export function TemplateMarket({ onClose, onCreated }: TemplateMarketProps) {
                               <button
                                 onClick={() => enableMutation.mutate(template)}
                                 disabled={enableMutation.isPending}
-                                className="flex items-center gap-1 px-2 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-700 disabled:opacity-50"
+                                className="btn-primary flex items-center gap-1 px-2 py-1 text-xs"
                               >
                                 {enableMutation.isPending ? (
                                   <Spinner className="h-3 w-3" />

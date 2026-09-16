@@ -45,21 +45,21 @@ export function TasksPage() {
     <div className="max-w-4xl mx-auto px-6 py-6">
       {/* Header */}
       <div className="flex items-center justify-between mb-5">
-        <h1 className="text-xl font-semibold">Tasks</h1>
+        <h1 className="text-xl font-semibold">任务管理</h1>
         <div className="flex items-center gap-2">
           <button
             onClick={() => setShowMarket(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50"
+            className="btn-ghost flex items-center gap-1.5 px-3 py-1.5 text-sm"
           >
             <LayoutGrid className="h-4 w-4" />
-            Templates
+            模板市场
           </button>
           <button
             onClick={() => setShowWizard(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+            className="btn-primary flex items-center gap-1.5 px-3 py-1.5 text-sm"
           >
             <Plus className="h-4 w-4" />
-            Add Source
+            新建任务
           </button>
         </div>
       </div>
