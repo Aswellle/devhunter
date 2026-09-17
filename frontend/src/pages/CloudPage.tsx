@@ -38,33 +38,35 @@ const CLOUD_PALETTES = [
 
 /** Floating animation keyframes - varied movement patterns */
 const FLOAT_ANIMATIONS = `
-  @keyframes float-drift-1 {
-    0%, 100% { transform: translateY(0px) rotate(0deg); }
-    33% { transform: translateY(-12px) rotate(0.8deg); }
-    66% { transform: translateY(-6px) rotate(-0.5deg); }
-  }
-  @keyframes float-drift-2 {
-    0%, 100% { transform: translateY(0px) rotate(0deg); }
-    25% { transform: translateY(-8px) rotate(-0.6deg); }
-    75% { transform: translateY(-14px) rotate(0.4deg); }
-  }
-  @keyframes float-drift-3 {
-    0%, 100% { transform: translateY(0px) rotate(0deg); }
-    40% { transform: translateY(-16px) rotate(1deg); }
-    70% { transform: translateY(-5px) rotate(-0.3deg); }
-  }
-  @keyframes float-drift-4 {
-    0%, 100% { transform: translateY(0px) rotate(0deg); }
-    30% { transform: translateY(-10px) rotate(-0.7deg); }
-    60% { transform: translateY(-18px) rotate(0.6deg); }
-  }
-  @keyframes float-drift-5 {
-    0%, 100% { transform: translateY(0px) rotate(0deg); }
-    50% { transform: translateY(-20px) rotate(0.5deg); }
-  }
-  @keyframes shimmer {
-    0%, 100% { opacity: 0.7; }
-    50% { opacity: 1; }
+  @media (prefers-reduced-motion: no-preference) {
+    @keyframes float-drift-1 {
+      0%, 100% { transform: translateY(0px) rotate(0deg); }
+      33% { transform: translateY(-12px) rotate(0.8deg); }
+      66% { transform: translateY(-6px) rotate(-0.5deg); }
+    }
+    @keyframes float-drift-2 {
+      0%, 100% { transform: translateY(0px) rotate(0deg); }
+      25% { transform: translateY(-8px) rotate(-0.6deg); }
+      75% { transform: translateY(-14px) rotate(0.4deg); }
+    }
+    @keyframes float-drift-3 {
+      0%, 100% { transform: translateY(0px) rotate(0deg); }
+      40% { transform: translateY(-16px) rotate(1deg); }
+      70% { transform: translateY(-5px) rotate(-0.3deg); }
+    }
+    @keyframes float-drift-4 {
+      0%, 100% { transform: translateY(0px) rotate(0deg); }
+      30% { transform: translateY(-10px) rotate(-0.7deg); }
+      60% { transform: translateY(-18px) rotate(0.6deg); }
+    }
+    @keyframes float-drift-5 {
+      0%, 100% { transform: translateY(0px) rotate(0deg); }
+      50% { transform: translateY(-20px) rotate(0.5deg); }
+    }
+    @keyframes shimmer {
+      0%, 100% { opacity: 0.7; }
+      50% { opacity: 1; }
+    }
   }
 `
 

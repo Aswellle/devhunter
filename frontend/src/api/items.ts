@@ -29,5 +29,10 @@ export const itemsApi = {
     client.patch<{ updated: number }>('/items/batch', { ids, ...data }).then((r) => r.data),
 
   batchDelete: (ids: string[]) =>
-    client.post<{ deleted: number }>('/items/batch-delete', { ids }).then((r) => r.data),
+    client.request<{ deleted: number }>({
+      method: 'DELETE',
+      url: '/items/batch-delete',
+      data: { ids },
+    }).then((r) => r.data),
 }
+
