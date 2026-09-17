@@ -99,13 +99,14 @@ export function ItemCard({ item }: ItemCardProps) {
             e.stopPropagation()
             starMutation.mutate({ starred: !item.is_starred })
           }}
+          aria-pressed={item.is_starred}
+          aria-label={item.is_starred ? '取消收藏' : '收藏'}
           className={clsx(
             'p-1 rounded transition-colors shrink-0',
             item.is_starred
               ? 'text-yellow-500 hover:text-yellow-600'
               : 'text-gray-300 hover:text-yellow-400'
           )}
-          title={item.is_starred ? '取消收藏' : '收藏'}
         >
           <Star className="h-4 w-4" fill={item.is_starred ? 'currentColor' : 'none'} />
         </button>

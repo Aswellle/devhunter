@@ -576,7 +576,7 @@ export function ItemsPage() {
                               <div
                                 role="checkbox"
                                 aria-checked={selectedIds.has(item.id)}
-                                aria-label={selectedIds.has(item.id) ? '取消选择' : '选择'}
+                                aria-label={`${selectedIds.has(item.id) ? '取消选择' : '选择'}: ${item.title}`}
                                 tabIndex={0}
                                 onClick={() => toggleSelect(item.id)}
                                 onKeyDown={(e) => {
@@ -606,6 +606,7 @@ export function ItemsPage() {
                                   )}
                                 </div>
                               </div>
+
                               <div className="flex-1 min-w-0 pl-0">
                                 <ItemCard item={item} />
                               </div>
@@ -621,7 +622,7 @@ export function ItemsPage() {
 
             {/* Batch actions bar */}
             {totalSelected > 0 && (
-              <div className="sticky bottom-4 z-50 flex justify-center pt-4">
+              <div className="sticky bottom-4 z-30 flex justify-center pt-4">
                 <div className="flex items-center gap-3 px-4 py-3 bg-gray-900 text-white rounded-xl shadow-2xl">
                   <span className="text-sm font-medium">
                     已选择 <b>{totalSelected}</b> 条
@@ -640,6 +641,7 @@ export function ItemsPage() {
                       <div className="w-px h-5 bg-gray-700" />
                     </>
                   )}
+
                   <button
                     onClick={handleBatchStar}
                     disabled={batchStarMutation.isPending}
@@ -649,6 +651,7 @@ export function ItemsPage() {
                     {data?.items.find(i => selectedIds.has(i.id))?.is_starred ? '取消收藏' : '收藏'}
                   </button>
                   {confirmingDelete ? (
+
                     <button
                       onClick={() => {
                         setConfirmingDelete(false)

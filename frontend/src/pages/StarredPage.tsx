@@ -24,9 +24,10 @@ export function StarredPage() {
           已收藏
         </h1>
         <p className="text-sm text-gray-500 mt-0.5">
-          {data ? `共 ${data.total} 条收藏` : '加载中…'}
+          {data && !isLoading ? `共 ${data.total} 条收藏` : '已收藏内容'}
         </p>
       </div>
+
 
       {isLoading ? (
         <div className="flex justify-center py-20">

@@ -50,8 +50,7 @@ export function RecommendPage() {
         </p>
       </div>
 
-      {/* Tab switcher */}
-      <div className="flex items-center gap-1 p-1 bg-gray-100 rounded-lg w-fit mb-5">
+      <div role="tablist" aria-label="推荐内容筛选" className="flex items-center gap-1 p-1 bg-gray-100 rounded-lg w-fit mb-5">
         <TabButton
           active={tab === 'recommended'}
           onClick={() => setTab('recommended')}
@@ -85,6 +84,8 @@ function TabButton({
 }) {
   return (
     <button
+      role="tab"
+      aria-selected={active}
       onClick={onClick}
       className={clsx(
         'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-all',
@@ -262,9 +263,10 @@ function ThreadCard({ thread }: { thread: ThreadWithItems }) {
 
   return (
     <div className="card overflow-hidden">
-      {/* Thread header */}
       <button
         onClick={() => setExpanded(e => !e)}
+        aria-expanded={expanded}
+        aria-controls={`thread-items-${thread.id}`}
         className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-gray-50 transition-colors"
       >
         <span className="text-gray-400">
@@ -301,44 +303,46 @@ function ThreadCard({ thread }: { thread: ThreadWithItems }) {
 
       {/* Expanded items */}
       {expanded && (
-        items.length > 0 ? (
-          <div className="border-t border-gray-100 divide-y divide-gray-100">
-            {items.map((item) => (
-              <div key={item.id} className="flex items-start gap-2 px-4 py-3">
-                <div className="flex-1 min-w-0">
-                  <a
-                    href={item.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-sm text-gray-700 hover:text-primary-600 transition-colors line-clamp-2"
-                    onClick={() => {
-                      userPrefsApi.recordInteraction({ item_id: item.id, interaction_type: 'click' })
-                    }}
-                  >
-                    {item.title}
-                  </a>
-                  {item.summary && (
-                    <p className="text-xs text-gray-400 mt-0.5 line-clamp-1">{item.summary}</p>
-                  )}
-                  <div className="flex items-center gap-2 mt-1">
-                    {item.task_name && (
-                      <span className={clsx('text-xs', PLATFORM_COLORS[item.task_name] ?? 'text-gray-400')}>
-                        {item.task_name}
-                      </span>
+        <div id={`thread-items-${thread.id}`}>
+          {items.length > 0 ? (
+            <div className="border-t border-gray-100 divide-y divide-gray-100">
+              {items.map((item) => (
+                <div key={item.id} className="flex items-start gap-2 px-4 py-3">
+                  <div className="flex-1 min-w-0">
+                    <a
+                      href={item.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-sm text-gray-700 hover:text-primary-600 transition-colors line-clamp-2"
+                      onClick={() => {
+                        userPrefsApi.recordInteraction({ item_id: item.id, interaction_type: 'click' })
+                      }}
+                    >
+                      {item.title}
+                    </a>
+                    {item.summary && (
+                      <p className="text-xs text-gray-400 mt-0.5 line-clamp-1">{item.summary}</p>
                     )}
-                    <span className="text-xs text-gray-400">
-                      {formatDistanceToNow(item.fetched_at)}
-                    </span>
+                    <div className="flex items-center gap-2 mt-1">
+                      {item.task_name && (
+                        <span className={clsx('text-xs', PLATFORM_COLORS[item.task_name] ?? 'text-gray-400')}>
+                          {item.task_name}
+                        </span>
+                      )}
+                      <span className="text-xs text-gray-400">
+                        {formatDistanceToNow(item.fetched_at)}
+                      </span>
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div className="border-t border-gray-100 px-4 py-3 text-sm text-gray-500">
-            {details ? '暂无内容' : '加载中...'}
-          </div>
-        )
+              ))}
+            </div>
+          ) : (
+            <div className="border-t border-gray-100 px-4 py-3 text-sm text-gray-500">
+              {details ? '暂无内容' : '加载中...'}
+            </div>
+          )}
+        </div>
       )}
     </div>
   )

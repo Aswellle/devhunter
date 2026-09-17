@@ -72,7 +72,7 @@ export function TasksPage() {
       </div>
 
       {/* Status filter tabs */}
-      <div className="flex gap-1 mb-5 border-b border-gray-200">
+      <div role="tablist" aria-label="任务状态筛选" className="flex gap-1 mb-5 border-b border-gray-200">
         {[
           { label: '全部', value: '' },
           { label: '运行中', value: 'active' },
@@ -81,6 +81,8 @@ export function TasksPage() {
         ].map((tab) => (
           <button
             key={tab.value}
+            role="tab"
+            aria-selected={statusFilter === tab.value}
             onClick={() => setStatusFilter(tab.value)}
             className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
               statusFilter === tab.value
@@ -92,6 +94,7 @@ export function TasksPage() {
           </button>
         ))}
       </div>
+
 
       {/* Content */}
       {isLoading ? (
