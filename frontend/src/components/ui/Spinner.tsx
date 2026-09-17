@@ -1,12 +1,14 @@
 import { clsx } from 'clsx'
 
-export function Spinner({ className }: { className?: string }) {
+export function Spinner({ className, label = '加载中' }: { className?: string; label?: string }) {
   return (
     <svg
       className={clsx('animate-spin text-primary-600', className ?? 'h-5 w-5')}
       xmlns="http://www.w3.org/2000/svg"
       fill="none"
       viewBox="0 0 24 24"
+      role="status"
+      aria-label={label}
     >
       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
       <path

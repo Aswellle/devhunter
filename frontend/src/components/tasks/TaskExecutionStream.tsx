@@ -87,21 +87,22 @@ const LOG_ICON: Record<string, string> = {
 
 function StatusBadge({ status }: { status: StreamStatus }) {
   if (status === 'connecting')
-    return <span className="flex items-center gap-1 text-xs text-blue-400"><Spinner className="h-3 w-3" />连接中</span>
+    return <span role="status" aria-live="polite" className="flex items-center gap-1 text-xs text-blue-400"><Spinner className="h-3 w-3" />连接中</span>
   if (status === 'running')
     return (
-      <span className="flex items-center gap-1 text-xs text-green-400">
+      <span role="status" aria-live="polite" className="flex items-center gap-1 text-xs text-green-400">
         <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />执行中
       </span>
     )
   if (status === 'done')
-    return <span className="text-xs text-gray-400">已完成</span>
+    return <span role="status" aria-live="polite" className="text-xs text-gray-400">已完成</span>
   if (status === 'error')
-    return <span className="text-xs text-red-400">连接失败</span>
+    return <span role="status" aria-live="assertive" className="text-xs text-red-400">连接失败</span>
   if (status === 'waiting')
-    return <span className="flex items-center gap-1 text-xs text-yellow-400"><span className="w-1.5 h-1.5 rounded-full bg-yellow-400 animate-pulse" />等待Worker响应</span>
-  return <span className="text-xs text-gray-600">等待任务</span>
+    return <span role="status" aria-live="polite" className="flex items-center gap-1 text-xs text-yellow-400"><span className="w-1.5 h-1.5 rounded-full bg-yellow-400 animate-pulse" />等待Worker响应</span>
+  return <span role="status" aria-live="polite" className="text-xs text-gray-600">等待任务</span>
 }
+
 
 /** 流水线节点 */
 function PipelineNode({ step, isLast }: { step: StepState; isLast: boolean }) {

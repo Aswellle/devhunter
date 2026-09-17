@@ -11,14 +11,10 @@ import { useEffect, useRef } from 'react'
  * - moves focus to the first focusable element inside the container
  * - traps Tab/Shift+Tab within the container's focusable elements
  * - calls onClose on Escape
+ * - sets aria-hidden on background content to prevent screen reader access
  *
  * `active` must reflect the modal's actual open state (e.g. the same
  * boolean used to decide whether to render the dialog markup at all).
- * Some modals unmount when closed (conditional render / portal), others
- * stay mounted and toggle visibility via a prop — passing `active` lets
- * this hook's effect re-run correctly in both cases; relying on mount-only
- * (`useEffect` with no `active` dependency) would silently never re-attach
- * the focus trap for a modal that stays mounted across open/close toggles.
  */
 export function useModalA11y(onClose: () => void, active: boolean = true) {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -36,11 +32,15 @@ export function useModalA11y(onClose: () => void, active: boolean = true) {
         (el) => el.offsetParent !== null
       )
 
-    // U2: capture the element that had focus before the modal opened so we
-    // can restore it on close — otherwise focus is left stranded on the
-    // backdrop-covered page (or lost entirely), forcing keyboard users to
-    // tab back through intervening content to reach their prior position.
+    // Capture the element that had focus before the modal opened
     const previouslyFocused = document.activeElement as HTMLElement | null
+
+    // Set aria-hidden on background content
+    const mainContent = document.getElementById('main-content')
+    const originalAriaHidden = mainContent?.getAttribute('aria-hidden')
+    if (mainContent) {
+      mainContent.setAttribute('aria-hidden', 'true')
+    }
 
     const focusable = getFocusable()
     focusable[0]?.focus()
@@ -69,9 +69,15 @@ export function useModalA11y(onClose: () => void, active: boolean = true) {
     document.addEventListener('keydown', handleKeyDown)
     return () => {
       document.removeEventListener('keydown', handleKeyDown)
-      // U2: restore focus to the trigger element. Guard against the
-      // element having been unmounted (e.g. list item removed while modal
-      // was open) — only call focus() if it's still attached to the DOM.
+      // Restore aria-hidden on background content
+      if (mainContent) {
+        if (originalAriaHidden === null) {
+          mainContent.removeAttribute('aria-hidden')
+        } else if (originalAriaHidden !== undefined) {
+          mainContent.setAttribute('aria-hidden', originalAriaHidden)
+        }
+      }
+      // Restore focus to the trigger element
       if (previouslyFocused && previouslyFocused.isConnected) {
         previouslyFocused.focus()
       }

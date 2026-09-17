@@ -11,13 +11,15 @@ export function Skeleton({ className }: SkeletonProps) {
         'animate-pulse rounded-md bg-gray-200',
         className
       )}
+      role="status"
+      aria-label="加载中"
     />
   )
 }
 
 export function SkeletonText({ lines = 3 }: { lines?: number }) {
   return (
-    <div className="space-y-2">
+    <div className="space-y-2" aria-label="加载文本中">
       {Array.from({ length: lines }).map((_, i) => (
         <Skeleton
           key={i}
@@ -30,7 +32,7 @@ export function SkeletonText({ lines = 3 }: { lines?: number }) {
 
 export function SkeletonCard() {
   return (
-    <div className="card p-4 space-y-3">
+    <div className="card p-4 space-y-3" aria-label="加载卡片中">
       <div className="flex items-center gap-3">
         <Skeleton className="h-10 w-10 rounded-full" />
         <div className="flex-1 space-y-2">
@@ -45,7 +47,7 @@ export function SkeletonCard() {
 
 export function SkeletonList({ count = 5 }: { count?: number }) {
   return (
-    <div className="space-y-3">
+    <div className="space-y-3" aria-label="加载列表中">
       {Array.from({ length: count }).map((_, i) => (
         <SkeletonCard key={i} />
       ))}

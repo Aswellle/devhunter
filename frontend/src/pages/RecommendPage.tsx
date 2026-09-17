@@ -253,7 +253,7 @@ function ThreadCard({ thread }: { thread: ThreadWithItems }) {
   const platforms = thread.platforms ?? []
 
   // F2: 使用规范化的 query key
-  const { data: details } = useQuery({
+  const { data: details, isError } = useQuery({
     queryKey: queryKeys.threads.detail(thread.id),
     queryFn: () => threadsApi.get(thread.id),
     enabled: expanded,
@@ -261,9 +261,20 @@ function ThreadCard({ thread }: { thread: ThreadWithItems }) {
 
   const items = details?.items || []
 
+  if (isError) {
+    return (
+      <div className="card overflow-hidden">
+        <div className="px-4 py-3 text-sm text-danger" role="alert">
+          加载失败，请重试
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="card overflow-hidden">
       <button
+
         onClick={() => setExpanded(e => !e)}
         aria-expanded={expanded}
         aria-controls={`thread-items-${thread.id}`}
