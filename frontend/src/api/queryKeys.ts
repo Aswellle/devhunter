@@ -49,6 +49,7 @@ export const queryKeys = {
   userPrefs: {
     all: ['user-prefs'] as const,
     topics: () => ['user-prefs', 'topics'] as const,
+    affinities: () => ['user-prefs', 'affinities'] as const,
   },
 
   // ── Sources ────────────────────────────────────────────

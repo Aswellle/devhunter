@@ -5,17 +5,18 @@
  */
 import { useQuery } from '@tanstack/react-query'
 import { userPrefsApi } from '../api/user_prefs'
+import { queryKeys } from '../api/queryKeys'
 import { Empty } from '../components/ui/Empty'
 import { SkeletonList } from '../components/ui/Skeleton'
 
 export function ProfilePage() {
   const { data: topics, isLoading: topicsLoading, isError: topicsError, refetch: refetchTopics } = useQuery({
-    queryKey: ['user-topics'],
+    queryKey: queryKeys.userPrefs.topics(),
     queryFn: () => userPrefsApi.listTopics(),
   })
 
   const { data: affinities, isLoading: affinitiesLoading, isError: affinitiesError, refetch: refetchAffinities } = useQuery({
-    queryKey: ['user-affinities'],
+    queryKey: queryKeys.recommendations.affinities(),
     queryFn: () => userPrefsApi.getAffinities(),
   })
 
@@ -55,12 +56,20 @@ export function ProfilePage() {
                 {topics.map((topic) => (
                   <div key={topic.topic} className="flex items-center gap-3">
                     <span className="w-32 text-sm font-medium">{topic.topic}</span>
-                    <div className="flex-1 h-4 bg-gray-100 rounded-full overflow-hidden">
+                    <div
+                      className="flex-1 h-4 bg-gray-100 rounded-full overflow-hidden"
+                      role="progressbar"
+                      aria-valuenow={Math.round((topic.weight || 0) * 100)}
+                      aria-valuemin={0}
+                      aria-valuemax={100}
+                      aria-label={`${topic.topic} 兴趣权重`}
+                    >
                       <div
                         className="h-full bg-blue-500 rounded-full"
                         style={{ width: `${Math.min(100, (topic.weight || 0) * 100)}%` }}
                       />
                     </div>
+
                     <span className="w-12 text-sm text-gray-500 text-right">
                       {((topic.weight || 0) * 100).toFixed(0)}%
                     </span>

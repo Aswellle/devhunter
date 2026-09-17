@@ -217,9 +217,11 @@ export function CloudPage() {
                 animationDelay: animDelay,
                 zIndex: depthZ,
                 transformOrigin: 'center top',
-              }}
+                contentVisibility: 'auto',
+                containIntrinsicSize: '0 200px',
+              } as React.CSSProperties}
             >
-              {/* Title - full text, no truncation */}
+
               <a
                 href={item.url}
                 target="_blank"

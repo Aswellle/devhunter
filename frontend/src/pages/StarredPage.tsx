@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { itemsApi } from '../api/items'
 import { ItemCard } from '../components/items/ItemCard'
@@ -9,6 +9,11 @@ import { Star } from 'lucide-react'
 
 export function StarredPage() {
   const [page, setPage] = useState(1)
+
+  // 翻页时滚动到顶部
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }, [page])
 
   const { data, isLoading, isFetching, isError, refetch } = useQuery({
     queryKey: ['items-starred', page],

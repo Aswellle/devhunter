@@ -68,7 +68,7 @@ export function ItemsPage() {
   // dependency; cleared on unmount or when the user confirms/cancels.
   useEffect(() => {
     if (!confirmingDelete) return
-    const id = setTimeout(() => setConfirmingDelete(false), 4000)
+    const id = setTimeout(() => setConfirmingDelete(false), 8000)
     return () => clearTimeout(id)
   }, [confirmingDelete])
 
