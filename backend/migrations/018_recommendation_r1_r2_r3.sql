@@ -7,7 +7,13 @@
 
 -- R1: 扩展 user_interactions 的 interaction_type 枚举
 -- SQLite 不支持 ALTER TABLE MODIFY CHECK，需重建表
-CREATE TABLE IF NOT EXISTS user_interactions_new (
+-- 使用 rename-then-drop 模式：先重命名旧表再删除，确保迁移失败时数据不丢失
+
+-- Step 1: 将旧表重命名为备份（如果存在）
+ALTER TABLE user_interactions RENAME TO user_interactions_old;
+
+-- Step 2: 创建新表
+CREATE TABLE user_interactions (
     id              TEXT PRIMARY KEY,
     item_id         TEXT NOT NULL REFERENCES items(id) ON DELETE CASCADE,
     interaction_type TEXT NOT NULL CHECK (interaction_type IN (
@@ -19,7 +25,8 @@ CREATE TABLE IF NOT EXISTS user_interactions_new (
     created_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
 );
 
-INSERT INTO user_interactions_new (id, item_id, interaction_type, dwell_seconds, weight, created_at)
+-- Step 3: 从旧表迁移数据（兼容旧值 view→impression, click→click_source）
+INSERT INTO user_interactions (id, item_id, interaction_type, dwell_seconds, weight, created_at)
 SELECT id, item_id,
     CASE interaction_type
         WHEN 'view' THEN 'impression'
@@ -27,11 +34,12 @@ SELECT id, item_id,
         ELSE interaction_type
     END,
     dwell_seconds, 1.0, created_at
-FROM user_interactions;
+FROM user_interactions_old;
 
-DROP TABLE user_interactions;
-ALTER TABLE user_interactions_new RENAME TO user_interactions;
+-- Step 4: 安全删除备份表
+DROP TABLE IF EXISTS user_interactions_old;
 
+-- Step 5: 创建索引
 CREATE INDEX IF NOT EXISTS idx_interactions_item ON user_interactions(item_id);
 CREATE INDEX IF NOT EXISTS idx_interactions_type ON user_interactions(interaction_type);
 CREATE INDEX IF NOT EXISTS idx_interactions_created ON user_interactions(created_at DESC);

@@ -36,10 +36,21 @@ def _load_templates() -> dict[str, SourceTemplate]:
         logger.warning("Templates file not found: %s", TEMPLATES_FILE)
         return {}
     data = json.loads(TEMPLATES_FILE.read_text(encoding="utf-8"))
-    return {
-        t["id"]: SourceTemplate(**{k: t[k] for k in SourceTemplate.__dataclass_fields__})
-        for t in data
-    }
+    templates: dict[str, SourceTemplate] = {}
+    required_fields = {"id", "name", "source_url", "selector_list", "selector_title", "selector_link"}
+    for t in data:
+        # 校验必填字段
+        missing = required_fields - set(t.keys())
+        if missing:
+            logger.warning("Template skipped, missing required fields %s: %s", missing, t.get("id", "?"))
+            continue
+        try:
+            templates[t["id"]] = SourceTemplate(**{k: t[k] for k in SourceTemplate.__dataclass_fields__ if k in t})
+        except (TypeError, ValueError) as e:
+            logger.warning("Template skipped, invalid data: %s (%s)", t.get("id", "?"), e)
+            continue
+    return templates
+
 
 
 def get_template(template_id: str) -> SourceTemplate | None:

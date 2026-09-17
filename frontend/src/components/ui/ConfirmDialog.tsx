@@ -56,7 +56,7 @@ export function ConfirmDialog({
   }
 
   const confirmClass = variant === 'danger'
-    ? 'bg-red-600 hover:bg-red-700 text-white'
+    ? 'bg-danger hover:bg-danger/90 text-sidebar-text-active'
     : 'btn-primary'
 
   return (
@@ -65,14 +65,14 @@ export function ConfirmDialog({
       onClose={handleCancel}
       className="fixed inset-0 z-[300] m-auto p-0 rounded-lg shadow-2xl border-0 backdrop:bg-black/50 dialog-fallback"
     >
-      <div className="w-full max-w-sm bg-white rounded-lg shadow-xl">
-        <div className="px-6 py-4 border-b">
-          <h3 className="text-base font-semibold text-gray-900">{title}</h3>
+      <div className="w-full max-w-sm bg-surface rounded-lg shadow-xl">
+        <div className="px-6 py-4 border-b border-subtle">
+          <h3 className="text-base font-semibold text-primary">{title}</h3>
         </div>
         <div className="px-6 py-4">
-          <p className="text-sm text-gray-600">{message}</p>
+          <p className="text-sm text-secondary">{message}</p>
         </div>
-        <div className="flex justify-end gap-3 px-6 py-4 border-t bg-gray-50 rounded-b-lg">
+        <div className="flex justify-end gap-3 px-6 py-4 border-t border-subtle bg-hover rounded-b-lg">
           <button onClick={handleCancel} className="btn-ghost">
             {cancelText}
           </button>

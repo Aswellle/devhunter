@@ -234,6 +234,16 @@
   }
 }
 
+/* U10: Dialog fallback for browsers without showModal support */
+.dialog-fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.5);
+}
+.dialog-fallback[open] {
+  display: flex;
+}
 
 @keyframes pulse {
   0%, 100% { opacity: 1; }
