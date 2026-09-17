@@ -83,9 +83,13 @@ export function LoginPage() {
 
           <form onSubmit={handleSubmit} className="space-y-5">
             <div>
-              <label className="block text-gray-300 text-sm font-medium mb-2">访问密码</label>
+              <label htmlFor="login-password" className="block text-gray-300 text-sm font-medium mb-2">
+                访问密码
+              </label>
               <input
+                id="login-password"
                 type="password"
+                autoComplete="current-password"
                 className="w-full bg-gray-800 border border-gray-700 text-white text-sm rounded-lg px-4 py-3 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
                 placeholder="请输入访问密码"
                 value={password}
@@ -96,12 +100,15 @@ export function LoginPage() {
             </div>
             <button
               type="submit"
-              className="w-full bg-primary-600 hover:bg-primary-700 text-white text-sm font-medium py-3 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               disabled={loading || !password}
+              aria-disabled={loading || !password}
+              aria-busy={loading}
+              className="w-full bg-primary-600 hover:bg-primary-700 text-white text-sm font-medium py-3 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {loading ? (
                 <span className="flex items-center justify-center gap-2">
-                  <Spinner className="h-4 w-4" />验证中...
+                  <Spinner className="h-4 w-4" aria-hidden="true" />
+                  验证中...
                 </span>
               ) : '进入系统'}
             </button>

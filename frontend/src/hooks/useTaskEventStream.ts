@@ -197,12 +197,16 @@ export function useTaskEventStream({ taskId, active }: { taskId: string | null; 
           let   buffer  = ''
 
           while (true) {
-            const { done, value } = await reader.read()
-            if (done) break
+            const { done, value: chunk } = await reader.read()
+            if (done) {
+              clearTimeout(stuckTimerId)
+              break
+            }
 
-            buffer += decoder.decode(value, { stream: true })
+            buffer += decoder.decode(chunk, { stream: true })
             const lines = buffer.split('\n')
             buffer = lines.pop() ?? ''
+
 
             for (const line of lines) {
               if (!line.startsWith('data: ')) continue
@@ -227,17 +231,25 @@ export function useTaskEventStream({ taskId, active }: { taskId: string | null; 
                 }
 
                 if (evt.type !== 'connected') {
-                  setEvents((prev) => [...prev, evt])
+                  setEvents((prev) => {
+                    const MAX_EVENTS = 500
+                    const next = [...prev, evt]
+                    return next.length > MAX_EVENTS ? next.slice(-MAX_EVENTS) : next
+                  })
                 }
 
                 if (evt.type === 'diagnostic') {
                   const hint = extractHint(evt.data)
                   if (hint === 'worker_not_started') {
-                    setEvents((prev) => [...prev, {
-                      id: 'diagnostic-warn',
-                      type: 'warning',
-                      message: '⚠️ Worker 尚未响应，任务可能卡在队列中，或 APScheduler 未正确加载该任务。请检查任务状态是否为 active。',
-                    }])
+                    setEvents((prev) => {
+                      const MAX_EVENTS = 500
+                      const next = [...prev, {
+                        id: 'diagnostic-warn',
+                        type: 'warning',
+                        message: '⚠️ Worker 尚未响应，任务可能卡在队列中，或 APScheduler 未正确加载该任务。请检查任务状态是否为 active。',
+                      }]
+                      return next.length > MAX_EVENTS ? next.slice(-MAX_EVENTS) : next
+                    })
                   }
                 }
 
@@ -270,11 +282,15 @@ export function useTaskEventStream({ taskId, active }: { taskId: string | null; 
           } else {
             clearTimeout(stuckTimerId)
             setStatus('error')
-            setEvents((prev) => [...prev, {
-              id: 'final-error',
-              type: 'warning',
-              message: `⚠️ 连接失败，已重试 ${MAX_RETRIES} 次。请手动刷新页面重试。`,
-            }])
+            setEvents((prev) => {
+              const MAX_EVENTS = 500
+              const next = [...prev, {
+                id: 'final-error',
+                type: 'warning',
+                message: `⚠️ 连接失败，已重试 ${MAX_RETRIES} 次。请手动刷新页面重试。`,
+              }]
+              return next.length > MAX_EVENTS ? next.slice(-MAX_EVENTS) : next
+            })
             return
           }
         }

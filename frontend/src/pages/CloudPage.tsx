@@ -120,16 +120,26 @@ async function fetchAllCloudItems(): Promise<any[]> {
   let page = 1
 
   while (allItems.length < MAX_TOTAL) {
-    const response = await itemsApi.list({ page, per_page: PER_PAGE })
-    if (!response.items.length) break
-    allItems = [...allItems, ...response.items]
-    // PaginatedResponse has total/page/per_page but no has_more; use total to decide stop
-    if (allItems.length >= response.total) break
-    page++
+    try {
+      const response = await itemsApi.list({ page, per_page: PER_PAGE })
+      if (!response.items.length) break
+      allItems = [...allItems, ...response.items]
+      // PaginatedResponse has total/page/per_page but no has_more; use total to decide stop
+      if (allItems.length >= response.total) break
+      page++
+    } catch (err) {
+      // 部分数据降级：如果已有数据则返回已获取部分，否则抛出
+      if (allItems.length > 0) {
+        console.warn(`[CloudPage] 分页获取在第 ${page} 页中断，返回已获取的 ${allItems.length} 条数据`, err)
+        break
+      }
+      throw err
+    }
   }
 
   return allItems.slice(0, MAX_TOTAL)
 }
+
 
 export function CloudPage() {
   const { data: items, isLoading, isError } = useQuery({
@@ -146,7 +156,19 @@ export function CloudPage() {
     )
   }
 
-  if (isError || !items?.length) {
+  if (isError) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <Empty
+          icon={Cloud}
+          title="数据加载失败"
+          description="采集结果加载出错，请检查网络连接后重试"
+        />
+      </div>
+    )
+  }
+
+  if (!items?.length) {
     return (
       <div className="flex items-center justify-center h-full">
         <Empty

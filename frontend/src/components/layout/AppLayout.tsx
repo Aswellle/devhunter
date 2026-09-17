@@ -6,13 +6,21 @@
  * 2. 桌面端侧边栏改用纯 static/relative 定位，不需要任何 z-index。
  * 3. 移动端使用独立的 fixed 覆盖层，与桌面端结构完全分离，互不干扰。
  */
-import { useState } from 'react'
+/**
+ * AppLayout.tsx
+ * 修复：
+ * 1. 移除桌面端侧边栏的 CSS transform（md:translate-x-0），消除零值 transform
+ *    导致的意外层叠上下文。
+ * 2. 桌面端侧边栏改用纯 static/relative 定位，不需要任何 z-index。
+ * 3. 移动端使用独立的 fixed 覆盖层，与桌面端结构完全分离，互不干扰。
+ * 4. 移动端侧边栏添加焦点陷阱和 Escape 关闭，符合 WAI-A11y 抽屉模式。
+ */
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, NavLink, useNavigate } from 'react-router-dom'
 import { BarChart2, Cloud, LayoutDashboard, LogOut, Menu, Rss, Sparkles, Star, User, X } from 'lucide-react'
 import { useAuthStore } from '../../stores/authStore'
 import { clsx } from 'clsx'
 import { ConfirmDialog } from '../ui/ConfirmDialog'
-
 
 const navItems = [
   { to: '/',          label: '采集结果', icon: LayoutDashboard },
@@ -114,10 +122,51 @@ function SidebarContent({ onLinkClick }: SidebarContentProps) {
 
 export function AppLayout({ children }: { children: React.ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const sidebarRef = useRef<HTMLDivElement>(null)
+  const triggerRef = useRef<HTMLElement | null>(null)
+
+  // 移动端侧边栏焦点陷阱 + Escape 关闭
+  const trapSidebarFocus = useCallback((e: KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      e.stopPropagation()
+      setSidebarOpen(false)
+      return
+    }
+    if (e.key !== 'Tab' || !sidebarRef.current) return
+    const focusable = sidebarRef.current.querySelectorAll<HTMLElement>(
+      'button:not([disabled]), a[href], input:not([disabled]), [tabindex]:not([tabindex="-1"])'
+    )
+    if (focusable.length === 0) return
+    const first = focusable[0]
+    const last = focusable[focusable.length - 1]
+    if (e.shiftKey && document.activeElement === first) {
+      e.preventDefault()
+      last.focus()
+    } else if (!e.shiftKey && document.activeElement === last) {
+      e.preventDefault()
+      first.focus()
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!sidebarOpen) return
+    triggerRef.current = document.activeElement as HTMLElement
+    const sidebar = sidebarRef.current
+    if (sidebar) {
+      const firstFocusable = sidebar.querySelector<HTMLElement>(
+        'button:not([disabled]), a[href]'
+      )
+      firstFocusable?.focus()
+    }
+    document.addEventListener('keydown', trapSidebarFocus)
+    return () => {
+      document.removeEventListener('keydown', trapSidebarFocus)
+      triggerRef.current?.focus()
+    }
+  }, [sidebarOpen, trapSidebarFocus])
 
   return (
     <div className="flex h-screen overflow-hidden">
-
       {/*
        * ── 桌面端侧边栏 ──────────────────────────────────
        * hidden md:flex  → 移动端隐藏，桌面端显示为 flex
@@ -134,7 +183,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
        * fixed inset-0 z-40 确保覆盖全屏（低于模态框 z-50/z-200）。
        */}
       {sidebarOpen && (
-        <div className="fixed inset-0 z-40 flex md:hidden">
+        <div ref={sidebarRef} role="dialog" aria-modal="true" aria-label="导航菜单" className="fixed inset-0 z-40 flex md:hidden">
           {/* 侧边栏内容 */}
           <div className="w-64 flex flex-col bg-gray-900 shrink-0 shadow-2xl">
             {/* 关闭按钮 */}
@@ -153,6 +202,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           <div
             className="flex-1 bg-black/60"
             onClick={() => setSidebarOpen(false)}
+            aria-hidden="true"
           />
         </div>
       )}

@@ -25,7 +25,7 @@ function StatCard({ label, value, icon, sub, colorClass = 'text-gray-900' }: Sta
 }
 
 export function StatsCards() {
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['stats'],
     queryFn: statsApi.get,
     refetchInterval: 60_000,
@@ -43,8 +43,18 @@ export function StatsCards() {
     )
   }
 
-  if (!data) return null
+  if (isError) {
+    return (
+      <div className="card p-4 text-danger text-sm flex items-center justify-between" role="alert">
+        <span>统计数据加载失败</span>
+        <button onClick={() => refetch()} className="btn-ghost text-xs py-1">
+          重试
+        </button>
+      </div>
+    )
+  }
 
+  if (!data) return null
   const successRateStr =
     data.success_rate_7d != null
       ? `${(data.success_rate_7d * 100).toFixed(0)}%`

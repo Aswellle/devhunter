@@ -3,6 +3,7 @@ import { BrowserRouter, Navigate, Route, Routes, useNavigate } from 'react-route
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Toaster } from 'react-hot-toast'
 
+import { ErrorBoundary } from './components/ui/ErrorBoundary'
 import { useAuthStore } from './stores/authStore'
 import { AppLayout } from './components/layout/AppLayout'
 import { LoginPage } from './pages/LoginPage'
@@ -55,16 +56,18 @@ export default function App() {
             element={
               <AuthGuard>
                 <AppLayout>
-                  <Routes>
-                    <Route path="/"           element={<ItemsPage />} />
-                    <Route path="/tasks"      element={<TasksPage />} />
-                    <Route path="/cloud"      element={<CloudPage />} />
-                    <Route path="/starred"    element={<StarredPage />} />
-                    <Route path="/dashboard"  element={<DashboardPage />} />
-                    <Route path="/recommend"  element={<RecommendPage />} />
-<Route path="/profile" element={<ProfilePage />} />
-                    <Route path="*"           element={<Navigate to="/" replace />} />
-                  </Routes>
+                  <ErrorBoundary>
+                    <Routes>
+                      <Route path="/"           element={<ItemsPage />} />
+                      <Route path="/tasks"      element={<TasksPage />} />
+                      <Route path="/cloud"      element={<CloudPage />} />
+                      <Route path="/starred"    element={<StarredPage />} />
+                      <Route path="/dashboard"  element={<DashboardPage />} />
+                      <Route path="/recommend"  element={<RecommendPage />} />
+                      <Route path="/profile" element={<ProfilePage />} />
+                      <Route path="*"           element={<Navigate to="/" replace />} />
+                    </Routes>
+                  </ErrorBoundary>
                 </AppLayout>
               </AuthGuard>
             }
@@ -72,7 +75,6 @@ export default function App() {
         </Routes>
       </BrowserRouter>
       <Toaster
-        position="top-right"
         toastOptions={{
           duration: 3000,
           style: { fontSize: '14px' },
