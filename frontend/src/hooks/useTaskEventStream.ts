@@ -199,6 +199,20 @@ export function useTaskEventStream({ taskId, active }: { taskId: string | null; 
           while (true) {
             const { done, value: chunk } = await reader.read()
             if (done) {
+              // 处理缓冲区中剩余的不完整数据
+              if (buffer.trim().startsWith('data: ')) {
+                try {
+                  const evt: StreamEvent = JSON.parse(buffer.trim().slice(6))
+                  applyEvent(evt)
+                  if (evt.type !== 'connected') {
+                    setEvents((prev) => {
+                      const MAX_EVENTS = 500
+                      const next = [...prev, evt]
+                      return next.length > MAX_EVENTS ? next.slice(-MAX_EVENTS) : next
+                    })
+                  }
+                } catch { /* ignore parse error */ }
+              }
               clearTimeout(stuckTimerId)
               break
             }

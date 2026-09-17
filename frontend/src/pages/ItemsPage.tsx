@@ -214,12 +214,13 @@ export function ItemsPage() {
       // 乐观更新：立即修改缓存
       qc.setQueryData(queryKeys.items.grouped(filters), (old: unknown) => {
         if (!old || typeof old !== 'object' || !('items' in old)) return old
-        const o = old as { items: Array<Record<string, unknown>> }
+        const o = old as { items: Array<{ id: string; [key: string]: unknown }> }
+        if (!Array.isArray(o.items)) return old
         const idSet = new Set(ids)
         return {
           ...o,
           items: o.items.map((item) =>
-            idSet.has(item.id as string) ? { ...item, is_starred: starred } : item
+            idSet.has(item.id) ? { ...item, is_starred: starred } : item
           ),
         }
       })
@@ -232,6 +233,7 @@ export function ItemsPage() {
       }
       toast.error('操作失败', { duration: 5000 })
     },
+
     onSuccess: (result) => {
       toast.success(`${batchStarMutation.variables?.starred ? '已收藏' : '已取消收藏'} ${result.updated} 条`)
       setSelectedIds(new Set())

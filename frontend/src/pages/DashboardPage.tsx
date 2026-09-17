@@ -73,13 +73,15 @@ export function DashboardPage() {
           {/* 每日采集趋势 */}
           <div className="card p-4">
             <h2 className="text-sm font-semibold text-gray-700 mb-3">近 7 日采集量趋势</h2>
-            {isLoading ? (
-              <div className="h-24 flex items-center justify-center">
-                <Spinner />
-              </div>
-            ) : (
-              <DailyChart data={data?.daily_items ?? []} />
-            )}
+            <div style={{ minHeight: '88px' }}>
+              {isLoading ? (
+                <div className="h-24 flex items-center justify-center">
+                  <Spinner />
+                </div>
+              ) : (
+                <DailyChart data={data?.daily_items ?? []} />
+              )}
+            </div>
           </div>
 
           {/* 下方两列：活跃任务排行 + 任务状态 */}

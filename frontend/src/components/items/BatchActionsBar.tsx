@@ -36,7 +36,11 @@ export function BatchActionsBar({ itemIds, total }: BatchActionsBarProps) {
   const isPending = markAllRead.isPending || markAllUnread.isPending
 
   return (
-    <div className="flex items-center gap-3 px-3 py-2 bg-primary-50 border border-primary-200 rounded-lg text-sm">
+    <div
+      className="flex items-center gap-3 px-3 py-2 bg-primary-50 border border-primary-200 rounded-lg text-sm"
+      role="status"
+      aria-live="polite"
+    >
       <span className="text-primary-700 font-medium">
         当前页 <b>{itemIds.length}</b> 条
         {total > itemIds.length && (
@@ -52,6 +56,7 @@ export function BatchActionsBar({ itemIds, total }: BatchActionsBarProps) {
                      disabled:opacity-50 disabled:cursor-not-allowed"
           onClick={() => markAllRead.mutate()}
           disabled={isPending}
+          aria-busy={markAllRead.isPending}
         >
           <CheckCheck className="h-3.5 w-3.5" />
           全部已读
@@ -64,6 +69,7 @@ export function BatchActionsBar({ itemIds, total }: BatchActionsBarProps) {
                      disabled:opacity-50 disabled:cursor-not-allowed"
           onClick={() => markAllUnread.mutate()}
           disabled={isPending}
+          aria-busy={markAllUnread.isPending}
         >
           <X className="h-3.5 w-3.5" />
           全部未读
