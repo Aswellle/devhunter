@@ -86,14 +86,22 @@ export function SourceWizard({ onClose, onCreated }: SourceWizardProps) {
   }
 
   return (
-    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl mx-4 max-h-[90vh] overflow-y-auto">
-        <div className="flex items-center justify-between px-6 py-4 border-b">
-          <h2 className="text-lg font-semibold">添加新数据源</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50" onClick={(e) => { if (e.target === e.currentTarget) onClose() }}>
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="source-wizard-title"
+        className="bg-surface rounded-lg shadow-xl w-full max-w-2xl mx-4 max-h-[90vh] overflow-y-auto"
+      >
+        <div className="flex items-center justify-between px-6 py-4 border-b border-subtle">
+          <h2 id="source-wizard-title" className="text-lg font-semibold text-primary">
+            添加新数据源
+          </h2>
+          <button onClick={onClose} className="text-muted hover:text-secondary" aria-label="关闭">
             ✕
           </button>
         </div>
+
 
         <div className="px-6 py-3 bg-gray-50 border-b">
           <div className="flex items-center gap-2">
@@ -107,7 +115,7 @@ export function SourceWizard({ onClose, onCreated }: SourceWizardProps) {
 
         <div className="px-6 py-4">
           {error && (
-            <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg flex items-center gap-2 text-red-700">
+            <div role="alert" className="mb-4 p-3 bg-danger-light border border-danger/20 rounded-lg flex items-center gap-2 text-danger">
               <AlertCircle className="h-4 w-4" />
               <span className="text-sm">{error}</span>
             </div>

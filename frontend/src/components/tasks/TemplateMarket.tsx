@@ -55,6 +55,9 @@ export function TemplateMarket({ onClose, onCreated }: TemplateMarketProps) {
       setEnabledTemplates((prev) => new Set([...prev, data.id]))
       onCreated?.()
     },
+    onError: (err) => {
+      console.error('[TemplateMarket] 启用模板失败:', err)
+    },
   })
 
   const filteredTemplates = templateList.filter((t: SourceTemplate) => {
@@ -71,15 +74,23 @@ export function TemplateMarket({ onClose, onCreated }: TemplateMarketProps) {
   }
 
   return (
-    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50">
-      <div className="bg-white rounded-lg shadow-xl w-[900px] h-[600px] max-w-[90vw] max-h-[85vh] flex flex-col">
+    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50" onClick={(e) => { if (e.target === e.currentTarget) onClose() }}>
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="template-market-title"
+        className="bg-surface rounded-lg shadow-xl w-[900px] h-[600px] max-w-[90vw] max-h-[85vh] flex flex-col"
+      >
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b shrink-0">
-          <h2 className="text-lg font-semibold">模板市场</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-subtle shrink-0">
+          <h2 id="template-market-title" className="text-lg font-semibold text-primary">
+            模板市场
+          </h2>
+          <button onClick={onClose} className="text-muted hover:text-secondary" aria-label="关闭">
             ✕
           </button>
         </div>
+
 
         {/* Categories */}
         <div className="px-6 py-3 border-b bg-gray-50 shrink-0">

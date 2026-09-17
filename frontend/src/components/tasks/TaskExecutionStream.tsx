@@ -289,8 +289,13 @@ export function TaskExecutionStream({ taskId, taskName, onClose }: Props) {
         onClick={onClose}
         aria-hidden="true"
       />
-      <div className="fixed right-0 top-0 bottom-0 z-50 w-full max-w-lg
-                      bg-gray-950 border-l border-gray-800 shadow-2xl flex flex-col">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={`${taskName} 实时执行流`}
+        className="fixed right-0 top-0 bottom-0 z-50 w-full max-w-lg
+                    bg-gray-950 border-l border-gray-800 shadow-2xl flex flex-col"
+      >
 
         {/* ── Header ─────────────────────────────────── */}
         <div className="flex items-center gap-3 px-4 py-3 border-b border-gray-800 bg-gray-900 shrink-0">
@@ -300,10 +305,7 @@ export function TaskExecutionStream({ taskId, taskName, onClose }: Props) {
             <p className="text-xs text-gray-500">实时执行流</p>
           </div>
           <StatusBadge status={status} />
-          {/* U4/U10: previously only shown when isDone — once the stream's
-              retry loop exhausted and status became 'error', users saw a
-              permanent "连接失败" badge with no way to recover short of
-              closing and reopening the whole panel. */}
+          {/* U4/U10: previously only shown when isDone */}
           {(isDone || status === 'error') && (
             <button
               onClick={reset}
