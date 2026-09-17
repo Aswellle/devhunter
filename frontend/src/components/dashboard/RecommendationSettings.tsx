@@ -6,7 +6,7 @@
  */
 import { useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
-import { Settings, Sliders } from 'lucide-react'
+import { Settings, Sliders, X } from 'lucide-react'
 import { userPrefsApi } from '../../api/user_prefs'
 
 interface RecommendationSettingsProps {
@@ -68,45 +68,58 @@ export function RecommendationSettings({ onClose }: RecommendationSettingsProps)
   }
 
   return (
-    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-lg mx-4">
-        <div className="flex items-center justify-between px-6 py-4 border-b">
-          <h2 className="text-lg font-semibold flex items-center gap-2">
+    <div
+      className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50"
+      onClick={(e) => { if (e.target === e.currentTarget) onClose() }}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="recommendation-settings-title"
+        className="bg-surface rounded-lg shadow-xl w-full max-w-lg mx-4"
+      >
+        <div className="flex items-center justify-between px-6 py-4 border-b border-subtle">
+          <h2 id="recommendation-settings-title" className="text-lg font-semibold text-primary flex items-center gap-2">
             <Settings className="h-5 w-5" />
             推荐设置
           </h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
-            ✕
+          <button onClick={onClose} className="btn-ghost p-1" aria-label="关闭">
+            <X className="h-5 w-5" />
           </button>
         </div>
 
         <div className="px-6 py-4 space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+          <fieldset>
+            <legend className="block text-sm font-medium text-secondary mb-2">
               偏好模式
-            </label>
-            <div className="grid grid-cols-2 gap-2">
+            </legend>
+            <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="偏好模式">
               {(Object.keys(MODE_LABELS) as PreferenceMode[]).map((m) => (
                 <button
                   key={m}
+                  type="button"
+                  role="radio"
+                  aria-checked={mode === m}
                   onClick={() => handleModeChange(m)}
                   className={`p-3 border rounded-lg text-left transition-colors ${
                     mode === m
-                      ? 'border-blue-500 bg-blue-50'
-                      : 'border-gray-200 hover:bg-gray-50'
+                      ? 'border-accent bg-accent-light'
+                      : 'border-subtle hover:bg-hover'
                   }`}
                 >
                   <div className="font-medium text-sm">{MODE_LABELS[m]}</div>
-                  <div className="text-xs text-gray-500 mt-1">{MODE_DESCRIPTIONS[m]}</div>
+                  <div className="text-xs text-muted mt-1">{MODE_DESCRIPTIONS[m]}</div>
                 </button>
               ))}
             </div>
-          </div>
+          </fieldset>
 
           <div>
             <button
+              type="button"
               onClick={() => setShowAdvanced(!showAdvanced)}
-              className="flex items-center gap-2 text-sm text-gray-600 hover:text-gray-900"
+              aria-expanded={showAdvanced}
+              className="flex items-center gap-2 text-sm text-secondary hover:text-primary"
             >
               <Sliders className="h-4 w-4" />
               {showAdvanced ? '隐藏' : '显示'}高级设置
@@ -114,12 +127,14 @@ export function RecommendationSettings({ onClose }: RecommendationSettingsProps)
           </div>
 
           {showAdvanced && (
-            <div className="space-y-3 p-4 bg-gray-50 rounded-lg">
+            <fieldset className="space-y-3 p-4 bg-hover rounded-lg">
+              <legend className="sr-only">权重调整</legend>
               <div>
-                <label className="block text-sm text-gray-600 mb-1">
+                <label htmlFor="weight-topic" className="block text-sm text-secondary mb-1">
                   主题匹配权重: {weights.topic_match.toFixed(2)}
                 </label>
                 <input
+                  id="weight-topic"
                   type="range"
                   min="0"
                   max="1"
@@ -130,10 +145,11 @@ export function RecommendationSettings({ onClose }: RecommendationSettingsProps)
                 />
               </div>
               <div>
-                <label className="block text-sm text-gray-600 mb-1">
+                <label htmlFor="weight-affinity" className="block text-sm text-secondary mb-1">
                   亲缘度权重: {weights.affinity.toFixed(2)}
                 </label>
                 <input
+                  id="weight-affinity"
                   type="range"
                   min="0"
                   max="1"
@@ -144,10 +160,11 @@ export function RecommendationSettings({ onClose }: RecommendationSettingsProps)
                 />
               </div>
               <div>
-                <label className="block text-sm text-gray-600 mb-1">
+                <label htmlFor="weight-recency" className="block text-sm text-secondary mb-1">
                   新鲜度权重: {weights.recency.toFixed(2)}
                 </label>
                 <input
+                  id="weight-recency"
                   type="range"
                   min="0"
                   max="1"
@@ -158,10 +175,11 @@ export function RecommendationSettings({ onClose }: RecommendationSettingsProps)
                 />
               </div>
               <div>
-                <label className="block text-sm text-gray-600 mb-1">
+                <label htmlFor="weight-engagement" className="block text-sm text-secondary mb-1">
                   参与度权重: {weights.engagement.toFixed(2)}
                 </label>
                 <input
+                  id="weight-engagement"
                   type="range"
                   min="0"
                   max="1"
@@ -171,15 +189,27 @@ export function RecommendationSettings({ onClose }: RecommendationSettingsProps)
                   className="w-full"
                 />
               </div>
+            </fieldset>
+          )}
+
+          {saveMutation.isError && (
+            <div className="text-sm text-danger bg-danger-light rounded p-2" role="alert">
+              保存失败，请重试
             </div>
           )}
         </div>
 
-        <div className="flex justify-end gap-3 px-6 py-4 border-t">
-          <button onClick={onClose} className="btn-ghost">
+        <div className="flex justify-end gap-3 px-6 py-4 border-t border-subtle">
+          <button type="button" onClick={onClose} className="btn-ghost">
             取消
           </button>
-          <button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending} className="btn-primary">
+          <button
+            type="button"
+            onClick={() => saveMutation.mutate()}
+            disabled={saveMutation.isPending}
+            aria-busy={saveMutation.isPending}
+            className="btn-primary"
+          >
             {saveMutation.isPending ? '保存中...' : '保存'}
           </button>
         </div>

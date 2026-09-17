@@ -22,8 +22,15 @@ export function TasksPage() {
   const { data, isLoading } = useQuery({
     queryKey: ['tasks', statusFilter],
     queryFn: () => tasksApi.list({ status: statusFilter || undefined, per_page: 100 }),
-    refetchInterval: 15000,
+    refetchInterval: (query) => {
+      // 出错时停止轮询，避免持续 401
+      if (query.state.errorUpdateCount > 0) return false
+      return 15000
+    },
   })
+
+
+
 
   // Fetch full task details when opening edit modal (list API returns TaskListItem with fewer fields)
   const { data: editTaskFull, isFetching: isEditTaskLoading } = useQuery({

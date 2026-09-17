@@ -13,8 +13,15 @@ export function DashboardPage() {
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['stats'],
     queryFn: statsApi.get,
-    refetchInterval: 60_000,
+    refetchInterval: (query) => {
+      // 出错时停止轮询，避免持续 401
+      if (query.state.errorUpdateCount > 0) return false
+      return 60_000
+    },
   })
+
+
+
   // U8: ForYouSection/PreferenceModal existed in components/dashboard/ but
   // were never imported or rendered anywhere — the personalized
   const [preferencesOpen, setPreferencesOpen] = useState(false)
