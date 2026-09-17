@@ -132,7 +132,7 @@ export function TasksPage() {
           populated. Wait for the fetch when we're editing an existing task;
           creating a new one has no such fetch, so it still opens instantly. */}
       {showForm && editTaskId && isEditTaskLoading && createPortal(
-        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50">
+        <div role="dialog" aria-modal="true" aria-label="加载中" className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50">
           <Spinner className="h-8 w-8" />
         </div>,
         document.body

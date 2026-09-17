@@ -1,15 +1,22 @@
 /**
  * F2: Query Key 规范化 — 统一的 query key 工厂。
  *
- * 所有 TanStack Query 的 key 通过此工厂生成，确保：
+ * 所有 TanStack Query 的 key 必须通过此工厂生成，禁止直接使用字面量 key。
+ * 确保：
  * - invalidate 时能精确匹配
  * - 命名风格一致
  * - 避免 key 散落在各处导致遗漏 invalidate
+ *
+ * @example
+ * // ✅ 正确：使用工厂函数
+ * queryKey: queryKeys.items.grouped(filters)
+ * // ❌ 错误：使用字面量 key
+ * queryKey: ['items', 'grouped', filters]
  */
-
 export const queryKeys = {
   // ── Items ──────────────────────────────────────────────
   items: {
+
     all: ['items'] as const,
     grouped: (filters: Record<string, unknown> | undefined) =>
       ['items', 'grouped', filters] as const,

@@ -20,6 +20,14 @@
  *   })
  */
 import type { DefaultOptions } from '@tanstack/react-query'
+import type { ApiError } from '../api/client'
+
+/**
+ * 类型谓词：检查错误是否为 ApiError
+ */
+function isApiError(error: Error | ApiError): error is ApiError {
+  return 'status' in error && typeof error.status === 'number' && 'code' in error
+}
 
 /**
  * F3: 全局默认 mutation 配置 — 所有 mutation 默认启用乐观更新回滚模式。
@@ -28,13 +36,14 @@ import type { DefaultOptions } from '@tanstack/react-query'
 export const defaultMutationOptions: DefaultOptions<Error> = {
   mutations: {
     // 网络错误时自动重试 1 次（不含 4xx 客户端错误）
-    retry: (_failureCount: number, error: Error) => {
+    retry: (_failureCount: number, error: Error | ApiError) => {
       // 不重试 4xx 错误（客户端问题，重试无意义）
-      if ('status' in error && typeof error.status === 'number' && error.status >= 400 && error.status < 500) {
+      if (isApiError(error) && error.status >= 400 && error.status < 500) {
         return false
       }
       return _failureCount < 1
     },
-    retryDelay: 1000,
+    // 指数退避：1s → 2s → 4s
+    retryDelay: (attemptIndex) => Math.min(1000 * Math.pow(2, attemptIndex), 10000),
   },
 }

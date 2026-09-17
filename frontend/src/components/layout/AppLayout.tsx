@@ -56,14 +56,16 @@ function SidebarContent({ onLinkClick }: SidebarContentProps) {
       <div className="px-5 py-4 border-b border-gray-700 shrink-0">
         <Link to="/" className="flex items-center gap-2" onClick={onLinkClick}>
           {/* SVG 搜索图标替代 emoji */}
-          <svg className="h-5 w-5 text-primary-400 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <svg className="h-5 w-5 text-primary-400 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <title>DevHunter Logo</title>
+
 
           </svg>
           <div>
             <span className="text-white font-bold text-base block leading-tight">
               DevHunter
             </span>
-            <span className="text-gray-400 text-xs">全网需求采集</span>
+
           </div>
         </Link>
       </div>
