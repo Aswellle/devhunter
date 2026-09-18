@@ -2,13 +2,13 @@
 app/api/items.py
 采集结果条目 API 端点：/api/items
 """
-from typing import Annotated, Literal
+from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
-
 from app.api.deps import require_auth
 from app.core.exceptions import ItemNotFoundError
+from app.core.rate_limit import limiter
 from app.schemas.common import PaginatedResponse
 from app.schemas.item import ItemBatchPatch, ItemPatch, ItemResponse
 from app.services.item_service import item_service
@@ -30,7 +30,7 @@ def get_counts(_: str = Depends(require_auth)):
 
 
 class ItemBatchDelete(BaseModel):
-    ids: list[str] = Field(..., min_length=1, max_length=500)
+    ids: list[str] = Field(..., min_length=1, max_length=100)
 
 
 @router.get("", response_model=PaginatedResponse[ItemResponse])
@@ -62,7 +62,8 @@ def batch_patch_items(body: ItemBatchPatch, _: str = Depends(require_auth)):
 
 
 @router.post("/batch-delete", response_model=dict)
-def batch_delete_items(body: ItemBatchDelete, _: str = Depends(require_auth)):
+@limiter.limit("10/minute")
+def batch_delete_items(body: ItemBatchDelete, request: Request, _: str = Depends(require_auth)):
     deleted = item_service.batch_delete(body.ids)
     return {"deleted": deleted}
 
