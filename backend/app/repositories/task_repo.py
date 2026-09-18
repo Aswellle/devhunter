@@ -132,8 +132,15 @@ class TaskRepository:
 
         return [_row_to_dict(r) for r in rows], total
 
+    def count_all(self) -> int:
+        """获取任务总数（未删除）"""
+        with get_db() as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) FROM tasks WHERE deleted_at IS NULL"
+            ).fetchone()
+        return row[0] if row else 0
+
     def list_active(self) -> list[dict]:
-        """获取所有 active 且未删除的任务（调度器启动时用）"""
         with get_db() as conn:
             rows = conn.execute(
                 "SELECT * FROM tasks WHERE status = 'active' AND deleted_at IS NULL"

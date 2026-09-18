@@ -76,11 +76,32 @@ def create_app() -> FastAPI:
         allow_headers=["Content-Type", "Authorization", "X-Requested-With", "Accept"],
     )
 
-    # ── A1: Request ID ──────────────────────────────────
-    # 最外层中间件：为每个请求生成/透传 X-Request-ID，用于全链路关联。
-    app.add_middleware(RequestIdMiddleware)
+    # ── CSRF 防护 ──────────────────────────────────────
+    # 验证 Origin/Referer 头，防止跨站请求伪造
+    @app.middleware("http")
+    async def csrf_protection(request: Request, call_next):
+        # 只对状态变更请求进行 CSRF 检查
+        if request.method in ("POST", "PUT", "PATCH", "DELETE"):
+            origin = request.headers.get("origin")
+            referer = request.headers.get("referer")
+            # 如果存在 Origin 头，验证它是否在允许的 CORS 来源列表中
+            if origin:
+                if origin not in settings.cors_origins_list:
+                    return JSONResponse(
+                        status_code=403,
+                        content={
+                            "error": {
+                                "code": "CSRF_ERROR",
+                                "message": "Origin not allowed",
+                                "details": {},
+                                "request_id": _get_request_id(request),
+                            }
+                        },
+                    )
+        response = await call_next(request)
+        return response
 
-    # ── 全局异常处理器 ────────────────────────────────────
+    # ── A1: Request ID ──────────────────────────────────
     def _get_request_id(request: Request) -> str:
         """安全获取 request_id，中间件未匹配时（如测试）返回 unknown。"""
         return getattr(request.state, "request_id", "unknown")
