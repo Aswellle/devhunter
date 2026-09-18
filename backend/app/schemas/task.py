@@ -125,11 +125,27 @@ class TaskBase(BaseModel):
     selector_link: str = Field(..., max_length=500, description="链接 CSS Selector")
     selector_summary: str | None = Field(None, max_length=500, description="摘要 CSS Selector（可选）")
     selector_next_page: str | None = Field(None, max_length=500, description="下一页 Selector（可选，CSS 或 json: 路径）")
-    keywords: list[str] = Field(default_factory=list, description="关键词列表，空列表 = 全量采集")
+    keywords: list[str] = Field(
+        default_factory=list,
+        max_length=20,
+        description="关键词列表（最多 20 个），空列表 = 全量采集",
+    )
     cron_expression: str = Field(..., max_length=100, description="Cron 表达式（5 段）")
     config_snapshot: dict | None = Field(None, description="创建时的模板配置快照（JSON）")
 
+    @field_validator("keywords")
+    @classmethod
+    def validate_keywords(cls, v: list[str]) -> list[str]:
+        """验证关键词列表长度和总字符数"""
+        if len(v) > 20:
+            raise ValueError("关键词数量不能超过 20 个")
+        total_chars = sum(len(k) for k in v)
+        if total_chars > 500:
+            raise ValueError("关键词总字符数不能超过 500")
+        return [k.strip() for k in v if k.strip()]
+
     @field_validator("source_url")
+
     @classmethod
     def validate_url(cls, v: str) -> str:
         if not is_valid_url(v):
@@ -178,9 +194,22 @@ class TaskUpdate(BaseModel):
     selector_link: str | None = Field(None, max_length=500)
     selector_summary: str | None = Field(None, max_length=500)
     selector_next_page: str | None = Field(None, max_length=500)
-    keywords: list[str] | None = None
+    keywords: list[str] | None = Field(None, max_length=20)
     cron_expression: str | None = Field(None, max_length=100)
     status: Literal["active", "paused"] | None = None
+
+    @field_validator("keywords")
+    @classmethod
+    def validate_keywords(cls, v: list[str] | None) -> list[str] | None:
+        """验证关键词列表长度和总字符数"""
+        if v is None:
+            return v
+        if len(v) > 20:
+            raise ValueError("关键词数量不能超过 20 个")
+        total_chars = sum(len(k) for k in v)
+        if total_chars > 500:
+            raise ValueError("关键词总字符数不能超过 500")
+        return [k.strip() for k in v if k.strip()]
 
     @field_validator("source_url")
     @classmethod
@@ -207,7 +236,7 @@ class TaskUpdate(BaseModel):
         return v
 
     @field_validator("selector_list", "selector_title", "selector_link", "selector_summary")
-    @classmethod
+
     def validate_selectors(cls, v: str | None) -> str | None:
         return _validate_selector(v, v or "selector")
 

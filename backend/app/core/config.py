@@ -2,6 +2,8 @@
 app/core/config.py
 配置管理 - 基于 pydantic-settings，从 .env 文件读取
 """
+import logging
+import secrets
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
@@ -10,6 +12,8 @@ from typing import Literal
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+
+logger = logging.getLogger(__name__)
 
 # .env 文件相对于 config.py 的绝对路径，确保任何 CWD 下都能正确加载
 # 修复：原来使用相对路径 ".env"，当从非 backend/ 目录启动时（如 Docker、IDE）
@@ -60,6 +64,22 @@ class Settings(BaseSettings):
 
     # ── CORS ────────────────────────────────────
     cors_origins: str = "http://localhost:5173,http://localhost:3000,http://localhost:5200"
+
+    @field_validator("secret_key")
+    @classmethod
+    def validate_or_generate_secret_key(cls, v: str) -> str:
+        """如果 secret_key 是已知默认值，自动生成一个强随机密钥"""
+        _insecure_secrets = {
+            "change-me-in-production",
+            "change-me",
+            "",
+            "<请用 openssl rand -hex 32 生成>",
+            "change-me-please-use-openssl-rand-hex-32",
+        }
+        if v in _insecure_secrets:
+            # 生成 64 字符十六进制随机密钥（256 位熵）
+            return secrets.token_hex(32)
+        return v
 
     @field_validator("db_path")
     @classmethod

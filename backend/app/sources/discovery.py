@@ -18,7 +18,11 @@ from urllib.parse import urljoin, urlparse
 import httpx
 from bs4 import BeautifulSoup
 
+from ..crawler.engine import _is_ssrf_safe_url
+from ..core.http_client import get_http_client
+
 logger = logging.getLogger(__name__)
+
 
 
 @dataclass
@@ -107,18 +111,23 @@ class URLDiscoverer:
         return result
 
     def _fetch(self, url: str) -> httpx.Response | None:
-        """获取页面"""
+        """获取页面（带 SSRF 保护）"""
+        # SSRF 防护：验证 URL 是否安全
+        is_safe, error_msg = _is_ssrf_safe_url(url)
+        if not is_safe:
+            logger.warning("SSRF check blocked URL %s: %s", url, error_msg)
+            return None
+
         try:
-            with httpx.Client(timeout=15.0, follow_redirects=True) as client:
-                response = client.get(url)
-                response.raise_for_status()
-                return response
+            # 使用共享 HTTP 客户端（follow_redirects=False）
+            client = get_http_client()
+            response = client.get(url, follow_redirects=False, timeout=15.0)
+            response.raise_for_status()
+            return response
         except Exception as e:
             logger.warning("Failed to fetch %s: %s", url, e)
             return None
 
-    def _looks_like_feed(self, body: str) -> bool:
-        """检测是否为 RSS/Atom feed"""
         return bool(re.search(r'<(rss|feed|channel)\b', body, re.IGNORECASE))
 
     def _looks_like_json(self, body: str) -> bool:
