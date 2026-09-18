@@ -79,3 +79,8 @@ class ConflictError(DevHunterError):
 class TaskAlreadyRunningError(ConflictError):
     error_code = "TASK_ALREADY_RUNNING"
     message = "Task is already running, please wait"
+
+
+class TaskLimitExceededError(ConflictError):
+    error_code = "TASK_LIMIT_EXCEEDED"
+    message = "Maximum number of tasks reached"

@@ -4,9 +4,12 @@ app/services/task_service.py
 """
 import logging
 
-from app.core.exceptions import TaskAlreadyRunningError, TaskNotFoundError
+from app.core.exceptions import TaskAlreadyRunningError, TaskLimitExceededError, TaskNotFoundError
 from app.repositories.task_repo import task_repo
 from app.scheduler.manager import scheduler_manager
+
+# Maximum number of scheduled tasks to prevent resource exhaustion (INPUT-TASK-LIMIT-009)
+MAX_TASKS_LIMIT = 100
 
 logger = logging.getLogger(__name__)
 
@@ -16,10 +19,19 @@ class TaskService:
     def create(self, data: dict) -> dict:
         """
         创建任务：
-        1. 应用预设模板（若有 template_id）
-        2. 写入数据库
-        3. 注册调度 Job
+        1. 校验任务数量上限，防止资源耗尽
+        2. 应用预设模板（若有 template_id）
+        3. 写入数据库
+        4. 注册调度 Job
         """
+        # INPUT-TASK-LIMIT-009: reject creation beyond the cap
+        current_count = task_repo.count_all()
+        if current_count >= MAX_TASKS_LIMIT:
+            raise TaskLimitExceededError(
+                f"Task limit reached ({current_count}/{MAX_TASKS_LIMIT}). "
+                f"Delete unused tasks before creating new ones."
+            )
+
         # 应用预设模板填充字段
         if data.get("template_id"):
             from app.crawler.templates import apply_template
@@ -47,14 +59,17 @@ class TaskService:
         status: str | None = None,
         page: int = 1,
         per_page: int = 20,
-    ) -> tuple[list[dict], int]:
+    ) -> list[dict]:
         return task_repo.list_all(status=status, page=page, per_page=per_page)
+
+    def count_all(self) -> int:
+        """获取任务总数"""
+        return task_repo.count_all()
 
     def update(self, task_id: str, data: dict) -> dict:
         """
-        更新任务：
-        - 若更新了 cron_expression → 重新调度
-        - 若 status 改为 paused → 暂停 Job
+       更新任务：
+
         - 若 status 改为 active → 恢复 Job（先从 error/paused 恢复）
         """
         existing = self.get(task_id)

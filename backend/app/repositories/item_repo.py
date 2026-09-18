@@ -231,8 +231,12 @@ class ItemRepository:
             conditions.append("i.is_read = ?")
             params.append(1 if is_read else 0)
         if search:
-            conditions.append("(i.title LIKE ? OR i.summary LIKE ?)")
-            params.extend([f"%{search}%", f"%{search}%"])
+            # Escape LIKE wildcards so '%' and '_' are treated as literals,
+            # not as wildcard operators. Without escaping, a search for '%'
+            # returns all rows. Backslash is the ESCAPE character.
+            escaped = search.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            conditions.append("(i.title LIKE ? ESCAPE '\\' OR i.summary LIKE ? ESCAPE '\\')")
+            params.extend([f"%{escaped}%", f"%{escaped}%"])
 
         where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
         offset = (page - 1) * per_page

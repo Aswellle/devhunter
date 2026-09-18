@@ -52,11 +52,21 @@ def get_templates(_: str = Depends(require_auth)):
     ]
 
 
-
 @router.post("", response_model=TaskResponse, status_code=status.HTTP_201_CREATED)
 def create_task(body: TaskCreate, _: str = Depends(require_auth)):
     """创建新采集任务"""
     try:
+        # 限制最大任务数量，防止资源耗尽
+        MAX_TASKS = 100
+        current_count = task_service.count_all()
+        if current_count >= MAX_TASKS:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "code": "TASK_LIMIT_EXCEEDED",
+                    "message": f"Maximum number of tasks ({MAX_TASKS}) reached. Please delete unused tasks first.",
+                },
+            )
         task = task_service.create(body.model_dump())
         return task
     except DevHunterError as e:
@@ -71,7 +81,7 @@ def list_tasks(
     per_page: int = Query(20, ge=1, le=100),
     _: str = Depends(require_auth),
 ):
-    """获取任务列表（支持 status 过滤 + 分页）"""
+
     items, total = task_service.list_all(
         status=status_filter, page=page, per_page=per_page
     )
