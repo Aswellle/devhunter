@@ -100,6 +100,20 @@ def _is_ssrf_safe_url(url: str) -> tuple[bool, str]:
     """
     Check if a URL is safe from SSRF attacks.
     Returns (is_safe, error_message).
+
+    NOTE on DNS rebinding: this resolves hostname→IP and validates the IP,
+    but the caller must then connect to that validated IP directly (with the
+    Host header set to the original hostname) to close the TOCTOU gap. See
+    resolve_and_validate_url() which pairs resolution with the pinning contract.
+    """
+    return _resolve_and_check_url(url)
+
+
+def _resolve_and_check_url(url: str) -> tuple[bool, str]:
+    """Core resolution + blocklist check. Kept separate for clarity."""
+    """
+    Check if a URL is safe from SSRF attacks.
+    Returns (is_safe, error_message).
     """
     try:
         parsed = urlparse(url)
@@ -152,6 +166,53 @@ def _is_ssrf_safe_url(url: str) -> tuple[bool, str]:
         # block the request rather than silently letting it through.
         logger.debug("SSRF check error, blocking as unsafe: %s", e)
         return False, f"URL 安全校验失败: {e}"
+
+
+def resolve_and_validate_url(url: str) -> tuple[bool, str, str | None]:
+    """
+    Resolve hostname, check against SSRF blocklist, and return the validated
+    IP to pin. This closes the DNS-rebind TOCTOU: the caller connects to the
+    returned IP directly (with the original Host header) instead of re-resolving
+    the hostname at fetch time.
+
+    Returns (is_safe, error_message, validated_ip_or_none).
+    """
+    try:
+        parsed = urlparse(url)
+        if parsed.scheme not in ("http", "https"):
+            return False, f"不支持的协议: {parsed.scheme}", None
+        hostname = parsed.hostname
+        if not hostname:
+            return False, "无法解析的主机名", None
+        hostname_lower = hostname.lower()
+        if hostname_lower == "metadata.google.internal":
+            return False, "禁止访问云元数据端点", None
+        if hostname_lower == "169.254.169.254":
+            return False, "禁止访问云元数据地址", None
+        if hostname_lower.startswith("metadata."):
+            return False, f"禁止访问云元数据端点 ({hostname_lower})", None
+
+        import socket
+        addr_info = socket.getaddrinfo(hostname_lower, None)
+        if not addr_info:
+            return False, "无法解析主机名对应的 IP 地址", None
+
+        validated_ip = None
+        for family, _, _, _, sockaddr in addr_info:
+            ip_str = sockaddr[0]
+            ip = ipaddress.ip_address(ip_str)
+            for block in _PRIVATE_IP_BLOCKS:
+                if ip in block:
+                    return False, f"禁止访问私有/保留 IP 地址: {ip_str}", None
+            if family == socket.AF_INET and validated_ip is None:
+                validated_ip = ip_str  # pin first IPv4
+            elif family == socket.AF_INET6 and validated_ip is None:
+                validated_ip = ip_str
+
+        return True, "", validated_ip
+    except Exception as e:
+        logger.debug("resolve_and_validate_url error: %s", e)
+        return False, f"URL 安全校验失败: {e}", None
 
 
 # ─── Mode Detection ────────────────────────────────────────────────────────────

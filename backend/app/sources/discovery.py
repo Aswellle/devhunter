@@ -18,12 +18,9 @@ from urllib.parse import urljoin, urlparse
 import httpx
 from bs4 import BeautifulSoup
 
-from ..crawler.engine import _is_ssrf_safe_url
-from ..core.http_client import get_http_client
+from ..crawler.engine import resolve_and_validate_url
 
 logger = logging.getLogger(__name__)
-
-
 
 @dataclass
 class DiscoveryResult:
@@ -111,24 +108,39 @@ class URLDiscoverer:
         return result
 
     def _fetch(self, url: str) -> httpx.Response | None:
-        """获取页面（带 SSRF 保护）"""
-        # SSRF 防护：验证 URL 是否安全
-        is_safe, error_msg = _is_ssrf_safe_url(url)
+        """获取页面（带 SSRF 保护 + IP pinning 防 DNS rebinding）"""
+        # Resolve hostname → validate IP → pin the IP for the actual connection.
+        # Connecting to the validated IP (with original Host header) closes the
+        # DNS-rebind TOCTOU window: an attacker cannot swap the IP between the
+        # check and the fetch because we connect to the already-validated IP.
+        is_safe, error_msg, validated_ip = resolve_and_validate_url(url)
         if not is_safe:
             logger.warning("SSRF check blocked URL %s: %s", url, error_msg)
             return None
 
         try:
-            # 使用共享 HTTP 客户端（follow_redirects=False）
             client = get_http_client()
-            response = client.get(url, follow_redirects=False, timeout=15.0)
+            if validated_ip:
+                parsed = urlparse(url)
+                port = parsed.port or (443 if parsed.scheme == "https" else 80)
+                pinned_netloc = f"{validated_ip}:{port}"
+                pinned_url = parsed._replace(netloc=pinned_netloc).geturl()
+                headers = {"Host": parsed.hostname}
+                logger.debug("SSRF IP-pinning: %s -> %s", url, pinned_url)
+                response = client.get(
+                    pinned_url, headers=headers, follow_redirects=False, timeout=15.0
+                )
+            else:
+                response = client.get(url, follow_redirects=False, timeout=15.0)
             response.raise_for_status()
             return response
         except Exception as e:
             logger.warning("Failed to fetch %s: %s", url, e)
             return None
 
-        return bool(re.search(r'<(rss|feed|channel)\b', body, re.IGNORECASE))
+    def _looks_like_feed(self, body: str) -> bool:
+        """检测是否为 RSS/Atom feed"""
+        return bool(re.search(r"<(rss|feed|channel)\b", body, re.IGNORECASE))
 
     def _looks_like_json(self, body: str) -> bool:
         """检测是否为 JSON"""
