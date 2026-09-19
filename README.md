@@ -376,7 +376,7 @@ DevHunter 是一个**信息聚合工具**，设计用于以下合法目的：
 
 <div align="center">
 
-**如果您觉得 DevHunter 对您有帮助，请考虑给予 Star 支持！**
+**如果这个项目对你有帮助，欢迎 ⭐ Star 支持！**
 
 ⭐ [GitHub Star](https://github.com/Aswellle/devhunter) ⭐
 
