@@ -253,7 +253,7 @@ class ExecutionRepository:
             try:
                 from_state = ExecutionState(current_status)
                 to_state = ExecutionState.INTERRUPTED
-                if can_transition(from_state, to_status):
+                if can_transition(from_state, to_state):
                     self.transition_to(
                         exec_id,
                         "interrupted",

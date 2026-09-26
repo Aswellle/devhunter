@@ -232,7 +232,7 @@ def _parse_mode(selector_list: str) -> tuple[str, str, dict]:
             try:
                 post_body = _json.loads(parts[1])
             except Exception:
-                pass
+                logger.warning('Failed to parse json-post body: %s', e)
         return "json-post", list_path, {"post_body": post_body}
 
     if sl.startswith("json:"):
@@ -541,7 +541,7 @@ def _fetch_page_with_retry(
                 if not location:
                     break
                 next_url = str(httpx.URL(location, base=response.url))
-                ssrf_safe, ssrf_msg = _is_ssrf_safe_url(next_url)
+                ssrf_safe, ssrf_msg, _ = resolve_and_validate_url(next_url)
                 if not ssrf_safe:
                     return _FetchOutcome(
                         response=None,
@@ -645,7 +645,7 @@ def fetch_and_parse(
     mode, list_path, mode_extra = _parse_mode(selector_list)
 
     # ── 初始 URL 的 SSRF 安全检查 ────────────────────────
-    ssrf_safe, ssrf_msg = _is_ssrf_safe_url(url)
+    ssrf_safe, ssrf_msg, validated_ip = resolve_and_validate_url(url)
     if not ssrf_safe:
         _emit(on_progress, "fetch_error", f"SSRF 防护已拦截: {ssrf_msg}")
         return CrawlResult(error=f"SSRF blocked: {ssrf_msg}")
@@ -906,7 +906,7 @@ def _paginate(
 
     for page_num in range(1, MAX_PAGES + 1):
         # ── SSRF check per resolved next-page URL ──────────
-        ssrf_safe, ssrf_msg = _is_ssrf_safe_url(page_url)
+        ssrf_safe, ssrf_msg, validated_ip = resolve_and_validate_url(page_url)
         if not ssrf_safe:
             _emit(on_progress, "fetch_error", f"SSRF 防护已拦截: {ssrf_msg}")
             return CrawlResult(
@@ -953,7 +953,7 @@ def _paginate(
                         retries_used=max_retries_used,
                     )
             except ValueError:
-                pass  # malformed Content-Length, fall through to post-read check
+                logger.warning('Malformed Content-Length: %s', content_length_hdr)
 
         content = response.content
         if len(content) > MAX_RESPONSE_BYTES:

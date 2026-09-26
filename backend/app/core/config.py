@@ -63,7 +63,7 @@ class Settings(BaseSettings):
     log_format: Literal["json", "text"] = "json"
 
     # ── CORS ────────────────────────────────────
-    cors_origins: str = "http://localhost:5173,http://localhost:3000,http://localhost:5200"
+    cors_origins: str = "http://localhost:5173,http://localhost:3000,http://localhost:5200,http://127.0.0.1:5200"
 
     @field_validator("secret_key")
     @classmethod

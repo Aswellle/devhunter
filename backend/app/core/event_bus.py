@@ -96,4 +96,4 @@ def publish_event(task_id: str, event_type: str, message: str, data: dict | None
             data=data or {},
         ))
     except Exception:
-        pass
+        logger.error('Failed to emit event: %s', e)

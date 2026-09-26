@@ -17,6 +17,8 @@ logger = get_logger(__name__)
 
 # ── 进程级并发锁 ─────────────────────────────────────────
 _running_tasks: dict[str, bool] = {}
+_cancel_events: dict[str, threading.Event] = {}
+JOB_TIMEOUT_SECONDS = 300  # 5 minutes max per task execution
 _lock = threading.Lock()
 
 
@@ -25,17 +27,36 @@ def acquire_task_lock(task_id: str) -> bool:
         if _running_tasks.get(task_id):
             return False
         _running_tasks[task_id] = True
+        _cancel_events[task_id] = threading.Event()
         return True
 
 
 def release_task_lock(task_id: str) -> None:
     with _lock:
         _running_tasks.pop(task_id, None)
+        _cancel_events.pop(task_id, None)
 
 
 def is_task_running(task_id: str) -> bool:
     with _lock:
         return bool(_running_tasks.get(task_id))
+
+
+def cancel_task(task_id: str) -> bool:
+    """请求取消正在运行的任务。返回是否成功发送取消信号。"""
+    with _lock:
+        evt = _cancel_events.get(task_id)
+        if evt:
+            evt.set()
+            return True
+    return False
+
+
+def is_task_cancelled(task_id: str) -> bool:
+    """检查任务是否已被请求取消。"""
+    with _lock:
+        evt = _cancel_events.get(task_id)
+        return evt is not None and evt.is_set()
 
 
 # ── 事件发布辅助 ─────────────────────────────────────────

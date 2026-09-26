@@ -54,6 +54,12 @@ class RecommendedTopicResponse(BaseModel):
     score: float
 
 
+class RecommendationReason(BaseModel):
+    """推荐原因"""
+    type: str
+    description: str
+
+
 class RecommendedItemResponse(BaseModel):
     """推荐内容响应（带推荐得分）"""
     id: str
@@ -68,6 +74,7 @@ class RecommendedItemResponse(BaseModel):
     fetched_at: str
     created_at: str
     recommendation_score: float = 0.0
+    recommendation_reasons: list[RecommendationReason] = []
 
 
 class UserPrefsResponse(BaseModel):
