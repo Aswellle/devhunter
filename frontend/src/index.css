@@ -115,6 +115,13 @@
     outline-offset: 2px;
   }
 
+  /* U12: Reserve the scrollbar gutter on the main scroll container so the
+     content width stays constant when a scrollbar appears/disappears
+     (e.g. marking all items read collapses the list height). */
+  #main-content {
+    scrollbar-gutter: stable;
+  }
+
   /* U7: Reduced motion respect - 仅禁用非必要动画，保留必要反馈 */
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after {
@@ -132,19 +139,32 @@
    ═══════════════════════════════════════════════════════════════════════════ */
 @layer components {
 
-  /* U2/U5: Button system with full interaction states */
-  .btn {
+  /* U2/U5: Button system with full interaction states.
+     Variant classes include the base styles themselves so raw
+     `<button className="btn-primary">` usages (without the `btn` base)
+     still get padding, inline-flex centering and rounded corners —
+     previously they collapsed into square blocks. */
+  .btn,
+  .btn-primary,
+  .btn-ghost,
+  .btn-danger {
     @apply inline-flex items-center justify-center gap-1.5 rounded-md text-sm font-medium transition-all;
     padding: 0.375rem 0.75rem;
     line-height: 1.25rem;
     border: 1px solid transparent;
   }
-  .btn:disabled {
+  .btn:disabled,
+  .btn-primary:disabled,
+  .btn-ghost:disabled,
+  .btn-danger:disabled {
     opacity: 0.5;
     cursor: not-allowed;
     pointer-events: none;
   }
-  .btn:focus-visible {
+  .btn:focus-visible,
+  .btn-primary:focus-visible,
+  .btn-ghost:focus-visible,
+  .btn-danger:focus-visible {
     box-shadow: var(--focus-ring);
   }
   .btn-primary {
