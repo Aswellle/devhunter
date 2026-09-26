@@ -38,6 +38,18 @@ export function ConfirmDialog({
     }
   }, [])
 
+  // 打开原生 dialog。<dialog> 未调用 showModal() 时保持 display:none，
+  // 之前确认框从未真正显示，导致"退出登录"等确认操作点击后毫无反应。
+  // 注意：不要在清理函数里调用 dialog.close()——close 会触发 close 事件 →
+  // onClose 回调 → 父组件卸载对话框，StrictMode 下表现为对话框闪现即消失。
+  // 卸载 <dialog> 节点时浏览器会自动将其移出 top layer。
+  useEffect(() => {
+    const dialog = dialogRef.current
+    if (dialog && !dialog.open) {
+      dialog.showModal()
+    }
+  }, [])
+
   // 焦点陷阱：将焦点限制在 dialog 内
   const trapFocus = useCallback((e: KeyboardEvent) => {
     if (e.key !== 'Tab') return
@@ -103,7 +115,7 @@ export function ConfirmDialog({
   }
 
   const confirmClass = variant === 'danger'
-    ? 'bg-danger hover:bg-danger/90 text-sidebar-text-active'
+    ? 'bg-danger hover:bg-danger/90 text-white'
     : 'btn-primary'
 
   return (
