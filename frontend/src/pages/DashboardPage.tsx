@@ -1,4 +1,6 @@
 import { useState } from 'react'
+import { createPortal } from 'react-dom'
+import { Settings } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { statsApi } from '../api/stats'
 import { StatsCards } from '../components/dashboard/StatsCards'
@@ -56,23 +58,27 @@ export function DashboardPage() {
 
           {/* 为你推荐 */}
           <ForYouSection onOpenPreferences={() => setPreferencesOpen(true)} />
-          <PreferenceModal isOpen={preferencesOpen} onClose={() => setPreferencesOpen(false)} />
-
-          {/* 推荐设置 */}
-          <div className="flex justify-end mb-4">
-            <button
-              onClick={() => setSettingsOpen(true)}
-              className="text-sm text-gray-500 hover:text-gray-700"
-            >
-              推荐设置
-            </button>
-          </div>
-          {settingsOpen && (
-            <RecommendationSettings onClose={() => setSettingsOpen(false)} />
+          {preferencesOpen && createPortal(
+            <PreferenceModal isOpen={preferencesOpen} onClose={() => setPreferencesOpen(false)} />,
+            document.body
           )}
-          {/* 每日采集趋势 */}
+
+          {settingsOpen && createPortal(
+            <RecommendationSettings onClose={() => setSettingsOpen(false)} />,
+            document.body
+          )}
+          {/* 每日采集趋势（推荐设置入口收进卡片右上角，避免把卡片间距拉开） */}
           <div className="card p-4">
-            <h2 className="text-sm font-semibold text-gray-700 mb-3">近 7 日采集量趋势</h2>
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-sm font-semibold text-gray-700">近 7 日采集量趋势</h2>
+              <button
+                onClick={() => setSettingsOpen(true)}
+                className="flex items-center gap-1 text-xs text-gray-500 hover:text-primary transition-colors"
+              >
+                <Settings className="h-3.5 w-3.5" />
+                推荐设置
+              </button>
+            </div>
             <div style={{ minHeight: '88px' }}>
               {isLoading ? (
                 <div className="h-24 flex items-center justify-center">
