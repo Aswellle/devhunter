@@ -85,6 +85,10 @@ export function ItemsPage() {
         is_read: filters.is_read,
         per_page: 100,
       }),
+    // Keep the previous page's items while a filter change refetches —
+    // without this, every filter tweak dropped data and flashed the
+    // loading spinner before the new list arrived.
+    placeholderData: (prev) => prev,
   })
 
   // Fetch tasks for filter bar

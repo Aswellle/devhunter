@@ -19,7 +19,7 @@ export function TasksPage() {
   const [showWizard, setShowWizard]     = useState(false)
   const [showMarket, setShowMarket]     = useState(false)
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['tasks', statusFilter],
     queryFn: () => tasksApi.list({ status: statusFilter || undefined, per_page: 100 }),
     refetchInterval: (query) => {
@@ -27,6 +27,9 @@ export function TasksPage() {
       if (query.state.errorUpdateCount > 0) return false
       return 15000
     },
+    // Keep the previous tab's list visible while a tab switch refetches —
+    // previously every tab change flashed the full-page spinner.
+    placeholderData: (prev) => prev,
   })
 
 
@@ -66,7 +69,7 @@ export function TasksPage() {
             className="btn-primary flex items-center gap-1.5 px-3 py-1.5 text-sm"
           >
             <Plus className="h-4 w-4" />
-            新建任务
+            添加数据源
           </button>
         </div>
       </div>
@@ -97,7 +100,19 @@ export function TasksPage() {
 
 
       {/* Content */}
-      {isLoading ? (
+      {isError ? (
+        // A failed fetch must not masquerade as "暂无采集任务" — show an
+        // explicit error state with retry.
+        <Empty
+          title="任务加载失败"
+          description="任务列表加载出错，请检查网络连接后重试"
+          action={
+            <button className="btn-primary" onClick={() => refetch()}>
+              重试
+            </button>
+          }
+        />
+      ) : isLoading ? (
         <div className="flex justify-center py-20">
           <Spinner className="h-8 w-8" />
         </div>

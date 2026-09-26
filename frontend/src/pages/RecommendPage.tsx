@@ -107,6 +107,7 @@ function RecommendedTab() {
     queryKey: queryKeys.recommendations.home(),
     queryFn: () => userPrefsApi.getRecommendations({ limit: 20, exclude_read: true }),
     staleTime: 30_000,
+    placeholderData: (prev) => prev,
   })
 
   if (isLoading) {
@@ -209,6 +210,7 @@ function ThreadsTab() {
     queryKey: queryKeys.threads.list({ per_page: 20 }),
     queryFn: () => threadsApi.list({ per_page: 20 }),
     staleTime: 30_000,
+    placeholderData: (prev) => prev,
   })
 
   if (isLoading) {
