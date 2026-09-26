@@ -79,7 +79,7 @@ export function TemplateMarket({ onClose, onCreated }: TemplateMarketProps) {
         role="dialog"
         aria-modal="true"
         aria-labelledby="template-market-title"
-        className="bg-surface rounded-lg shadow-xl w-[900px] h-[600px] max-w-[90vw] max-h-[85vh] flex flex-col"
+        className="bg-surface rounded-lg shadow-xl w-[900px] h-[600px] max-w-[90vw] max-h-[85vh] flex flex-col overflow-hidden"
       >
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-subtle shrink-0">
@@ -115,8 +115,12 @@ export function TemplateMarket({ onClose, onCreated }: TemplateMarketProps) {
           </div>
         </div>
 
-        {/* Content - Fixed height scrollable area */}
-        <div className="flex-1 overflow-y-auto px-6 py-4" style={{ minHeight: '400px' }}>
+        {/* Content — scrolls inside the fixed-height panel. min-h-0 lets the
+            flex child actually shrink (flex items default to min-height:auto),
+            and overscroll-contain stops scroll chaining to the page behind.
+            The old inline minHeight:400px forced the area taller than the
+            panel on short viewports, spilling cards past the modal edge. */}
+        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-6 py-4">
           {isLoading ? (
             <div className="flex justify-center py-10">
               <Spinner className="h-8 w-8" />

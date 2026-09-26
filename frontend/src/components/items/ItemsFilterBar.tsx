@@ -104,25 +104,30 @@ function FilterBarLayout({ filters, onChange, tasks, categoryCounts, totalCount 
         aria-label="Items filter bar"
       />
 
-      {/* Compact extra controls (starred toggle) */}
-      <div className="flex items-center justify-between">
-        <label className="flex items-center gap-1.5 cursor-pointer select-none text-sm text-gray-600">
-          <input
-            type="checkbox"
-            className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
-            checked={filters.starred === true}
-            onChange={(e) => onChange({ starred: e.target.checked ? true : undefined })}
-          />
-          收藏
-        </label>
+      {/* Compact extra controls — the starred toggle only makes sense once
+          there is data to star, so it is hidden on an empty result set. */}
+      <div className="flex items-center justify-between gap-3">
+        {(totalCount ?? 0) > 0 ? (
+          <label className="flex items-center gap-1.5 cursor-pointer select-none text-sm text-gray-600">
+            <input
+              type="checkbox"
+              className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+              checked={filters.starred === true}
+              onChange={(e) => onChange({ starred: e.target.checked ? true : undefined })}
+            />
+            收藏
+          </label>
+        ) : (
+          <span />
+        )}
 
-        {/* Clear all button */}
+        {/* Clear all — outlined so it reads as a real control, not faint text */}
         {filters.search || filters.task_id || filters.starred !== undefined || filters.is_read !== undefined ? (
           <button
-            className="btn-ghost text-xs"
+            className="btn px-2.5 py-1 text-xs border border-gray-300 bg-white text-gray-700 shadow-sm hover:bg-gray-50 hover:border-gray-400 hover:text-gray-900"
             onClick={() => onChange({ search: '', task_id: '', starred: undefined, is_read: undefined })}
           >
-            <X className="h-3.5 w-3.5" /> 清除
+            <X className="h-3.5 w-3.5" /> 清除筛选
           </button>
         ) : null}
       </div>
@@ -132,7 +137,7 @@ function FilterBarLayout({ filters, onChange, tasks, categoryCounts, totalCount 
 
 // ── Legacy single-row layout (original implementation) ────────────────────────
 
-function LegacyLayout({ filters, onChange, tasks }: Omit<ItemsFilterBarProps, 'useNewLayout'>) {
+function LegacyLayout({ filters, onChange, tasks, totalCount }: Omit<ItemsFilterBarProps, 'useNewLayout'>) {
   const hasActiveFilters = filters.search || filters.task_id || filters.starred !== undefined || filters.is_read !== undefined
 
   const clearAll = () => onChange({ search: '', task_id: '', starred: undefined, is_read: undefined })
@@ -206,24 +211,26 @@ function LegacyLayout({ filters, onChange, tasks }: Omit<ItemsFilterBarProps, 'u
         </button>
       </div>
 
-      {/* Starred filter */}
-      <label className="flex items-center gap-1.5 cursor-pointer select-none text-sm text-gray-600">
-        <input
-          type="checkbox"
-          className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
-          checked={filters.starred === true}
-          onChange={(e) => onChange({ starred: e.target.checked ? true : undefined })}
-        />
-        收藏
-      </label>
+      {/* Starred filter — only shown when there is data */}
+      {(totalCount ?? 0) > 0 && (
+        <label className="flex items-center gap-1.5 cursor-pointer select-none text-sm text-gray-600">
+          <input
+            type="checkbox"
+            className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+            checked={filters.starred === true}
+            onChange={(e) => onChange({ starred: e.target.checked ? true : undefined })}
+          />
+          收藏
+        </label>
+      )}
 
-      {/* Reset */}
+      {/* Reset — outlined so it reads as a real control, not faint text */}
       {hasActiveFilters && (
         <button
-          className="btn-ghost text-xs"
+          className="btn px-2.5 py-1 text-xs border border-gray-300 bg-white text-gray-700 shadow-sm hover:bg-gray-50 hover:border-gray-400 hover:text-gray-900"
           onClick={clearAll}
         >
-          <X className="h-3.5 w-3.5" /> 清除
+          <X className="h-3.5 w-3.5" /> 清除筛选
         </button>
       )}
     </div>
