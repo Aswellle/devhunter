@@ -2,11 +2,14 @@
 app/core/event_bus.py
 线程安全的执行事件总线：Worker 线程发布，SSE 端点订阅。
 """
+import logging
 import queue
 import threading
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -95,5 +98,5 @@ def publish_event(task_id: str, event_type: str, message: str, data: dict | None
             message=message,
             data=data or {},
         ))
-    except Exception:
+    except Exception as e:
         logger.error('Failed to emit event: %s', e)
