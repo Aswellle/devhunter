@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-export type StreamStatus = 'idle' | 'connecting' | 'running' | 'done' | 'error' | 'waiting'
+export type StreamStatus = 'idle' | 'connecting' | 'running' | 'done' | 'failed' | 'error' | 'waiting'
 
 // ── 步骤定义 ─────────────────────────────────────────────
 export type StepId = 'init' | 'fetch' | 'parse' | 'filter' | 'dedup' | 'save'
@@ -137,6 +137,14 @@ export function useTaskEventStream({ taskId, active }: { taskId: string | null; 
     setSteps(next)
   }, [])
 
+  // failure 事件到达时把当前进行中的步骤标红，避免流水线停在"进行中"
+  const markActiveStepFailed = useCallback((detail: string) => {
+    const next = cloneSteps(stepsRef.current).map((s) =>
+      s.status === 'active' ? { ...s, status: 'error' as StepStatus, detail } : s)
+    stepsRef.current = next
+    setSteps(next)
+  }, [])
+
   useEffect(() => {
     if (!taskId || !active) return
 
@@ -237,19 +245,23 @@ export function useTaskEventStream({ taskId, active }: { taskId: string | null; 
                   setPreview(evt.data.items as ItemPreview[])
                 }
 
-                if (['success', 'failure', 'warning'].includes(evt.type)) {
-                  setFinalData(evt.data ?? null)
-                  setStatus('done')
-                  clearTimeout(stuckTimerId)
-                  return
-                }
-
+                // 终态事件同样要进日志：否则失败原因只存在于 finalData，
+                // 原始日志里看不到任何线索（本次报障的直接现象）
                 if (evt.type !== 'connected') {
                   setEvents((prev) => {
                     const MAX_EVENTS = 500
                     const next = [...prev, evt]
                     return next.length > MAX_EVENTS ? next.slice(-MAX_EVENTS) : next
                   })
+                }
+
+                if (['success', 'failure', 'warning'].includes(evt.type)) {
+                  setFinalData(evt.data ?? null)
+                  // failure 必须落到 failed，之前在 done 上，UI 会显示"已完成"
+                  setStatus(evt.type === 'failure' ? 'failed' : 'done')
+                  if (evt.type === 'failure') markActiveStepFailed(evt.message)
+                  clearTimeout(stuckTimerId)
+                  return
                 }
 
                 if (evt.type === 'diagnostic') {

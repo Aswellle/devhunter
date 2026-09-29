@@ -96,6 +96,8 @@ function StatusBadge({ status }: { status: StreamStatus }) {
     )
   if (status === 'done')
     return <span role="status" aria-live="polite" className="text-xs text-gray-400">已完成</span>
+  if (status === 'failed')
+    return <span role="status" aria-live="assertive" className="text-xs text-red-400">执行失败</span>
   if (status === 'error')
     return <span role="status" aria-live="assertive" className="text-xs text-red-400">连接失败</span>
   if (status === 'waiting')
@@ -272,6 +274,8 @@ export function TaskExecutionStream({ taskId, taskName, onClose }: Props) {
   const isWarning = events.some((e) => e.type === 'warning')
   const isDone    = status === 'done'
   const isWaiting = status === 'waiting'
+  // 失败原因（如"任务配置不完整，缺少：列表项 Selector"）直接呈现给用户
+  const failureMessage = events.find((e) => e.type === 'failure')?.message
 
   const itemsNew    = (finalData?.items_new  as number) ?? 0
   const itemsFetched = (finalData?.items_fetched as number) ?? 0
@@ -307,7 +311,7 @@ export function TaskExecutionStream({ taskId, taskName, onClose }: Props) {
           </div>
           <StatusBadge status={status} />
           {/* U4/U10: previously only shown when isDone */}
-          {(isDone || status === 'error') && (
+          {(isDone || status === 'error' || status === 'failed') && (
             <button
               onClick={reset}
               title="重新连接"
@@ -348,6 +352,9 @@ export function TaskExecutionStream({ taskId, taskName, onClose }: Props) {
                 <p className="text-xs text-gray-400 mt-0.5">
                   抓取 {itemsFetched} 条 · 耗时 {duration}ms
                 </p>
+              )}
+              {isFailure && failureMessage && (
+                <p className="text-xs text-red-200/90 mt-0.5 break-words">{failureMessage}</p>
               )}
             </div>
           </div>
@@ -415,9 +422,9 @@ export function TaskExecutionStream({ taskId, taskName, onClose }: Props) {
               实时更新中
             </span>
           )}
-          {isDone && (
-            <span className="text-gray-400">
-              {isSuccess ? `新增 ${itemsNew} 条` : isFailure ? '执行失败' : '无新增数据'}
+          {(isDone || status === 'failed') && (
+            <span className={status === 'failed' ? 'text-red-400' : 'text-gray-400'}>
+              {isFailure ? '执行失败' : isSuccess ? `新增 ${itemsNew} 条` : '无新增数据'}
             </span>
           )}
         </div>
