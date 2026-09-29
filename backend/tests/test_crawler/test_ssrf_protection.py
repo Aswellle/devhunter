@@ -2,6 +2,8 @@
 Tests for SSRF DNS-rebinding TOCTOU fix.
 Verifies engine.py uses resolve_and_validate_url with IP pinning.
 """
+import socket
+
 import pytest
 from unittest.mock import patch, MagicMock
 from app.crawler import engine
@@ -34,8 +36,18 @@ class TestSSRFProtection:
         assert safe is False
         assert ip is None
 
-    def test_dns_failure_fails_closed(self):
-        """Test that DNS resolution failure blocks the request."""
+    def test_dns_failure_fails_closed(self, monkeypatch):
+        """
+        DNS 解析失败必须 fail closed。
+
+        用「不存在的域名」验证不可靠：部分环境（企业 DNS / VPN / 代理）会把任意
+        域名解析到合成网段，断言会随环境漂移。这里直接让 getaddrinfo 抛异常，
+        确定性地覆盖 fail-closed 分支。
+        """
+        def _raise_gaierror(*args, **kwargs):
+            raise socket.gaierror("Name or service not known")
+
+        monkeypatch.setattr(socket, "getaddrinfo", _raise_gaierror)
         safe, msg, ip = engine.resolve_and_validate_url('http://nonexistent.domain.invalid')
         assert safe is False
         assert ip is None
