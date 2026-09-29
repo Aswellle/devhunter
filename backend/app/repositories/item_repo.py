@@ -37,7 +37,6 @@ class ItemRepository:
             return 0
 
         now = _now_iso()
-        inserted = 0
 
         def _do_insert(conn_: sqlite3.Connection) -> int:
             ins = 0
@@ -69,7 +68,12 @@ class ItemRepository:
                     # url_hash UNIQUE 冲突（极少数竞争情况）
                     logger.debug("Duplicate url_hash, skip: %s", item.get("url_hash", "")[:16])
             return ins
-        return inserted
+
+        # R3: 传入 conn 时复用外部事务，否则自建连接提交
+        if conn is not None:
+            return _do_insert(conn)
+        with get_db() as db_conn:
+            return _do_insert(db_conn)
 
     # D1: 按 external_id 批量查询已存在的 ID
     def find_existing_external_ids(self, external_ids: list[str], task_id: str = "") -> set[str]:
