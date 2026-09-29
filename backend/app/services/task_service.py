@@ -4,7 +4,12 @@ app/services/task_service.py
 """
 import logging
 
-from app.core.exceptions import TaskAlreadyRunningError, TaskLimitExceededError, TaskNotFoundError
+from app.core.exceptions import (
+    InvalidTaskConfigError,
+    TaskAlreadyRunningError,
+    TaskLimitExceededError,
+    TaskNotFoundError,
+)
 from app.repositories.task_repo import task_repo
 from app.scheduler.manager import scheduler_manager
 
@@ -115,10 +120,19 @@ class TaskService:
         直接尝试获取锁，成功即视为"未运行且已占用"，避免
         「先检查 is_running 再启动线程」两步之间的竞态窗口。
         """
-        self.get(task_id)
+        task = self.get(task_id)
 
-        from app.scheduler.jobs import acquire_task_lock, execute_task, release_task_lock
+        from app.scheduler.jobs import (
+            acquire_task_lock, execute_task, release_task_lock, validate_task_config,
+        )
         import uuid, threading
+
+        # 缺必填配置的任务直接拒绝触发：否则只会产出 0 条并污染执行历史
+        missing = validate_task_config(task)
+        if missing:
+            raise InvalidTaskConfigError(
+                f"任务配置不完整，缺少：{'、'.join(missing)}。请先在「编辑配置」中补全"
+            )
 
         if not acquire_task_lock(task_id):
             raise TaskAlreadyRunningError(f"Task {task_id} is already running")

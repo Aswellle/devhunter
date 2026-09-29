@@ -43,6 +43,11 @@ class InvalidSelectorError(BadRequestError):
     message = "Invalid CSS selector"
 
 
+class InvalidTaskConfigError(BadRequestError):
+    error_code = "INVALID_TASK_CONFIG"
+    message = "Task configuration is incomplete"
+
+
 class InvalidURLError(BadRequestError):
     error_code = "URL_INVALID"
     message = "Invalid URL format"

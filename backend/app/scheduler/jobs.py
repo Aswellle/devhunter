@@ -73,6 +73,30 @@ def _make_engine_callback(task_id: str):
     return callback
 
 
+# ── 执行前配置校验 ───────────────────────────────────────
+
+_REQUIRED_TASK_FIELDS: tuple[tuple[str, str], ...] = (
+    ("source_url",     "来源 URL"),
+    ("selector_list",  "列表项 Selector"),
+    ("selector_title", "标题 Selector"),
+    ("selector_link",  "链接 Selector"),
+)
+
+
+def validate_task_config(task: dict) -> list[str]:
+    """
+    返回缺失的必填配置项显示名（空列表 = 配置完整）。
+
+    抓取链路依赖这四项；缺失时 engine 只会产出 0 条，
+    用户看到的是误导性的「Selector 可能已失效」。这里提前判定并给出
+    可直接修复的提示，避免"能触发但必然失败"的执行。
+    """
+    return [
+        label for key, label in _REQUIRED_TASK_FIELDS
+        if not str(task.get(key) or "").strip()
+    ]
+
+
 # ── 主执行函数 ───────────────────────────────────────────
 
 def execute_task(
@@ -157,6 +181,7 @@ def _run_task(
     """核心执行逻辑，包含全链路事件发布。"""
     from app.crawler.dedup import deduplicate
     from app.crawler.engine import fetch_and_parse
+    from app.repositories.execution_repo import execution_repo
     from app.repositories.item_repo import item_repo
     from app.repositories.task_repo import task_repo
 
@@ -176,6 +201,20 @@ def _run_task(
         if preset_exec:
             _save_result(exec_id, task_id, "warning", 0, 0, 0,
                         "Task is paused", executed_at_iso, preset_exec=True)
+        return
+
+    # ── Step 0: 必填配置校验（缺失则明确失败，不进入抓取）──
+    missing = validate_task_config(task)
+    if missing:
+        duration_ms = int((time.time() - started_at.timestamp()) * 1000)
+        error_msg = f"任务配置不完整，缺少：{'、'.join(missing)}"
+        logger.warning("Task %s skipped: %s", task_id, error_msg,
+                       extra={"task_id": task_id, "execution_id": exec_id})
+        _pub(task_id, "failure", f"{error_msg}。请在「编辑配置」中补全后重试")
+        _save_result(exec_id, task_id, "failure", 0, 0, duration_ms,
+                     error_msg, executed_at_iso, preset_exec=preset_exec)
+        task_repo.update_execution_stats(task_id, success=False, empty=False,
+                                         executed_at=executed_at_iso)
         return
 
     source_url = task["source_url"]
