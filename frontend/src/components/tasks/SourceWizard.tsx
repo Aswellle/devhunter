@@ -82,6 +82,12 @@ export function SourceWizard({ onClose, onCreated }: SourceWizardProps) {
 
   const handleSave = () => {
     setError('')
+    // 自动发现失败/未产出选择器时不允许保存：空 selector 过去会打到
+    // 数据库 NOT NULL 约束上返回 500，现在前后端都拦（后端返回 400）
+    if (!discoveryResult?.list_selector || !discoveryResult?.title_selector || !discoveryResult?.link_selector) {
+      setError('未获取到有效的选择器，请返回上一步重新执行「自动发现」')
+      return
+    }
     saveMutation.mutate()
   }
 

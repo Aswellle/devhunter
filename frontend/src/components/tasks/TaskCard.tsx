@@ -6,6 +6,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'react-hot-toast'
 import type { Task } from '../../types'
 import { tasksApi } from '../../api/tasks'
+import { errorMessage } from '../../api/client'
 import { formatDistanceToNow } from '../../utils/time'
 import { TaskExecutionStream } from './TaskExecutionStream'
 
@@ -57,9 +58,9 @@ export function TaskCard({ task, onEdit, onViewHistory }: TaskCardProps) {
       toast.success('已触发立即执行')
       setShowStream(true)
     },
-    onError: (e: any) => {
-      const msg = e?.response?.data?.error?.message || '触发失败'
-      toast.error(msg)
+    onError: (e: unknown) => {
+      // 拦截器产出的是 ApiError（无 .response），统一用 errorMessage 提取
+      toast.error(errorMessage(e, '触发失败'))
     },
   })
 
@@ -137,13 +138,18 @@ export function TaskCard({ task, onEdit, onViewHistory }: TaskCardProps) {
               <Radio className="h-4 w-4" />
             </button>
 
-            {/* 立即执行 */}
+            {/* 立即执行（暂停中禁用：否则只会立刻返回"任务已暂停"并留下一条空执行记录） */}
             <button
-              className="p-2.5 sm:p-1.5 rounded text-gray-400 hover:text-yellow-600 hover:bg-gray-100 transition-colors"
+              className={clsx(
+                'p-2.5 sm:p-1.5 rounded transition-colors',
+                task.status === 'paused'
+                  ? 'text-gray-300 cursor-not-allowed'
+                  : 'text-gray-400 hover:text-yellow-600 hover:bg-gray-100'
+              )}
               onClick={() => triggerNow.mutate()}
-              disabled={triggerNow.isPending}
-              title="立即执行"
-              aria-label="立即执行"
+              disabled={triggerNow.isPending || task.status === 'paused'}
+              title={task.status === 'paused' ? '任务已暂停，请先恢复' : '立即执行'}
+              aria-label={task.status === 'paused' ? '任务已暂停，无法立即执行' : '立即执行'}
             >
               <Zap className="h-4 w-4" />
             </button>
@@ -189,6 +195,14 @@ export function TaskCard({ task, onEdit, onViewHistory }: TaskCardProps) {
           {task.template_id && (
             <span className="badge badge-gray">模板: {task.template_id}</span>
           )}
+          {/* 关键词为空 = 全量采集，必须显性化（模板市场默认不带关键词） */}
+          <span>
+            🔑 <b>关键词：</b>
+            {task.keywords?.length
+              ? task.keywords.slice(0, 3).join('、') +
+                (task.keywords.length > 3 ? ` 等 ${task.keywords.length} 个` : '')
+              : <span className="text-gray-400">全量采集</span>}
+          </span>
         </div>
 
         {/* 错误状态详情 */}

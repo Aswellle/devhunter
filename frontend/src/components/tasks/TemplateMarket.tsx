@@ -6,6 +6,7 @@
  */
 import { useState } from 'react'
 import { useQuery, useMutation } from '@tanstack/react-query'
+import { toast } from 'react-hot-toast'
 import { Zap, ExternalLink, Check, Code, Lightbulb, Users, BookOpen, Palette, ClipboardList } from 'lucide-react'
 import { tasksApi } from '../../api/tasks'
 import { Spinner } from '../../components/ui/Spinner'
@@ -53,6 +54,11 @@ export function TemplateMarket({ onClose, onCreated }: TemplateMarketProps) {
       }),
     onSuccess: (data) => {
       setEnabledTemplates((prev) => new Set([...prev, data.id]))
+      // 模板默认不带关键词：明确告知用户当前是"全量采集"，避免误以为已按关键词过滤
+      const kwCount = data.keywords?.length ?? 0
+      toast.success(
+        `已启用「${data.name}」${kwCount ? `（${kwCount} 个关键词）` : '（关键词为空 → 全量采集，可在任务管理中调整）'}`,
+      )
       onCreated?.()
     },
     onError: (err) => {
