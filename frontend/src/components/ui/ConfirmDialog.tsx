@@ -5,7 +5,7 @@
  * 符合 WAI-ARIA Dialog Pattern：焦点捕获、Escape 关闭、backdrop 关闭、
  * 焦点还原、ARIA 属性完整。
  */
-import { useCallback, useEffect, useRef } from 'react'
+import { useCallback, useEffect, useId, useRef } from 'react'
 
 interface ConfirmDialogProps {
   title: string
@@ -28,7 +28,8 @@ export function ConfirmDialog({
 }: ConfirmDialogProps) {
   const dialogRef = useRef<HTMLDialogElement>(null)
   const triggerRef = useRef<HTMLElement | null>(null)
-  const titleId = useRef(`dialog-title-${Math.random().toString(36).slice(2, 9)}`)
+  // useId：渲染期保持纯净（Math.random 属于 impure，会在 StrictMode 下产生不一致的 id）
+  const titleId = useId()
 
   // 存储触发元素，关闭时还原焦点
   useEffect(() => {
@@ -123,14 +124,14 @@ export function ConfirmDialog({
       ref={dialogRef}
       role="dialog"
       aria-modal="true"
-      aria-labelledby={titleId.current}
+      aria-labelledby={titleId}
       onClose={handleCancel}
       onClick={handleBackdropClick}
       className="fixed inset-0 z-[300] m-auto p-0 rounded-lg shadow-2xl border-0 backdrop:bg-black/50 bg-transparent"
     >
       <div className="w-full max-w-sm bg-surface rounded-lg shadow-xl">
         <div className="px-6 py-4 border-b border-subtle">
-          <h3 id={titleId.current} className="text-base font-semibold text-primary">
+          <h3 id={titleId} className="text-base font-semibold text-primary">
             {title}
           </h3>
         </div>
