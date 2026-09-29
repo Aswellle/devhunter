@@ -5,7 +5,7 @@ import { X } from 'lucide-react'
 import { tasksApi } from '../../api/tasks'
 import { errorMessage } from '../../api/client'
 import type { SourceTemplate, Task, TaskCreate } from '../../types'
-import { CRON_PRESETS } from '../../types'
+import { SchedulePicker } from './SchedulePicker'
 import { Spinner } from '../ui/Spinner'
 import { useModalA11y } from '../../hooks/useModalA11y'
 
@@ -35,7 +35,6 @@ export function TaskFormModal({ task, onClose }: TaskFormModalProps) {
 
   const [form, setForm] = useState<TaskCreate>(EMPTY_FORM)
   const [keywordsInput, setKeywordsInput] = useState('')
-  const [useCustomCron, setUseCustomCron] = useState(false)
   const [selectedCategory, setSelectedCategory] = useState<string>('')
 
   const { data: templates } = useQuery({
@@ -68,10 +67,8 @@ export function TaskFormModal({ task, onClose }: TaskFormModalProps) {
         cron_expression: task.cron_expression,
       })
       setKeywordsInput((task.keywords ?? []).join(', '))
-      const isPreset = CRON_PRESETS.some((p) => p.value === task.cron_expression)
-      setUseCustomCron(!isPreset)
     }
-  }, [task, setKeywordsInput, setUseCustomCron])
+  }, [task, setKeywordsInput])
 
   const applyTemplate = (tpl: SourceTemplate) => {
     setForm((f) => ({
@@ -84,7 +81,6 @@ export function TaskFormModal({ task, onClose }: TaskFormModalProps) {
       selector_summary: tpl.selector_summary ?? '',
       cron_expression: tpl.recommended_cron,
     }))
-    setUseCustomCron(false)
   }
 
   const mutation = useMutation({
@@ -244,20 +240,20 @@ export function TaskFormModal({ task, onClose }: TaskFormModalProps) {
           <div className="space-y-3">
             <label className="label">CSS Selector 配置</label>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {[
+              {([
                 { key: 'selector_list',    label: '列表项 Selector *',    required: true },
                 { key: 'selector_title',   label: '标题 Selector *',      required: true },
                 { key: 'selector_link',    label: '链接 Selector *',      required: true },
                 { key: 'selector_summary', label: '摘要 Selector（可选）', required: false },
                 { key: 'selector_next_page', label: '下一页 Selector（可选，分页抓取）', required: false },
-              ].map(({ key, label, required }) => (
+              ] as const).map(({ key, label, required }) => (
                 <div key={key}>
                   <label className="text-xs text-gray-600 mb-1 block">{label}</label>
                   <input
                     className="input font-mono text-xs"
                     placeholder=".class > a"
-                    value={(form as any)[key] ?? ''}
-                    onChange={(e) => set(key as keyof TaskCreate, e.target.value)}
+                    value={form[key] ?? ''}
+                    onChange={(e) => set(key, e.target.value)}
                     required={required}
                   />
                 </div>
@@ -282,42 +278,10 @@ export function TaskFormModal({ task, onClose }: TaskFormModalProps) {
           {/* 执行频率 */}
           <div>
             <label className="label">执行频率 <span className="text-red-500">*</span></label>
-            <div className="flex flex-wrap gap-2 mb-2">
-              {CRON_PRESETS.map((p) => (
-                <button
-                  key={p.value}
-                  type="button"
-                  onClick={() => { set('cron_expression', p.value); setUseCustomCron(false) }}
-                  className={`px-3 py-1 rounded-full text-xs border transition-colors ${
-                    !useCustomCron && form.cron_expression === p.value
-                      ? 'bg-primary-600 text-white border-primary-600'
-                      : 'border-gray-300 text-gray-600 hover:border-primary-400'
-                  }`}
-                >
-                  {p.label}
-                </button>
-              ))}
-              <button
-                type="button"
-                onClick={() => setUseCustomCron(true)}
-                className={`px-3 py-1 rounded-full text-xs border transition-colors ${
-                  useCustomCron
-                    ? 'bg-primary-600 text-white border-primary-600'
-                    : 'border-gray-300 text-gray-600 hover:border-primary-400'
-                }`}
-              >
-                自定义 Cron
-              </button>
-            </div>
-            {useCustomCron && (
-              <input
-                className="input font-mono text-sm"
-                placeholder="0 */6 * * *"
-                value={form.cron_expression}
-                onChange={(e) => set('cron_expression', e.target.value)}
-                required
-              />
-            )}
+            <SchedulePicker
+              value={form.cron_expression}
+              onChange={(cron) => set('cron_expression', cron)}
+            />
           </div>
 
           {/* Submit */}

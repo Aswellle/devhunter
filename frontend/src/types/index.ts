@@ -184,9 +184,3 @@ export interface TokenResponse {
 }
 
 // ── 频率快捷选项 ──────────────────────────────────────────
-export const CRON_PRESETS = [
-  { label: '每 30 分钟', value: '*/30 * * * *' },
-  { label: '每小时',     value: '0 * * * *' },
-  { label: '每 6 小时',  value: '0 */6 * * *' },
-  { label: '每天 9:00',  value: '0 9 * * *' },
-] as const
