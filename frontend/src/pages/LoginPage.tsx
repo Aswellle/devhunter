@@ -46,7 +46,7 @@ export function LoginPage() {
         {/* Feature highlights */}
         <div className="space-y-4">
           {[
-            { label: '多源聚合', desc: '28+ 模板，多平台覆盖' },
+            { label: '多源聚合', desc: '25 个预设模板，多平台覆盖' },
             { label: '智能聚类', desc: '多因素聚合，事件追踪' },
             { label: '自适应推荐', desc: '越用越懂你的推荐' },
           ].map((f) => (
