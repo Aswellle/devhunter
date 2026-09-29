@@ -2,14 +2,27 @@
 app/api/user_prefs.py
 用户偏好与个性化推荐 API 端点
 """
-from fastapi import APIRouter, Depends, Query
+import logging
+
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.api.deps import require_auth
+from app.repositories.item_repo import item_repo
+from app.repositories.user_prefs_repo import (
+    recommendation_config_repo,
+    user_affinity_repo,
+    user_interaction_repo,
+)
 from app.schemas.common import PaginatedResponse
 from app.schemas.item import ItemResponse
 from app.schemas.user_prefs import (
+    AffinityResponse,
+    FeedbackRequest,
+    FeedbackResponse,
     InteractionRecord,
     InteractionResponse,
+    RecommendationConfigResponse,
+    RecommendationConfigUpdate,
     RecommendedItemResponse,
     RecommendedTopicResponse,
     UserTopicCreate,
@@ -17,6 +30,8 @@ from app.schemas.user_prefs import (
     UserTopicUpdate,
 )
 from app.services.recommendation_service import recommendation_service
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/user-prefs", tags=["user-prefs"])
 
@@ -99,5 +114,98 @@ def get_recent_interactions(
     _: str = Depends(require_auth),
 ):
     """获取最近的用户交互记录"""
-    from app.repositories.user_prefs_repo import user_interaction_repo
     return user_interaction_repo.get_recent_interactions(hours=hours, limit=limit)
+
+
+# ── 阅读亲缘度（画像页）───────────────────────────────────
+
+@router.get("/affinities", response_model=list[AffinityResponse])
+def list_affinities(
+    limit: int = Query(50, ge=1, le=200),
+    _: str = Depends(require_auth),
+):
+    """
+    获取阅读亲缘度（task / platform / keyword 三类），按得分倒序。
+
+    「我的画像」页的"阅读偏好"区块读取该接口；数据由阅读行为累积
+    （record_interaction → update_affinity），不是用户手填的。
+    """
+    return user_affinity_repo.get_top_affinities(limit=limit)
+
+
+# ── 推荐配置 ──────────────────────────────────────────────
+
+# 前端字段名 → recommendation_config 表的配置键
+_WEIGHT_KEYS: dict[str, str] = {
+    "topic_match": "topic_match_weight",
+    "affinity": "affinity_weight",
+    "recency": "recency_weight",
+    "engagement": "engagement_weight",
+}
+
+# preference_mode → 四因子权重预设（与前端 RecommendationSettings 一致）。
+# 客户端只提交模式时由服务端展开成实际权重，避免"模式存了但权重没生效"。
+_MODE_WEIGHTS: dict[str, dict[str, float]] = {
+    "interest_first":    {"topic_match": 0.5, "affinity": 0.3, "recency": 0.1, "engagement": 0.1},
+    "balanced":          {"topic_match": 0.4, "affinity": 0.3, "recency": 0.2, "engagement": 0.1},
+    "fresh_first":       {"topic_match": 0.2, "affinity": 0.1, "recency": 0.5, "engagement": 0.2},
+    "exploration_first": {"topic_match": 0.2, "affinity": 0.1, "recency": 0.2, "engagement": 0.1},
+}
+
+
+@router.post("/recommendations/config", response_model=RecommendationConfigResponse)
+def update_recommendation_config(
+    body: RecommendationConfigUpdate,
+    _: str = Depends(require_auth),
+):
+    """
+    更新推荐评分权重（四因子）。
+
+    - 只传 `preference_mode`：使用该模式的预设权重
+    - 传 `weights`：在模式预设之上逐项覆盖（高级模式的手动调节）
+    - 两者至少提供一个，否则 400
+
+    权重即推荐引擎的实际打分参数（见 services/recommendation_service.py），
+    写入 `recommendation_config` 表后立即生效。
+    """
+    if body.preference_mode is None and body.weights is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"code": "BAD_REQUEST", "message": "需提供 preference_mode 或 weights"},
+        )
+
+    effective = dict(_MODE_WEIGHTS[body.preference_mode or "balanced"])
+    if body.weights is not None:
+        # 只覆盖提交了的字段（未提交的沿用模式预设）
+        effective.update(body.weights.model_dump(exclude_none=True))
+
+    for field, config_key in _WEIGHT_KEYS.items():
+        recommendation_config_repo.set(config_key, effective[field])
+
+    logger.info("Recommendation config updated: mode=%s weights=%s", body.preference_mode, effective)
+    return {"preference_mode": body.preference_mode, "weights": effective}
+
+
+# ── 负反馈 ────────────────────────────────────────────────
+
+@router.post("/feedback", response_model=FeedbackResponse,
+             status_code=status.HTTP_201_CREATED)
+def record_feedback(body: FeedbackRequest, _: str = Depends(require_auth)):
+    """
+    记录负反馈（not_interested / hide_source / mute_topic）。
+
+    目标统一取 item_id：推荐引擎后续会依据 `get_negative_feedback_map()`
+    把对应条目标记为已反馈，避免重复推荐用户已经明确拒绝的内容。
+    """
+    if not item_repo.get(body.item_id):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "ITEM_NOT_FOUND", "message": f"Item {body.item_id} not found"},
+        )
+
+    feedback_id = user_interaction_repo.record_negative_feedback(
+        feedback_type=body.feedback_type,
+        target_value=body.item_id,
+        reason=body.reason or "",
+    )
+    return {"id": feedback_id, "feedback_type": body.feedback_type, "target_value": body.item_id}

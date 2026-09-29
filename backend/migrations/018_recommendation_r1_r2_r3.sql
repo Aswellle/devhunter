@@ -13,27 +13,29 @@
 ALTER TABLE user_interactions RENAME TO user_interactions_old;
 
 -- Step 2: 创建新表
+-- 注意：CHECK 取「旧词表 ∪ R1 词表」的并集。API 层 / 前端 / 参与度统计用的是
+-- view/click/dwell/star/share，R1 引擎用的是 impression/open/click_source/...；
+-- 只保留 R1 词表会让最高频的 view / click 直接撞 CHECK 约束（IntegrityError → 500），
+-- 亲缘度因此永远累积不起来。
 CREATE TABLE user_interactions (
     id              TEXT PRIMARY KEY,
     item_id         TEXT NOT NULL REFERENCES items(id) ON DELETE CASCADE,
     interaction_type TEXT NOT NULL CHECK (interaction_type IN (
-        'impression', 'open', 'click_source', 'dwell', 'star', 'unstar',
-        'read', 'hide', 'thread_expand', 'search', 'not_interested', 'share'
+        'view', 'click', 'dwell', 'star', 'share',
+        'impression', 'open', 'click_source', 'unstar',
+        'read', 'hide', 'thread_expand', 'search', 'not_interested'
     )),
     dwell_seconds   INTEGER,
     weight          REAL NOT NULL DEFAULT 1.0,  -- R1: 事件权重（star > view）
     created_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
 );
 
--- Step 3: 从旧表迁移数据（兼容旧值 view→impression, click→click_source）
+-- Step 3: 从旧表迁移数据（原样拷贝）
+-- 这里刻意不再做 view→impression / click→click_source 改写：迁移文件在每次启动
+-- 都会重跑，改写会让已经写入的 view/click 在每次重启后被改掉，而统计口径
+-- （get_user_engagement_stats 按 'view'/'click' 计数）随之失效。
 INSERT INTO user_interactions (id, item_id, interaction_type, dwell_seconds, weight, created_at)
-SELECT id, item_id,
-    CASE interaction_type
-        WHEN 'view' THEN 'impression'
-        WHEN 'click' THEN 'click_source'
-        ELSE interaction_type
-    END,
-    dwell_seconds, 1.0, created_at
+SELECT id, item_id, interaction_type, dwell_seconds, 1.0, created_at
 FROM user_interactions_old;
 
 -- Step 4: 安全删除备份表

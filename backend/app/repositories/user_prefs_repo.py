@@ -220,10 +220,10 @@ class UserInteractionRepository:
                 """
                 SELECT
                     COUNT(*) as total_interactions,
-                    SUM(CASE WHEN interaction_type = 'view' THEN 1 ELSE 0 END) as view_count,
+                    SUM(CASE WHEN interaction_type IN ('view', 'impression') THEN 1 ELSE 0 END) as view_count,
                     SUM(CASE WHEN interaction_type = 'dwell' THEN 1 ELSE 0 END) as dwell_count,
                     SUM(CASE WHEN interaction_type = 'star' THEN 1 ELSE 0 END) as star_count,
-                    SUM(CASE WHEN interaction_type = 'click' THEN 1 ELSE 0 END) as click_count,
+                    SUM(CASE WHEN interaction_type IN ('click', 'click_source') THEN 1 ELSE 0 END) as click_count,
                     AVG(CASE WHEN dwell_seconds IS NOT NULL THEN dwell_seconds ELSE 0 END) as avg_dwell_seconds
                 FROM user_interactions
                 WHERE item_id = ?
@@ -246,10 +246,10 @@ class UserInteractionRepository:
                 SELECT
                     item_id,
                     COUNT(*) as total_interactions,
-                    SUM(CASE WHEN interaction_type = 'view' THEN 1 ELSE 0 END) as view_count,
+                    SUM(CASE WHEN interaction_type IN ('view', 'impression') THEN 1 ELSE 0 END) as view_count,
                     SUM(CASE WHEN interaction_type = 'dwell' THEN 1 ELSE 0 END) as dwell_count,
                     SUM(CASE WHEN interaction_type = 'star' THEN 1 ELSE 0 END) as star_count,
-                    SUM(CASE WHEN interaction_type = 'click' THEN 1 ELSE 0 END) as click_count,
+                    SUM(CASE WHEN interaction_type IN ('click', 'click_source') THEN 1 ELSE 0 END) as click_count,
                     AVG(CASE WHEN dwell_seconds IS NOT NULL THEN dwell_seconds ELSE 0 END) as avg_dwell_seconds
                 FROM user_interactions
                 WHERE item_id IN ({placeholders})
