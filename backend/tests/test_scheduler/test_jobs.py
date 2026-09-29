@@ -129,3 +129,38 @@ class TestManualTriggerPersistence:
         row = execution_repo.get(exec_id)
         assert row["status"] == "warning"
         assert row["items_new"] == 0
+
+
+class TestFailureMessagesAreUserFacing:
+    """执行历史直接渲染 error_message，落库内容不得包含内部细节"""
+
+    def test_fetch_failure_stores_classified_message(self, monkeypatch):
+        task_id = _task()
+        exec_id = str(uuid.uuid4())
+        execution_repo.create_running(exec_id, task_id, _iso())
+
+        internal = ("failed after 3 attempt(s), last error: Connection error: "
+                    "RemoteProtocolError: Server disconnected without sending a response.")
+        monkeypatch.setattr("app.crawler.engine.fetch_and_parse",
+                            lambda **kwargs: CrawlResult(error=internal, retries_used=2))
+
+        jobs.execute_task(task_id, exec_id=exec_id, _skip_lock=True)
+
+        row = execution_repo.get(exec_id)
+        assert row["status"] == "failure"
+        assert row["last_error_code"] == "NETWORK"
+        for leaked in ("RemoteProtocolError", "attempt(s)", "disconnected"):
+            assert leaked not in (row["error_message"] or "")
+
+    def test_http_failure_keeps_status_visible(self, monkeypatch):
+        task_id = _task()
+        exec_id = str(uuid.uuid4())
+        execution_repo.create_running(exec_id, task_id, _iso())
+        monkeypatch.setattr("app.crawler.engine.fetch_and_parse",
+                            lambda **kwargs: CrawlResult(error="HTTP 403 Forbidden"))
+
+        jobs.execute_task(task_id, exec_id=exec_id, _skip_lock=True)
+
+        row = execution_repo.get(exec_id)
+        assert row["last_error_code"] == "HTTP_403"
+        assert "403" in row["error_message"]

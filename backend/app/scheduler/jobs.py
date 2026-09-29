@@ -10,6 +10,7 @@ import time
 import uuid
 from datetime import datetime, timezone
 
+from app.core.error_messages import classify_error
 from app.core.event_bus import publish_event
 from app.core.logging import get_logger
 
@@ -208,11 +209,14 @@ def _run_task(
     if missing:
         duration_ms = int((time.time() - started_at.timestamp()) * 1000)
         error_msg = f"任务配置不完整，缺少：{'、'.join(missing)}"
+        error_code, user_msg = classify_error(error_msg)
         logger.warning("Task %s skipped: %s", task_id, error_msg,
                        extra={"task_id": task_id, "execution_id": exec_id})
-        _pub(task_id, "failure", f"{error_msg}。请在「编辑配置」中补全后重试")
+        _pub(task_id, "failure", f"{user_msg}。请在「编辑配置」中补全后重试",
+             {"error_code": error_code})
         _save_result(exec_id, task_id, "failure", 0, 0, duration_ms,
-                     error_msg, executed_at_iso, preset_exec=preset_exec)
+                     user_msg, executed_at_iso, preset_exec=preset_exec,
+                     last_error_code=error_code)
         task_repo.update_execution_stats(task_id, success=False, empty=False,
                                          executed_at=executed_at_iso)
         return
@@ -256,21 +260,22 @@ def _run_task(
 
     # ── Step 3: 处理失败 ─────────────────────────────────
     if not result.success:
+        # 原始错误（含异常类名/重试细节）只进日志；落库与推送用分类后的用户文案
         logger.warning("Task %s fetch failed: %s", task_id, result.error,
                        extra={"task_id": task_id, "execution_id": exec_id})
-        # Distinguish retry-exhaustion from a one-shot failure in the stored message.
-        error_msg = result.error
-        if result.retries_used > 0:
-            error_msg = f"{error_msg} (retries used: {result.retries_used})"
+        error_code, user_msg = classify_error(result.error)
         _save_result(exec_id, task_id, "failure", 0, 0, duration_ms,
-                    error_msg, executed_at_iso, preset_exec=preset_exec)
+                    user_msg, executed_at_iso, preset_exec=preset_exec,
+                    pages_count=result.pages_fetched, items_seen=result.list_count,
+                    last_error_code=error_code)
         task_repo.update_execution_stats(task_id, success=False, empty=False,
                                          executed_at=executed_at_iso)
         _pub(task_id, "failure",
-             f"抓取失败: {result.error}",
+             f"抓取失败：{user_msg}",
              {"duration_ms": duration_ms,
               "pages_fetched": result.pages_fetched,
-              "retries_used": result.retries_used})
+              "retries_used": result.retries_used,
+              "error_code": error_code})
         return
 
     # ── Step 4: 去重 ─────────────────────────────────────
@@ -401,9 +406,11 @@ def _record_failure(task_id: str, exec_id: str, executed_at: str,
                     error: str, duration_ms: int, preset_exec: bool = False) -> None:
     try:
         from app.repositories.task_repo import task_repo
-        # C6: 只记录经过清理的通用消息，完整异常已通过 logger.exception 落盘
+        # C6: 落库的只能是分类后的用户文案；完整异常已由调用方 logger.exception 落盘
+        error_code, user_msg = classify_error(error)
         _save_result(exec_id, task_id, "failure", 0, 0, duration_ms,
-                    error[:1000], executed_at, preset_exec=preset_exec)
+                    user_msg, executed_at, preset_exec=preset_exec,
+                    last_error_code=error_code)
         task_repo.update_execution_stats(task_id, success=False, empty=False,
                                          executed_at=executed_at)
     except Exception as e:
