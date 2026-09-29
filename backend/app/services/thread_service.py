@@ -46,19 +46,11 @@ class ThreadService:
         }
 
         # 获取候选池：最近 24h 未分配 thread 的 items
+        # 注意：候选池为空时不需要在这里预创建 Thread —— 下面的主循环在
+        # cluster() 返回 action="create"（候选为空必然如此）时会创建，
+        # 曾经的"预创建 + 继续走主循环"会让每个 item 生成两个 Thread
+        # （一次执行 14 条产生 28 个 Thread，聚合列表里每条内容显示两遍）。
         existing = thread_repo.get_recent_items_for_comparison(hours=24, limit=500)
-        if not existing:
-            # 无候选，全部创建新 Thread
-            for item in new_items:
-                platform = item_id_to_platform.get(item["id"], "unknown")
-                thread_repo.create(
-                    title=item["title"],
-                    item_id=item["id"],
-                    platform=platform,
-                    algorithm_version="v2",
-                    similarity_threshold=0.45,
-                    match_reason="no_candidates",
-                )
 
         # 构建候选 Thread 列表（从 existing items 中提取）
         candidate_threads = self._get_candidate_threads(existing)
