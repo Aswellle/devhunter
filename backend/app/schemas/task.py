@@ -6,9 +6,10 @@ import re
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, ValidationInfo, field_validator
 import soupsieve as sv
 
+from app.core.exceptions import InvalidSelectorError
 from app.utils.url import is_valid_url
 
 # ── 预设模板标识常量 ──────────────────────────────────────
@@ -50,40 +51,73 @@ PRESET_TEMPLATES = {
 _MAX_SELECTOR_LEN = 500
 
 
-def _validate_selector(v: str | None, field_name: str = "selector") -> str | None:
+def _selector_mode(selector_list: str | None) -> str:
     """
-    通用 selector 校验：长度限制 + soupsieve 语法校验。
-    允许 None/空，允许 json:/json-post: 前缀路径。
+    解析模式判定，必须与 engine._parse_mode 保持一致（只看 selector_list 前缀）。
+
+    模式决定 selector_title/link/summary 的语义：
+    - html     → CSS 选择器（soupsieve 校验）
+    - json     → JSON 路径，link 支持 PREF:prefix|path
+    - rss      → 由 feed 自带标题/链接，这三个字段不参与解析
+    """
+    sl = (selector_list or "").strip()
+    if sl.startswith("json-post:"):
+        return "json-post"
+    if sl.startswith("json:"):
+        return "json"
+    if sl.startswith("rss:"):
+        return "rss"
+    return "html"
+
+
+def _validate_selector_value(v: str, field_name: str, mode: str | None = "html") -> str:
+    """
+    非空 selector 值校验：长度上限对所有模式生效，仅 html 模式做 CSS 语法校验。
+
+    把 JSON 路径（如 item_info.article_id）或 rss: 模板送进 soupsieve 会误判为
+    非法 CSS —— 25 个预设模板里有 10 个会因为这种误判而无法创建（422）。
+    mode=None 表示模式未知（局部更新未提交 selector_list），跳过语法校验。
+    """
+    if len(v) > _MAX_SELECTOR_LEN:
+        raise InvalidSelectorError(f"{field_name} 长度超过 {_MAX_SELECTOR_LEN}")
+    if mode != "html" or v.startswith("PREF:"):
+        return v
+    try:
+        sv.compile(v)
+    except sv.SelectorSyntaxError as e:
+        raise InvalidSelectorError(f"{field_name} 不是合法的 CSS 选择器: {e}")
+    return v
+
+
+def _require_selector(v: str | None, field_name: str, mode: str | None = "html") -> str:
+    """必填 selector 校验：空值抛 400（而不是让 NULL 一路打到数据库约束）。"""
+    if v is None or not v.strip():
+        raise InvalidSelectorError(f"{field_name} 不能为空，请先完成自动发现或手动填写")
+    return _validate_selector_value(v.strip(), field_name, mode)
+
+
+def _validate_selector(v: str | None, field_name: str = "selector", mode: str | None = "html") -> str | None:
+    """可选 selector 校验：允许 None/空，其余按模式校验。"""
+    if v is None or not v.strip():
+        return None
+    return _validate_selector_value(v.strip(), field_name, mode)
+
+
+def _validate_next_page_selector(v: str | None, mode: str | None = "html") -> str | None:
+    """
+    selector_next_page 校验：允许 None/空；JSON/RSS 模式下是 JSON 路径（跳过
+    soupsieve），HTML 模式下是 CSS 选择器。json:/json-post: 前缀在任意模式下都放行。
     """
     if v is None or not v.strip():
         return None
     v = v.strip()
     if len(v) > _MAX_SELECTOR_LEN:
-        raise ValueError(f"{field_name} exceeds max length {_MAX_SELECTOR_LEN}")
-    if v.startswith("json:") or v.startswith("json-post:"):
+        raise InvalidSelectorError(f"selector_next_page 长度超过 {_MAX_SELECTOR_LEN}")
+    if mode in ("json", "json-post", "rss") or v.startswith("json:"):
         return v
-    # 纯 CSS：走 soupsieve 校验
-    try:
-        sv.compile(v)
-    except sv.SelectorSyntaxError as e:
-        raise ValueError(f"{field_name} is not a valid CSS selector: {e}")
-    return v
-
-def _validate_next_page_selector(v: str | None) -> str | None:
-    """
-    selector_next_page 校验：允许 None/空，允许 json:/json-post: 前缀路径，
-    仅对纯 CSS 值运行 soupsieve 校验。
-    """
-    if v is None or not v.strip():
-        return None
-    v = v.strip()
-    if v.startswith("json:") or v.startswith("json-post:"):
-        # JSON 路径，跳过 soupsieve；复用长度上限
-        if len(v) > _MAX_SELECTOR_LEN:
-            raise ValueError(f"selector_next_page exceeds max length {_MAX_SELECTOR_LEN}")
+    if v.startswith("json-post:"):
         return v
-    # 纯 CSS：走标准 selector 校验
-    return _validate_selector(v, "selector_next_page")
+    return _validate_selector_value(v, "selector_next_page", "html")
 
 
 # ── 频率快捷选项 → Cron 表达式映射 ───────────────────────
@@ -168,15 +202,27 @@ class TaskBase(BaseModel):
             raise ValueError(f"Unknown template_id: {v!r}. Valid: {PRESET_TEMPLATES}")
         return v
 
-    @field_validator("selector_list", "selector_title", "selector_link", "selector_summary")
+    @field_validator("selector_list")
     @classmethod
-    def validate_selectors(cls, v: str | None) -> str | None:
-        return _validate_selector(v, v or "selector")
+    def validate_selector_list(cls, v: str) -> str:
+        """列表 selector 决定解析模式（json: / json-post: / rss: / HTML）。"""
+        return _require_selector(v, "selector_list", _selector_mode(v))
+
+    @field_validator("selector_title", "selector_link")
+    @classmethod
+    def validate_required_selectors(cls, v: str, info: ValidationInfo) -> str:
+        return _require_selector(v, info.field_name, _selector_mode(info.data.get("selector_list")))
+
+    @field_validator("selector_summary")
+    @classmethod
+    def validate_summary_selector(cls, v: str | None, info: ValidationInfo) -> str | None:
+        return _validate_selector(v, "selector_summary",
+                                  _selector_mode(info.data.get("selector_list")))
 
     @field_validator("selector_next_page")
     @classmethod
-    def validate_next_page(cls, v: str | None) -> str | None:
-        return _validate_next_page_selector(v)
+    def validate_next_page(cls, v: str | None, info: ValidationInfo) -> str | None:
+        return _validate_next_page_selector(v, _selector_mode(info.data.get("selector_list")))
 
 
 class TaskCreate(TaskBase):
@@ -235,15 +281,33 @@ class TaskUpdate(BaseModel):
             raise ValueError(f"Unknown template_id: {v!r}. Valid: {PRESET_TEMPLATES}")
         return v
 
-    @field_validator("selector_list", "selector_title", "selector_link", "selector_summary")
+    @field_validator("selector_list")
+    @classmethod
+    def validate_selector_list(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        return _require_selector(v, "selector_list", _selector_mode(v))
 
-    def validate_selectors(cls, v: str | None) -> str | None:
-        return _validate_selector(v, v or "selector")
+    @field_validator("selector_title", "selector_link")
+    @classmethod
+    def validate_required_selectors(cls, v: str | None, info: ValidationInfo) -> str | None:
+        if v is None:
+            return None
+        # 未同时提交 selector_list 时无法判定解析模式 → 只做非空校验
+        mode = _selector_mode(info.data["selector_list"]) if "selector_list" in info.data else None
+        return _require_selector(v, info.field_name, mode)
+
+    @field_validator("selector_summary")
+    @classmethod
+    def validate_summary_selector(cls, v: str | None, info: ValidationInfo) -> str | None:
+        mode = _selector_mode(info.data["selector_list"]) if "selector_list" in info.data else None
+        return _validate_selector(v, "selector_summary", mode)
 
     @field_validator("selector_next_page")
     @classmethod
-    def validate_next_page(cls, v: str | None) -> str | None:
-        return _validate_next_page_selector(v)
+    def validate_next_page(cls, v: str | None, info: ValidationInfo) -> str | None:
+        mode = _selector_mode(info.data["selector_list"]) if "selector_list" in info.data else None
+        return _validate_next_page_selector(v, mode)
 
 
 class TaskResponse(BaseModel):
@@ -275,6 +339,9 @@ class TaskListItem(BaseModel):
     name: str
     source_url: str
     template_id: str | None
+    selector_list: str
+    keywords: list[str]
+    cron_expression: str
     status: str
     consecutive_failures: int
     consecutive_empty: int
