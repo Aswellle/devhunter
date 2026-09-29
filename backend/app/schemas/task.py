@@ -322,6 +322,7 @@ class TaskResponse(BaseModel):
     selector_summary: str | None
     selector_next_page: str | None
     keywords: list[str]
+    cron_expression: str
     config_snapshot: dict | None = None
     status: str
     consecutive_failures: int
