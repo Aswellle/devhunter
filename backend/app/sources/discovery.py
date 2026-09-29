@@ -9,6 +9,7 @@ URL Autodiscovery：自动发现 URL 的内容结构。
 - 检测 pagination
 - 分析 DOM 结构
 """
+import json as _json
 import logging
 import re
 from dataclasses import dataclass, field
@@ -18,7 +19,8 @@ from urllib.parse import urljoin, urlparse
 import httpx
 from bs4 import BeautifulSoup
 
-from ..crawler.engine import resolve_and_validate_url
+from ..core.http_client import get_http_client
+from ..crawler.engine import MAX_REDIRECTS, resolve_and_validate_url
 
 logger = logging.getLogger(__name__)
 
@@ -90,12 +92,22 @@ class URLDiscoverer:
                 result.feed_url = url
                 result.title = self._extract_feed_title(body)
                 result.description = self._extract_feed_description(body)
+                # RSS 的标题/链接来自 feed 自身，配置只需 rss: 前缀；
+                # 但仍要把字段填满，否则向导产出的任务缺少必填选择器
+                # （与预设模板保持一致）。
+                result.list_selector = "rss:"
+                result.title_selector = "title"
+                result.link_selector = "url"
+                result.summary_selector = "description"
                 return result
 
             # 3. 检测 JSON API
             if "json" in content_type or self._looks_like_json(body):
                 result.source_type = "json"
                 result.json_path = self._detect_json_path(body)
+                result.list_selector = f"json:{result.json_path}"
+                (result.title_selector, result.link_selector,
+                 result.summary_selector) = self._detect_json_fields(body, result.json_path)
                 return result
 
             # 4. HTML 页面分析
@@ -108,30 +120,38 @@ class URLDiscoverer:
         return result
 
     def _fetch(self, url: str) -> httpx.Response | None:
-        """获取页面（带 SSRF 保护 + IP pinning 防 DNS rebinding）"""
-        # Resolve hostname → validate IP → pin the IP for the actual connection.
-        # Connecting to the validated IP (with original Host header) closes the
-        # DNS-rebind TOCTOU window: an attacker cannot swap the IP between the
-        # check and the fetch because we connect to the already-validated IP.
-        is_safe, error_msg, validated_ip = resolve_and_validate_url(url)
+        """
+        获取页面：SSRF 校验 + 手动跟随重定向（每一跳重新校验）。
+
+        ⚠️ 这里刻意不做 IP pinning。把请求地址换成「已验证 IP + Host 头」会让
+        HTTPS 的 SNI 与证书按 IP 校验，直接
+        `CERTIFICATE_VERIFY_FAILED: IP address mismatch` —— 于是所有 https
+        站点的自动发现都失败。抓取引擎采用的是同一套策略：先校验、再按原 URL
+        请求（follow_redirects=False），每一跳手动重新校验 SSRF。
+        """
+        is_safe, error_msg, _ = resolve_and_validate_url(url)
         if not is_safe:
             logger.warning("SSRF check blocked URL %s: %s", url, error_msg)
             return None
 
         try:
             client = get_http_client()
-            if validated_ip:
-                parsed = urlparse(url)
-                port = parsed.port or (443 if parsed.scheme == "https" else 80)
-                pinned_netloc = f"{validated_ip}:{port}"
-                pinned_url = parsed._replace(netloc=pinned_netloc).geturl()
-                headers = {"Host": parsed.hostname}
-                logger.debug("SSRF IP-pinning: %s -> %s", url, pinned_url)
-                response = client.get(
-                    pinned_url, headers=headers, follow_redirects=False, timeout=15.0
-                )
-            else:
-                response = client.get(url, follow_redirects=False, timeout=15.0)
+            response = client.get(url, follow_redirects=False, timeout=15.0)
+
+            hops = 0
+            while getattr(response, "is_redirect", False) and hops < MAX_REDIRECTS:
+                location = response.headers.get("location")
+                if not location:
+                    break
+                next_url = str(httpx.URL(location, base=response.url))
+                hop_safe, hop_msg, _ = resolve_and_validate_url(next_url)
+                if not hop_safe:
+                    logger.warning("SSRF blocked on redirect %s -> %s: %s",
+                                   url, next_url, hop_msg)
+                    return None
+                hops += 1
+                response = client.get(next_url, follow_redirects=False, timeout=15.0)
+
             response.raise_for_status()
             return response
         except Exception as e:
@@ -157,20 +177,74 @@ class URLDiscoverer:
         match = re.search(r'<description>([^<]+)</description>', body, re.IGNORECASE)
         return match.group(1) if match else ""
 
-    def _detect_json_path(self, body: str) -> str:
-        """检测 JSON 数据路径"""
+    # JSON 条目里常见的字段名（小写比较），用于把 title/link/summary 探测出来
+    _JSON_TITLE_KEYS = ("title", "name", "headline", "subject", "question")
+    _JSON_LINK_KEYS = ("url", "link", "permalink", "href", "short_link_v2", "short_url")
+    _JSON_SUMMARY_KEYS = ("summary", "description", "desc", "content", "brief_content", "selftext", "body")
+
+    def _detect_json_path(self, body: str, max_depth: int = 3) -> str:
+        """
+        检测 JSON 数据路径：返回「根 → 第一个元素数组」的点分路径。
+
+        只看顶层字段会让嵌套 API（Reddit 的 data.children、掘金的
+        data.xxx 等）落空，向导随后写出 json: + 空路径的配置 —— 看起来合法
+        但抓取结果是一整块 JSON。这里做有界递归（深度 ≤ 3，够覆盖常见结构）。
+        """
         try:
             data = _json.loads(body)
-            if isinstance(data, list):
-                return ""  # 根就是数组
-            if isinstance(data, dict):
-                # 查找第一个数组字段
-                for key, value in data.items():
-                    if isinstance(value, list) and len(value) > 0:
-                        return key
+        except Exception:
+            return ""
+        return self._find_list_path(data, max_depth) or ""
+
+    def _find_list_path(self, node: Any, depth: int) -> str | None:
+        """返回第一个「字典数组」所在的点分路径；根即数组时返回空串。"""
+        if isinstance(node, list):
+            return "" if node and isinstance(node[0], dict) else None
+        if depth <= 0 or not isinstance(node, dict):
+            return None
+        for key, value in node.items():
+            if isinstance(value, list) and value and isinstance(value[0], dict):
+                return key
+            if isinstance(value, dict):
+                sub = self._find_list_path(value, depth - 1)
+                if sub is not None:
+                    return f"{key}.{sub}" if sub else key
+        return None
+
+    def _detect_json_fields(self, body: str, json_path: str) -> tuple[str, str, str]:
+        """
+        从 JSON 首条记录探测 title / link / summary 字段名。
+
+        引擎在字段缺失时会回退到 title / url，但向导要据此写出完整的任务配置，
+        否则 JSON 模板会缺少必填选择器（schema 直接拒绝保存）。
+        """
+        def _pick(lower_keys: dict[str, str], candidates: tuple[str, ...], default: str) -> str:
+            for cand in candidates:
+                if cand in lower_keys:
+                    return lower_keys[cand]
+            return default
+
+        try:
+            node: Any = _json.loads(body)
+            for part in [p for p in json_path.split(".") if p]:
+                if isinstance(node, dict):
+                    node = node.get(part)
+                elif isinstance(node, list) and part.isdigit():
+                    node = node[int(part)] if int(part) < len(node) else None
+                else:
+                    node = None
+                if node is None:
+                    break
+            if isinstance(node, list) and node and isinstance(node[0], dict):
+                lower_keys = {str(k).lower(): str(k) for k in node[0]}
+                return (
+                    _pick(lower_keys, self._JSON_TITLE_KEYS, "title"),
+                    _pick(lower_keys, self._JSON_LINK_KEYS, "url"),
+                    _pick(lower_keys, self._JSON_SUMMARY_KEYS, ""),
+                )
         except Exception:
             pass
-        return ""
+        return "title", "url", ""
 
     def _analyze_html(self, body: str, base_url: str, result: DiscoveryResult) -> None:
         """分析 HTML 结构"""

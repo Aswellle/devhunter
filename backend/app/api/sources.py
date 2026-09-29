@@ -69,6 +69,9 @@ class ShareRequest(BaseModel):
 
 class CloneRequest(BaseModel):
     name: Optional[str] = Field(None, description="Custom name for cloned template")
+
+
+@router.post("/discover")
 def discover_source(
     body: DiscoverRequest,
     _: str = Depends(require_auth),
