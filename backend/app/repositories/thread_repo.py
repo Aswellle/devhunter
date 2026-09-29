@@ -121,7 +121,17 @@ class ThreadRepository:
                     params + [per_page, offset],
                 ).fetchall()
         else:
-            base_from = "FROM threads"
+            # 只列出仍然有存活条目的 Thread：条目被删除后 thread_items 会级联
+            # 消失，但 threads 行还在。不过滤就会在列表里留下"点开是暂无内容"
+            # 的空卡片（清理任务/手动删除条目都会触发）。
+            base_from = """
+                FROM threads th
+                WHERE EXISTS (
+                    SELECT 1 FROM thread_items ti
+                    JOIN items i ON i.id = ti.item_id
+                    WHERE ti.thread_id = th.id
+                )
+            """
             params = []
             with get_db() as conn:
                 total = conn.execute(
@@ -130,9 +140,10 @@ class ThreadRepository:
                 ).fetchone()[0]
                 rows = conn.execute(
                     f"""
-                    SELECT id, title, first_seen_at, last_seen_at, item_count, platforms
+                    SELECT th.id, th.title, th.first_seen_at, th.last_seen_at,
+                           th.item_count, th.platforms
                     {base_from}
-                    ORDER BY first_seen_at DESC
+                    ORDER BY th.first_seen_at DESC
                     LIMIT ? OFFSET ?
                     """,
                     params + [per_page, offset],
