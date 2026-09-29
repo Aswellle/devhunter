@@ -14,13 +14,30 @@ export interface ApiError {
 function normalizeError(err: AxiosError): ApiError {
   const status = err.response?.status ?? 0
   const data = err.response?.data as Record<string, unknown> | undefined
+  // 后端统一错误体是 {"error": {"code", "message", "details"}}，这里必须解包，
+  // 否则前端只会显示 axios 的 "Request failed with status code 400"
+  const envelope = (data?.error ?? undefined) as Record<string, unknown> | undefined
 
   return {
     status,
-    code: (data?.code as string) || err.code || 'UNKNOWN_ERROR',
-    message: (data?.message as string) || err.message || '请求失败',
-    details: data?.details,
+    code: (envelope?.code as string) || (data?.code as string) || err.code || 'UNKNOWN_ERROR',
+    message: (envelope?.message as string) || (data?.message as string) || err.message || '请求失败',
+    details: envelope?.details ?? data?.details,
   }
+}
+
+/**
+ * 从任意 catch 值里取出可展示的错误文案。
+ *
+ * 拦截器把 AxiosError 归一化成 ApiError，所以调用方拿到的不是 axios 错误，
+ * 不能再读 e.response.data.error.message。
+ */
+export function errorMessage(err: unknown, fallback: string): string {
+  if (typeof err === 'object' && err !== null && 'message' in err) {
+    const { message } = err
+    if (typeof message === 'string' && message) return message
+  }
+  return fallback
 }
 
 const client = axios.create({

@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'react-hot-toast'
 import { X } from 'lucide-react'
 import { tasksApi } from '../../api/tasks'
+import { errorMessage } from '../../api/client'
 import type { SourceTemplate, Task, TaskCreate } from '../../types'
 import { CRON_PRESETS } from '../../types'
 import { Spinner } from '../ui/Spinner'
@@ -96,14 +97,9 @@ export function TaskFormModal({ task, onClose }: TaskFormModalProps) {
       toast.success(isEdit ? '任务已更新' : '任务创建成功')
       onClose()
     },
-    onError: (e: any) => {
-      const msg =
-        e?.response?.data?.error?.message ||
-        e?.response?.data?.message ||
-        e?.response?.data?.error ||
-        e?.message ||
-        '操作失败'
-      toast.error(msg)
+    onError: (e: unknown) => {
+      // client.ts 拦截器已把后端 {"error":{code,message}} 解包成 ApiError
+      toast.error(errorMessage(e, '操作失败'))
     },
   })
 
