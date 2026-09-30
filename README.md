@@ -381,7 +381,7 @@ GET    /health                                健康检查（无需认证）
 | `SCHEDULER_MAX_WORKERS` | `3` | 调度器并行 Worker 数 |
 | `SCHEDULER_MISFIRE_GRACE_TIME` | `300` | APScheduler misfire 宽限（秒） |
 | `LOG_LEVEL` / `LOG_FORMAT` | `INFO` / `json` | 日志级别与格式（`json` 或 `text`） |
-| `CORS_ORIGINS` | `http://localhost:5173,http://localhost:3000,http://localhost:5200,http://127.0.0.1:5200` | 允许的前端来源，逗号分隔（改前端端口/域名后需同步） |
+| `CORS_ORIGINS` | `http://localhost:5173/3000/5200,http://127.0.0.1:5200` | 允许的前端来源，逗号分隔（改前端端口/域名后需同步） |
 | `SEMANTIC_BACKEND` | `ngram` | 语义相似度后端（`ngram` 或 `embedding`） |
 
 ---
