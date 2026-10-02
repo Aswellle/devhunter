@@ -429,6 +429,13 @@ DevHunter 采用**单用户认证**模型，适合自托管 / 内网 / 反向代
 直接暴露到公网前，建议至少在反向代理层再加一层访问控制与 HTTPS（并为 Cookie 启用 `Secure`）。
 
 ---
+## ⭐ 支持这个项目
+
+如果devhunter对你有帮助，欢迎给我一个 ⭐️ Star！
+
+你的每一次支持，都是我持续改进的动力。
+
+---
 
 ## 法律合规与免责声明
 
@@ -491,11 +498,3 @@ DevHunter 是一个**信息聚合工具**，设计用于以下合法目的：
 [MIT](LICENSE)
 
 ---
-
-<div align="center">
-
-**如果这个项目对你有帮助，欢迎 ⭐ Star 支持！**
-
-⭐ [GitHub Star](https://github.com/Aswellle/devhunter) ⭐
-
-</div>
