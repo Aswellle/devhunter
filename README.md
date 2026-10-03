@@ -227,40 +227,6 @@ Windows 用户可直接运行根目录的 `start.bat` 一键启动前后端。
 
 ---
 
-## 架构
-
-```
-devhunter/
-├── backend/                    # FastAPI 后端
-│   ├── app/
-│   │   ├── api/                # HTTP 路由层
-│   │   ├── services/           # 业务编排层
-│   │   ├── repositories/       # 数据访问层
-│   │   ├── scheduler/          # APScheduler 调度模块
-│   │   ├── crawler/            # 抓取引擎（HTML / JSON / RSS）
-│   │   ├── sources/            # 模板注册 / 发现 / 预览 / 验证 / 健康
-│   │   ├── features/           # 特征提取（实体 / 语义 / 时间）
-│   │   ├── threads/            # Thread 聚类 / 评分
-│   │   ├── recommendation/     # 推荐引擎（候选 / 评分 / 排序 / 多样性 / 解释）
-│   │   ├── execution/          # 执行状态机
-│   │   ├── schemas/            # Pydantic 请求 / 响应模型
-│   │   ├── core/               # 基础设施：DB、Config、日志、事件总线
-│   │   └── utils/              # 哈希 / URL / 相似度工具
-│   ├── migrations/             # 纯 SQL 迁移文件，启动时按序号自动执行
-│   ├── templates/              # 预设数据源模板（JSON）
-│   └── run.py                  # 本地启动入口
-│
-├── frontend/                   # React + Vite + TypeScript 前端
-│   └── src/
-│       ├── api/                # axios 封装的 API 客户端
-│       ├── components/         # UI 组件
-│       ├── pages/              # 页面组件
-│       ├── stores/             # Zustand 状态管理
-│       └── hooks/              # 自定义 Hook（SSE 订阅等）
-│
-└── docker-compose.yml          # 一键部署（backend + frontend/Nginx）
-```
-
 **数据流**：API 路由 → 业务服务层 → 数据访问层 → SQLite。
 
 **调度器**：APScheduler 的 `BackgroundScheduler` 运行在独立线程中，与 FastAPI 的 asyncio 事件循环完全隔离；Job 状态持久化到与业务数据同库的 SQLite 表（`SQLAlchemyJobStore`），启动时以**数据库任务表为唯一真相源**重建全部调度任务（`restore_jobs()`），并用进程内重入锁强制 `max_instances=1`。
