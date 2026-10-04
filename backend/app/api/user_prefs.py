@@ -152,6 +152,30 @@ _MODE_WEIGHTS: dict[str, dict[str, float]] = {
     "exploration_first": {"topic_match": 0.2, "affinity": 0.1, "recency": 0.2, "engagement": 0.1},
 }
 
+# 从未保存过配置时打分引擎使用的默认权重（services/recommendation_service.py）
+_DEFAULT_WEIGHTS = _MODE_WEIGHTS["balanced"]
+
+
+@router.get("/recommendations/config", response_model=RecommendationConfigResponse)
+def get_recommendation_config(_: str = Depends(require_auth)):
+    """
+    读取当前生效的推荐评分权重（四因子）。
+
+    - weights：`recommendation_config` 表中的实际生效值；从未保存过时返回
+      与打分引擎一致的默认值（balanced 预设）
+    - preference_mode：与预设权重精确比对推断；手动调节过权重则可能为 null
+    """
+    stored = recommendation_config_repo.get_all()
+    effective = {field: stored.get(key, _DEFAULT_WEIGHTS[field]) for field, key in _WEIGHT_KEYS.items()}
+
+    mode: str | None = None
+    for candidate, preset in _MODE_WEIGHTS.items():
+        if all(abs(preset[f] - effective[f]) < 1e-9 for f in _WEIGHT_KEYS):
+            mode = candidate
+            break
+
+    return {"preference_mode": mode, "weights": effective}
+
 
 @router.post("/recommendations/config", response_model=RecommendationConfigResponse)
 def update_recommendation_config(
