@@ -5,9 +5,13 @@
  * 高级模式：权重调整
  */
 import { useState } from 'react'
-import { useMutation } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import toast from 'react-hot-toast'
 import { Settings, Sliders, X } from 'lucide-react'
+import { errorMessage } from '../../api/client'
+import { queryKeys } from '../../api/queryKeys'
 import { userPrefsApi } from '../../api/user_prefs'
+import { useModalA11y } from '../../hooks/useModalA11y'
 
 interface RecommendationSettingsProps {
   onClose: () => void
@@ -30,6 +34,9 @@ const MODE_DESCRIPTIONS: Record<PreferenceMode, string> = {
 }
 
 export function RecommendationSettings({ onClose }: RecommendationSettingsProps) {
+  const queryClient = useQueryClient()
+  // 焦点陷阱 + Escape 关闭（组件随模态打开条件挂载，无需 isOpen 参数）
+  const modalRef = useModalA11y(onClose)
   const [mode, setMode] = useState<PreferenceMode>('balanced')
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [weights, setWeights] = useState({
@@ -39,6 +46,31 @@ export function RecommendationSettings({ onClose }: RecommendationSettingsProps)
     engagement: 0.1,
   })
 
+  const configQuery = useQuery({
+    queryKey: queryKeys.userPrefs.recommendationConfig(),
+    queryFn: userPrefsApi.getRecommendationConfig,
+  })
+
+  // 回填已保存的配置，避免打开弹窗即显示默认值、保存时覆盖用户偏好。
+  // 用"渲染期比较数据引用调整本地 state"（React 官方模式）而非 effect 回填
+  const config = configQuery.data
+  const [syncedConfig, setSyncedConfig] = useState(config)
+  if (config && config !== syncedConfig) {
+    setSyncedConfig(config)
+    const cfg = config
+    if (cfg.preference_mode && cfg.preference_mode in MODE_LABELS) {
+      setMode(cfg.preference_mode as PreferenceMode)
+    }
+    if (cfg.weights) {
+      setWeights((prev) => ({
+        topic_match: cfg.weights.topic_match ?? prev.topic_match,
+        affinity: cfg.weights.affinity ?? prev.affinity,
+        recency: cfg.weights.recency ?? prev.recency,
+        engagement: cfg.weights.engagement ?? prev.engagement,
+      }))
+    }
+  }
+
   const saveMutation = useMutation({
     mutationFn: () =>
       userPrefsApi.updateRecommendationConfig({
@@ -46,6 +78,8 @@ export function RecommendationSettings({ onClose }: RecommendationSettingsProps)
         weights: showAdvanced ? weights : undefined,
       }),
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.userPrefs.recommendationConfig() })
+      toast.success('推荐设置已保存')
       onClose()
     },
   })
@@ -73,6 +107,7 @@ export function RecommendationSettings({ onClose }: RecommendationSettingsProps)
       onClick={(e) => { if (e.target === e.currentTarget) onClose() }}
     >
       <div
+        ref={modalRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="recommendation-settings-title"
@@ -194,7 +229,7 @@ export function RecommendationSettings({ onClose }: RecommendationSettingsProps)
 
           {saveMutation.isError && (
             <div className="text-sm text-danger bg-danger-light rounded p-2" role="alert">
-              保存失败，请重试
+              {errorMessage(saveMutation.error, '保存失败，请重试')}
             </div>
           )}
         </div>

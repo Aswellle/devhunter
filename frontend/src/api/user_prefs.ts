@@ -35,6 +35,12 @@ export const userPrefsApi = {
   getAffinities: () =>
     client.get('/user-prefs/affinities').then((r) => r.data),
 
+  // 获取推荐配置（四因子权重 + 推断的模式；从未保存过时返回打分引擎默认值）
+  getRecommendationConfig: () =>
+    client.get<{ preference_mode: string | null; weights: Record<string, number> }>(
+      '/user-prefs/recommendations/config'
+    ).then((r) => r.data),
+
   // 更新推荐配置
   updateRecommendationConfig: (data: { preference_mode?: string; weights?: Record<string, number> }) =>
     client.post('/user-prefs/recommendations/config', data).then((r) => r.data),

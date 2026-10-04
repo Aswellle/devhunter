@@ -5,11 +5,14 @@
  * 模态框使用固定宽高，避免切换类别时视口摇晃。
  */
 import { useState } from 'react'
-import { useQuery, useMutation } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'react-hot-toast'
 import { Zap, ExternalLink, Check, Code, Lightbulb, Users, BookOpen, Palette, ClipboardList } from 'lucide-react'
 import { tasksApi } from '../../api/tasks'
+import { queryKeys } from '../../api/queryKeys'
+import { errorMessage } from '../../api/client'
 import { Spinner } from '../../components/ui/Spinner'
+import { useModalA11y } from '../../hooks/useModalA11y'
 import type { SourceTemplate } from '../../types'
 
 interface TemplateMarketProps {
@@ -28,11 +31,14 @@ const CATEGORIES = [
 ]
 
 export function TemplateMarket({ onClose, onCreated }: TemplateMarketProps) {
+  const qc = useQueryClient()
   const [selectedCategory, setSelectedCategory] = useState('all')
   const [enabledTemplates, setEnabledTemplates] = useState<Set<string>>(new Set())
+  // 焦点陷阱 + Escape 关闭 + 背景可见性（组件随模态打开条件挂载，无需 isOpen 参数）
+  const modalRef = useModalA11y(onClose)
 
   const { data: templates, isLoading } = useQuery({
-    queryKey: ['templates'],
+    queryKey: queryKeys.tasks.templates(),
     queryFn: tasksApi.templates,
   })
 
@@ -52,8 +58,12 @@ export function TemplateMarket({ onClose, onCreated }: TemplateMarketProps) {
         keywords: tpl.default_keywords || [],
         cron_expression: tpl.recommended_cron,
       }),
-    onSuccess: (data) => {
-      setEnabledTemplates((prev) => new Set([...prev, data.id]))
+    onSuccess: (data, tpl) => {
+      // 记录"模板 id"而非新建 Task 的 id——两者是不同的 ID 空间，
+      // 用 data.id 会导致"已启用"徽章永不显示、可重复启用同一模板
+      setEnabledTemplates((prev) => new Set([...prev, tpl.id]))
+      // 新任务要出现在任务列表：失效 tasks 缓存（本组件关闭后列表仍保持新鲜）
+      qc.invalidateQueries({ queryKey: queryKeys.tasks.all })
       // 模板默认不带关键词：明确告知用户当前是"全量采集"，避免误以为已按关键词过滤
       const kwCount = data.keywords?.length ?? 0
       toast.success(
@@ -61,8 +71,8 @@ export function TemplateMarket({ onClose, onCreated }: TemplateMarketProps) {
       )
       onCreated?.()
     },
-    onError: (err) => {
-      console.error('[TemplateMarket] 启用模板失败:', err)
+    onError: (err: unknown) => {
+      toast.error(errorMessage(err, '启用模板失败，请重试'))
     },
   })
 
@@ -82,6 +92,7 @@ export function TemplateMarket({ onClose, onCreated }: TemplateMarketProps) {
   return (
     <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50" onClick={(e) => { if (e.target === e.currentTarget) onClose() }}>
       <div
+        ref={modalRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="template-market-title"
@@ -101,18 +112,19 @@ export function TemplateMarket({ onClose, onCreated }: TemplateMarketProps) {
         {/* Categories */}
         <div className="px-6 py-3 border-b bg-gray-50 shrink-0">
           <div className="flex gap-2 flex-wrap">
-            {CATEGORIES.map((cat) => {
-              const Icon = cat.icon
-              return (
-                <button
-                  key={cat.id}
-                  onClick={() => setSelectedCategory(cat.id)}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm transition-colors ${
-                    selectedCategory === cat.id
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-white border hover:bg-gray-50'
-                  }`}
-                >
+              {CATEGORIES.map((cat) => {
+                const Icon = cat.icon
+                return (
+                  <button
+                    key={cat.id}
+                    onClick={() => setSelectedCategory(cat.id)}
+                    aria-pressed={selectedCategory === cat.id}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm transition-colors ${
+                      selectedCategory === cat.id
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-white border hover:bg-gray-50'
+                    }`}
+                  >
                   {Icon && <Icon className="h-3.5 w-3.5" />}
                   {cat.name}
                 </button>

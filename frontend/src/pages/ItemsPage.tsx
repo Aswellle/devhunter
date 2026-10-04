@@ -60,10 +60,10 @@ export function ItemsPage() {
   // U9: replaces window.confirm() for batch delete — a blocking native
   // dialog with no visual consistency with the rest of the app. Two-step
   // inline confirm: first click arms it, second click within the window
-  // actually deletes; clicking elsewhere or 4s of inactivity disarms it.
+  // actually deletes; clicking elsewhere or 8s of inactivity disarms it.
   const [confirmingDelete, setConfirmingDelete] = useState(false)
 
-  // U9: 4s inactivity timer — disarms the confirm state so a half-finished
+  // U9: 8s inactivity timer — disarms the confirm state so a half-finished
   // batch action can't linger. Reset on every state change via the effect's
   // dependency; cleared on unmount or when the user confirms/cancels.
   useEffect(() => {
@@ -105,7 +105,7 @@ export function ItemsPage() {
   })
 
   // Fetch Threads (only when in thread view)
-  const { data: threadsPage } = useQuery({
+  const { data: threadsPage, isError: threadsError, refetch: refetchThreads } = useQuery({
     queryKey: queryKeys.threads.list({ task_id: filters.task_id }),
     queryFn: () =>
       threadsApi.list({
@@ -383,6 +383,7 @@ export function ItemsPage() {
           <div className="flex items-center gap-1 p-1 bg-gray-100 rounded-lg">
             <button
               onClick={() => setViewMode('source')}
+              aria-pressed={viewMode === 'source'}
               className={clsx(
                 'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-all',
                 viewMode === 'source'
@@ -395,6 +396,7 @@ export function ItemsPage() {
             </button>
             <button
               onClick={() => setViewMode('thread')}
+              aria-pressed={viewMode === 'thread'}
               className={clsx(
                 'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-all',
                 viewMode === 'thread'
@@ -417,7 +419,6 @@ export function ItemsPage() {
           tasks={tasksPage?.items ?? []}
           categoryCounts={categoryCounts}
           totalCount={countsData?.total ?? data?.total}
-          useNewLayout={true}
         />
       </div>
 
@@ -428,6 +429,17 @@ export function ItemsPage() {
           <div className="flex justify-center py-12">
             <Spinner />
           </div>
+        ) : threadsError ? (
+          // 请求失败不能伪装成"暂无数据"（与 U3 原则一致），给出重试入口
+          <Empty
+            title="加载失败"
+            description="热点聚合加载出错，请检查网络连接后重试"
+            action={
+              <button onClick={() => refetchThreads()} className="btn-primary">
+                重试
+              </button>
+            }
+          />
         ) : threadsPage?.items && threadsPage.items.length > 0 ? (
           <div className="space-y-3">
             {(threadsPage.items as ThreadWithItems[]).map((thread) => (
@@ -630,7 +642,7 @@ export function ItemsPage() {
             {totalSelected > 0 && (
               <div className="sticky bottom-4 z-30 flex justify-center pt-4">
                 <div className="flex items-center gap-3 px-4 py-3 bg-gray-900 text-white rounded-xl shadow-2xl">
-                  <span className="text-sm font-medium">
+                  <span className="text-sm font-medium" aria-live="polite">
                     已选择 <b>{totalSelected}</b> 条
                   </span>
                   <div className="w-px h-5 bg-gray-700" />
@@ -685,6 +697,7 @@ export function ItemsPage() {
                       setConfirmingDelete(false)
                       setSelectedIds(new Set())
                     }}
+                    aria-label="取消选择"
                     className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-gray-800 transition-colors"
                   >
                     <X className="h-4 w-4" />

@@ -2,6 +2,7 @@ import { CheckCheck, X } from 'lucide-react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'react-hot-toast'
 import { itemsApi } from '../../api/items'
+import { queryKeys } from '../../api/queryKeys'
 
 interface BatchActionsBarProps {
   /** 当前页可操作的 item id 列表 */
@@ -16,7 +17,7 @@ export function BatchActionsBar({ itemIds, total }: BatchActionsBarProps) {
   const markAllRead = useMutation({
     mutationFn: () => itemsApi.batchPatch(itemIds, { is_read: true }),
     onSuccess: (data) => {
-      qc.invalidateQueries({ queryKey: ['items'] })
+      qc.invalidateQueries({ queryKey: queryKeys.items.all })
       toast.success(`已标记 ${data.updated} 条为已读`)
     },
     onError: () => toast.error('操作失败'),
@@ -25,7 +26,7 @@ export function BatchActionsBar({ itemIds, total }: BatchActionsBarProps) {
   const markAllUnread = useMutation({
     mutationFn: () => itemsApi.batchPatch(itemIds, { is_read: false }),
     onSuccess: (data) => {
-      qc.invalidateQueries({ queryKey: ['items'] })
+      qc.invalidateQueries({ queryKey: queryKeys.items.all })
       toast.success(`已标记 ${data.updated} 条为未读`)
     },
     onError: () => toast.error('操作失败'),

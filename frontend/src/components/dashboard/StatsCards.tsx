@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { CheckCircle, Download, RefreshCw, Zap } from 'lucide-react'
 import { statsApi } from '../../api/stats'
+import { queryKeys } from '../../api/queryKeys'
 import { Spinner } from '../ui/Spinner'
 
 interface StatCardProps {
@@ -26,9 +27,11 @@ function StatCard({ label, value, icon, sub, colorClass = 'text-gray-900' }: Sta
 
 export function StatsCards() {
   const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: ['stats'],
+    queryKey: queryKeys.stats.all,
     queryFn: statsApi.get,
-    refetchInterval: 60_000,
+    // 上一次拉取失败时停止自动轮询（错误 UI 已提供重试按钮），
+    // 手动重试成功后 status 复位、轮询自动恢复
+    refetchInterval: (query) => (query.state.status === 'error' ? false : 60_000),
   })
 
   if (isLoading) {

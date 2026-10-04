@@ -9,6 +9,13 @@ import { queryKeys } from '../api/queryKeys'
 import { Empty } from '../components/ui/Empty'
 import { SkeletonList } from '../components/ui/Skeleton'
 
+// 亲缘度类型 → 中文标签（后端为 task/platform/keyword 三类）
+const AFFINITY_TYPE_LABELS: Record<string, string> = {
+  task: '任务来源',
+  platform: '平台',
+  keyword: '关键词',
+}
+
 export function ProfilePage() {
   const { data: topics, isLoading: topicsLoading, isError: topicsError, refetch: refetchTopics } = useQuery({
     queryKey: queryKeys.userPrefs.topics(),
@@ -26,7 +33,8 @@ export function ProfilePage() {
   if (isError) {
     return (
       <div className="max-w-4xl mx-auto px-6 py-6">
-        <h1 className="text-2xl font-bold mb-6">我的画像</h1>
+        <h1 className="text-xl font-bold text-gray-900">我的画像</h1>
+        <p className="text-sm text-gray-500 mt-0.5 mb-6">你的兴趣主题与阅读偏好</p>
         <Empty
           title="加载失败"
           description="画像数据加载出错，请检查网络连接后重试"
@@ -42,7 +50,8 @@ export function ProfilePage() {
 
   return (
     <div className="max-w-4xl mx-auto px-6 py-6">
-      <h1 className="text-2xl font-bold mb-6">我的画像</h1>
+      <h1 className="text-xl font-bold text-gray-900">我的画像</h1>
+      <p className="text-sm text-gray-500 mt-0.5 mb-6">你的兴趣主题与阅读偏好</p>
 
       {isLoading ? (
         <SkeletonList count={4} />
@@ -55,7 +64,9 @@ export function ProfilePage() {
               <div className="space-y-2">
                 {topics.map((topic) => (
                   <div key={topic.topic} className="flex items-center gap-3">
-                    <span className="w-32 text-sm font-medium">{topic.topic}</span>
+                    <span className="w-32 shrink-0 truncate text-sm font-medium" title={topic.topic}>
+                      {topic.topic}
+                    </span>
                     <div
                       className="flex-1 h-4 bg-gray-100 rounded-full overflow-hidden"
                       role="progressbar"
@@ -97,7 +108,9 @@ export function ProfilePage() {
                         {(aff.affinity_score * 100).toFixed(0)}%
                       </span>
                     </div>
-                    <div className="text-xs text-gray-500 capitalize">{aff.affinity_type}</div>
+                    <div className="text-xs text-gray-500">
+                      {AFFINITY_TYPE_LABELS[aff.affinity_type] ?? aff.affinity_type}
+                    </div>
                   </div>
                 ))}
               </div>

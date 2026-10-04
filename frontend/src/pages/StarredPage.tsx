@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { itemsApi } from '../api/items'
+import { queryKeys } from '../api/queryKeys'
 import { ItemCard } from '../components/items/ItemCard'
 import { Pagination } from '../components/ui/Pagination'
 import { Spinner } from '../components/ui/Spinner'
@@ -10,13 +11,14 @@ import { Star } from 'lucide-react'
 export function StarredPage() {
   const [page, setPage] = useState(1)
 
-  // 翻页时滚动到顶部
+  // 翻页时滚动到顶部。布局的滚动容器是 AppLayout 的 <main id="main-content">，
+  // window 本身不滚动（h-screen overflow-hidden），直接 scrollTo 是 no-op
   useEffect(() => {
-    window.scrollTo({ top: 0, behavior: 'smooth' })
+    document.getElementById('main-content')?.scrollTo({ top: 0, behavior: 'smooth' })
   }, [page])
 
   const { data, isLoading, isFetching, isError, refetch } = useQuery({
-    queryKey: ['items-starred', page],
+    queryKey: queryKeys.items.starred(page),
     queryFn: () => itemsApi.list({ starred: true, page, per_page: 20 }),
     placeholderData: (prev) => prev,
   })

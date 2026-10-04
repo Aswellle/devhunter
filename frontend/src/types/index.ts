@@ -145,7 +145,8 @@ export interface ThreadWithItems extends Thread {
 export interface TaskExecution {
   id: string
   task_id: string
-  status: 'success' | 'failure' | 'warning'
+  // 与后端执行状态机一致：running 为执行中占位行，interrupted 为进程重启恢复标记
+  status: 'success' | 'failure' | 'warning' | 'running' | 'interrupted'
   items_fetched: number
   items_new: number
   duration_ms: number
@@ -178,9 +179,9 @@ export interface SourceTemplate {
 }
 
 // ── Auth ──────────────────────────────────────────────────
+/** 登录响应体：JWT 只通过 httpOnly Cookie 下发（XSS 缓解），响应体不含 token */
 export interface TokenResponse {
-  access_token: string
-  token_type: string
+  ok: boolean
 }
 
 // ── 频率快捷选项 ──────────────────────────────────────────

@@ -1,8 +1,17 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../stores/authStore'
+import { errorMessage, type ApiError } from '../api/client'
 import { Spinner } from '../components/ui/Spinner'
 import { toast } from 'react-hot-toast'
+
+/** 按失败原因给出准确文案，避免把限流/网络错误一律误导成"密码错误" */
+function loginErrorMessage(err: unknown): string {
+  const status = (err as ApiError | undefined)?.status
+  if (status === 401) return '密码错误，请重试'
+  if (status === 429) return '尝试次数过多，账户已临时锁定，请 5 分钟后再试'
+  return errorMessage(err, '登录失败，请检查网络连接后重试')
+}
 
 export function LoginPage() {
   const [password, setPassword] = useState('')
@@ -16,8 +25,8 @@ export function LoginPage() {
     try {
       await login(password)
       navigate('/')
-    } catch {
-      toast.error('密码错误，请重试')
+    } catch (err) {
+      toast.error(loginErrorMessage(err))
       setPassword('')
     } finally {
       setLoading(false)

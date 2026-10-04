@@ -7,11 +7,17 @@ import { threadsApi } from '../api/threads'
 import { userPrefsApi } from '../api/user_prefs'
 import { queryKeys } from '../api/queryKeys'
 import { formatDistanceToNow } from '../utils/time'
+import { RECOMMENDED_BADGE_SCORE } from '../utils/scores'
 import { Spinner } from '../components/ui/Spinner'
 import { Empty } from '../components/ui/Empty'
 import type { RecommendedItem, ThreadWithItems } from '../types'
 
 type Tab = 'recommended' | 'threads'
+
+const TABS: { value: Tab; label: string }[] = [
+  { value: 'recommended', label: '为你推荐' },
+  { value: 'threads', label: '热点聚合' },
+]
 
 /** 按平台图标配色 */
 const PLATFORM_COLORS: Record<string, string> = {
@@ -36,7 +42,17 @@ export function RecommendPage() {
     if (tab === 'recommended') params.delete('tab')
     else params.set('tab', tab)
     setSearchParams(params, { replace: true })
-  }, [tab, setSearchParams])
+  }, [tab, searchParams, setSearchParams])
+
+  // tablist 方向键导航（两个 tab：←/→ 均切换到另一个）
+  const handleTabKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return
+    e.preventDefault()
+    const nextTab: Tab = tab === 'recommended' ? 'threads' : 'recommended'
+    setTab(nextTab)
+    const tabButtons = e.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]')
+    tabButtons[TABS.findIndex((t) => t.value === nextTab)]?.focus()
+  }
 
   return (
     <div className="max-w-4xl mx-auto px-4 sm:px-6 py-6">
@@ -50,19 +66,22 @@ export function RecommendPage() {
         </p>
       </div>
 
-      <div role="tablist" aria-label="推荐内容筛选" className="flex items-center gap-1 p-1 bg-gray-100 rounded-lg w-fit mb-5">
-        <TabButton
-          active={tab === 'recommended'}
-          onClick={() => setTab('recommended')}
-          icon={<Sparkles className="h-4 w-4" />}
-          label="为你推荐"
-        />
-        <TabButton
-          active={tab === 'threads'}
-          onClick={() => setTab('threads')}
-          icon={<TrendingUp className="h-4 w-4" />}
-          label="热点聚合"
-        />
+      <div
+        role="tablist"
+        aria-label="推荐内容筛选"
+        onKeyDown={handleTabKeyDown}
+        className="flex items-center gap-1 p-1 bg-gray-100 rounded-lg w-fit mb-5"
+      >
+        {TABS.map(({ value, label }) => (
+          <TabButton
+            key={value}
+            active={tab === value}
+            tabIndex={tab === value ? 0 : -1}
+            onClick={() => setTab(value)}
+            icon={value === 'recommended' ? <Sparkles className="h-4 w-4" /> : <TrendingUp className="h-4 w-4" />}
+            label={label}
+          />
+        ))}
       </div>
 
       {/* Content */}
@@ -76,16 +95,19 @@ function TabButton({
   onClick,
   icon,
   label,
+  tabIndex = 0,
 }: {
   active: boolean
   onClick: () => void
   icon: React.ReactNode
   label: string
+  tabIndex?: number
 }) {
   return (
     <button
       role="tab"
       aria-selected={active}
+      tabIndex={tabIndex}
       onClick={onClick}
       className={clsx(
         'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-all',
@@ -156,11 +178,11 @@ function RecommendedItemCard({ item }: { item: RecommendedItem }) {
       {/* 得分 */}
       <div className={clsx(
         'shrink-0 w-12 h-12 rounded-xl flex flex-col items-center justify-center',
-        score >= 80 ? 'bg-primary-50' : 'bg-gray-50',
+        score >= RECOMMENDED_BADGE_SCORE ? 'bg-primary-50' : 'bg-gray-50',
       )}>
         <span className={clsx(
           'text-lg font-bold',
-          score >= 80 ? 'text-primary-600' : 'text-gray-600',
+          score >= RECOMMENDED_BADGE_SCORE ? 'text-primary-600' : 'text-gray-600',
         )}>
           {score}
         </span>
@@ -191,7 +213,7 @@ function RecommendedItemCard({ item }: { item: RecommendedItem }) {
           <span className="text-xs text-gray-400">
             {formatDistanceToNow(item.fetched_at)}
           </span>
-          {score >= 80 && (
+          {score >= RECOMMENDED_BADGE_SCORE && (
             <>
               <span className="text-xs text-gray-300">·</span>
               <span className="text-xs text-primary-500 font-medium">推荐</span>

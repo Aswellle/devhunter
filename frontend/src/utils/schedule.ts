@@ -109,6 +109,17 @@ export function buildCron(v: ScheduleValue): string {
   return `${minute} ${hour} * * *`
 }
 
+/**
+ * 是否为调度器可接受的 Cron（与 SchedulePicker 的 customInvalid 同口径：5 段）。
+ * 只做段数校验、不深入字段语法——APScheduler 接受的字段写法很多（步进、列表、区间皆可），
+ * 过度校验会误拦合法表达式；字段级错误交给后端 422 并由 errorMessage 透出。
+ */
+export function isValidCronExpression(cron: string): boolean {
+  const raw = (cron || '').trim()
+  if (!raw) return false
+  return raw.split(/\s+/).length === 5
+}
+
 /** UTC Cron → 本地可编辑值（识别不了的返回 mode='custom'） */
 export function parseSchedule(cron: string): ScheduleValue {
   const base = defaultSchedule()

@@ -1,7 +1,9 @@
 import { useQuery } from '@tanstack/react-query'
 import { ExternalLink, Sparkles, ThumbsUp } from 'lucide-react'
 import { userPrefsApi } from '../../api/user_prefs'
+import { queryKeys } from '../../api/queryKeys'
 import { formatDistanceToNow } from '../../utils/time'
+import { RECOMMENDED_BADGE_SCORE } from '../../utils/scores'
 import { Spinner } from '../ui/Spinner'
 import type { RecommendedItem } from '../../types'
 
@@ -11,7 +13,7 @@ interface ForYouSectionProps {
 
 export function ForYouSection({ onOpenPreferences }: ForYouSectionProps) {
   const { data, isLoading, isError, refetch, failureCount } = useQuery({
-    queryKey: ['recommendations'],
+    queryKey: queryKeys.recommendations.home(),
     queryFn: () => userPrefsApi.getRecommendations({ limit: 10, exclude_read: true }),
     staleTime: 30_000,  // 30秒内不重新请求
   })
@@ -63,6 +65,8 @@ export function ForYouSection({ onOpenPreferences }: ForYouSectionProps) {
 
 function ForYouItemCard({ item }: { item: RecommendedItem }) {
   const score = Math.round(item.recommendation_score * 100)
+  // 爬取内容的外链只放行 http(s)，防 javascript:/data: URL（纵深防御，后端已有校验）
+  const safeHref = /^https?:\/\//i.test(item.url) ? item.url : undefined
 
   return (
     <div className="group flex items-start gap-2 p-2 rounded-lg hover:bg-gray-50 transition-colors">
@@ -76,16 +80,18 @@ function ForYouItemCard({ item }: { item: RecommendedItem }) {
         <div className="flex items-start justify-between gap-1">
           <h3 className="text-sm font-medium text-gray-800 leading-snug line-clamp-2 group-hover:text-primary-600 transition-colors">
             <a
-              href={item.url}
-              target="_blank"
+              href={safeHref}
+              target={safeHref ? '_blank' : undefined}
               rel="noopener noreferrer"
               className="hover:text-primary-600"
               onClick={() => {
                 // 记录点击交互
-                userPrefsApi.recordInteraction({
-                  item_id: item.id,
-                  interaction_type: 'click',
-                })
+                userPrefsApi
+                  .recordInteraction({
+                    item_id: item.id,
+                    interaction_type: 'click',
+                  })
+                  .catch(() => {})
               }}
             >
               {item.title}
@@ -101,7 +107,7 @@ function ForYouItemCard({ item }: { item: RecommendedItem }) {
           <span className="text-xs text-gray-400">
             {formatDistanceToNow(item.fetched_at)}
           </span>
-          {score >= 70 && (
+          {score >= RECOMMENDED_BADGE_SCORE && (
             <>
               <span className="text-xs text-gray-300">·</span>
               <span className="text-xs text-primary-500 font-medium flex items-center gap-0.5">

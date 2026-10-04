@@ -48,9 +48,15 @@ export class ErrorBoundary extends Component<Props, State> {
             渲染过程中发生了错误。请尝试刷新页面或联系管理员。
           </p>
           {this.state.error && (
-            <pre className="text-xs text-muted bg-hover rounded p-3 mb-4 max-w-full overflow-auto text-left">
-              {this.state.error.message}
-            </pre>
+            // 原始错误信息默认折叠：内部细节（堆栈/路径）不主动暴露，需要排查时点开
+            <details className="mb-4 max-w-full text-left">
+              <summary className="text-xs text-muted cursor-pointer hover:text-secondary select-none">
+                错误详情
+              </summary>
+              <pre className="text-xs text-muted bg-hover rounded p-3 mt-2 max-w-full overflow-auto">
+                {this.state.error.message}
+              </pre>
+            </details>
           )}
           <div className="flex gap-3">
             <button onClick={this.handleReset} className="btn-primary">

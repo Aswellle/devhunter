@@ -333,21 +333,10 @@
   --filter-bar-row-bg: rgba(31,41,55,0.5);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --filter-pill-bg: #374151;
-    --filter-pill-color: #d1d5db;
-    --filter-pill-hover-bg: #4b5563;
-    --filter-pill-active-bg: #3b82f6;
-    --filter-pill-active-color: #ffffff;
-    --filter-pill-active-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
-    --filter-pill-badge-bg: #4b5563;
-    --filter-pill-badge-active-bg: #1e3a8a;
-    --filter-pill-badge-color: #9ca3af;
-    --filter-pill-badge-active-color: #dbeafe;
-    --filter-bar-row-bg: rgba(31,41,55,0.5);
-  }
-}
+/* 注意：刻意没有 prefers-color-scheme: dark 的自动切换。
+   应用主体始终是浅色（AGENTS.md「无暗色模式切换」），若系统暗色时
+   只把 filter pill 切成深灰，会得到浅色页面上悬浮深色药丸的破损 UI。
+   深色变量仅在显式设置 data-theme="dark" 时生效，供将来完整实现暗色模式使用。 */
 
 /* ═══════════════════════════════════════════════════════════════════════════
    FilterBar Component Styles

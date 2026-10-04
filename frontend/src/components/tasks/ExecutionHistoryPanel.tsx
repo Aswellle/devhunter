@@ -7,10 +7,12 @@
  * - 改为纯右侧非阻塞面板，不拦截侧边栏导航和卡片按钮的点击事件。
  * - 添加错误处理和 ARIA 可访问性属性。
  */
-import { AlertTriangle, CheckCircle, X, XCircle } from 'lucide-react'
+import { AlertTriangle, CheckCircle, CircleSlash, Clock, X, XCircle } from 'lucide-react'
+import type { LucideIcon } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { tasksApi } from '../../api/tasks'
+import { queryKeys } from '../../api/queryKeys'
 import type { Task, TaskExecution } from '../../types'
 import { formatDateTime, formatDuration } from '../../utils/time'
 import { Spinner } from '../ui/Spinner'
@@ -20,14 +22,18 @@ interface ExecutionHistoryPanelProps {
   onClose: () => void
 }
 
-const STATUS_ICONS = {
-  success: { Icon: CheckCircle,   cls: 'text-success' },
-  failure: { Icon: XCircle,       cls: 'text-danger'   },
-  warning: { Icon: AlertTriangle, cls: 'text-warning'  },
+// 后端执行状态机含 running（占位）与 interrupted（进程重启恢复），
+// 未知状态兜底为 warning，避免解构 undefined 导致面板白屏
+const STATUS_ICONS: Record<TaskExecution['status'], { Icon: LucideIcon; cls: string }> = {
+  success:     { Icon: CheckCircle,   cls: 'text-success' },
+  failure:     { Icon: XCircle,       cls: 'text-danger'   },
+  warning:     { Icon: AlertTriangle, cls: 'text-warning'  },
+  running:     { Icon: Clock,         cls: 'text-accent'   },
+  interrupted: { Icon: CircleSlash,   cls: 'text-muted'    },
 }
 
 function ExecRow({ exec }: { exec: TaskExecution }) {
-  const { Icon, cls } = STATUS_ICONS[exec.status]
+  const { Icon, cls } = STATUS_ICONS[exec.status] ?? STATUS_ICONS.warning
   const [expanded, setExpanded] = useState(false)
   return (
     <div className="flex items-start gap-3 py-3 border-b border-subtle last:border-0">
@@ -37,10 +43,15 @@ function ExecRow({ exec }: { exec: TaskExecution }) {
           <span className="font-medium text-secondary">
             {formatDateTime(exec.executed_at)}
           </span>
-          <span className="text-muted">{formatDuration(exec.duration_ms)}</span>
+          <span className="text-muted">
+            {exec.status === 'running' ? '进行中' : formatDuration(exec.duration_ms)}
+          </span>
         </div>
         {exec.items_fetched != null && (
-          <p className="text-xs text-muted mt-0.5">采集 {exec.items_fetched} 条</p>
+          <p className="text-xs text-muted mt-0.5">
+            采集 {exec.items_fetched} 条
+            {exec.status === 'success' && exec.items_new > 0 ? `，新增 ${exec.items_new} 条` : ''}
+          </p>
         )}
         {exec.error_message && (
           <button
@@ -66,10 +77,20 @@ function ExecRow({ exec }: { exec: TaskExecution }) {
 
 export function ExecutionHistoryPanel({ task, onClose }: ExecutionHistoryPanelProps) {
   const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: ['executions', task.id],
+    queryKey: queryKeys.tasks.executions(task.id, { per_page: 50 }),
     queryFn:  () => tasksApi.executions(task.id, { per_page: 50 }),
-    refetchInterval: 10000,
+    // 有执行在进行时 5s 快轮询，空闲时降为 30s（列表按时间倒序，items[0] 即最新）
+    refetchInterval: (query) => (query.state.data?.items?.[0]?.status === 'running' ? 5000 : 30000),
   })
+
+  // Escape 关闭面板
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
 
   return (
     <>
@@ -81,7 +102,6 @@ export function ExecutionHistoryPanel({ task, onClose }: ExecutionHistoryPanelPr
       />
       <div
         role="dialog"
-        aria-modal="true"
         aria-label={`${task.name} 执行历史`}
         className="fixed right-0 top-0 bottom-0 z-50 w-full max-w-md
                     bg-surface shadow-2xl border-l border-subtle flex flex-col"
@@ -122,6 +142,8 @@ export function ExecutionHistoryPanel({ task, onClose }: ExecutionHistoryPanelPr
                 <span className="text-danger">
                   ✗ {data.items.filter((e) => e.status === 'failure').length} 失败
                 </span>
+                {/* 成功/失败仅统计当前加载的分页，标注范围避免误读为全量比例 */}
+                <span className="ml-auto shrink-0">最近 {data.items.length} 条内</span>
               </div>
               {data.items.map((exec) => (
                 <ExecRow key={exec.id} exec={exec} />

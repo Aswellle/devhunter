@@ -4,6 +4,7 @@ import { clsx } from 'clsx'
 import { useQuery } from '@tanstack/react-query'
 import type { Thread } from '../../types'
 import { formatDistanceToNow } from '../../utils/time'
+import { queryKeys } from '../../api/queryKeys'
 import { threadsApi } from '../../api/threads'
 
 // Platform display name mapping
@@ -34,17 +35,19 @@ export function ThreadCard({ thread, defaultExpanded = false }: ThreadCardProps)
   const [expanded, setExpanded] = useState(defaultExpanded)
 
   // Fetch thread details (with items) only when expanded
-  const { data: details } = useQuery({
-    queryKey: ['thread-detail', thread.id],
+  const { data: details, isError: detailsError, refetch: refetchDetails } = useQuery({
+    queryKey: queryKeys.threads.detail(thread.id),
     queryFn: () => threadsApi.get(thread.id),
     enabled: expanded,
   })
 
-  const timeSpan =
-    new Date(thread.last_seen_at).getTime() - new Date(thread.first_seen_at).getTime()
-  const timeSpanText = timeSpan > 0
-    ? `${formatDistanceToNow(thread.first_seen_at)} ~ ${formatDistanceToNow(thread.last_seen_at)}`
-    : formatDistanceToNow(thread.first_seen_at)
+  const spanDays = Math.floor(
+    (new Date(thread.last_seen_at).getTime() - new Date(thread.first_seen_at).getTime()) / 86_400_000
+  )
+  // "5 天前 ~ 2 小时前"可读性差，改为"持续 N 天 + 最近更新时间"
+  const timeSpanText = spanDays >= 1
+    ? `持续 ${spanDays} 天，更新于 ${formatDistanceToNow(thread.last_seen_at)}`
+    : formatDistanceToNow(thread.last_seen_at)
 
   const items = details?.items || []
 
@@ -53,6 +56,7 @@ export function ThreadCard({ thread, defaultExpanded = false }: ThreadCardProps)
       {/* Thread header */}
       <button
         onClick={() => setExpanded(e => !e)}
+        aria-expanded={expanded}
         className={clsx(
           'w-full flex items-center gap-3 px-4 py-3 text-left transition-colors',
           'hover:bg-gray-50',
@@ -97,7 +101,18 @@ export function ThreadCard({ thread, defaultExpanded = false }: ThreadCardProps)
 
       {/* Items in thread */}
       {expanded && (
-        items.length > 0 ? (
+        detailsError ? (
+          <div className="border-t border-gray-100 px-4 py-3 text-sm text-gray-500">
+            加载失败
+            <button
+              type="button"
+              onClick={() => refetchDetails()}
+              className="ml-2 text-primary-600 hover:underline"
+            >
+              重试
+            </button>
+          </div>
+        ) : items.length > 0 ? (
           <div className="border-t border-gray-100">
             <div className="divide-y divide-gray-100">
               {items.map(item => (

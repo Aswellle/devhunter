@@ -12,8 +12,11 @@
 import { useQuery } from '@tanstack/react-query'
 import { Cloud } from 'lucide-react'
 import { itemsApi } from '../api/items'
+import { queryKeys } from '../api/queryKeys'
+import { formatDateTime } from '../utils/time'
 import { Spinner } from '../components/ui/Spinner'
 import { Empty } from '../components/ui/Empty'
+import type { Item } from '../types'
 
 /** Font size based on title character count - fluid scaling */
 function getTitleSize(title: string): string {
@@ -101,7 +104,7 @@ const SITE_NAME_MAP: Record<string, string> = {
 function getSiteName(url: string): string {
   try {
     const u = new URL(url)
-    let host = u.hostname.replace(/^www\./, '')
+    const host = u.hostname.replace(/^www\./, '')
     if (SITE_NAME_MAP[host]) return SITE_NAME_MAP[host]
     // Fallback: capitalize first letter of main domain
     const parts = host.split('.')
@@ -115,10 +118,10 @@ function getSiteName(url: string): string {
 /**
  * Fetch all items across multiple pages (backend caps at 100 per page)
  */
-async function fetchAllCloudItems(): Promise<any[]> {
+async function fetchAllCloudItems(): Promise<Item[]> {
   const MAX_TOTAL = 500 // Cap at 500 for performance
   const PER_PAGE = 100
-  let allItems: any[] = []
+  let allItems: Item[] = []
   let page = 1
 
   while (allItems.length < MAX_TOTAL) {
@@ -144,8 +147,8 @@ async function fetchAllCloudItems(): Promise<any[]> {
 
 
 export function CloudPage() {
-  const { data: items, isLoading, isError } = useQuery({
-    queryKey: ['cloud-items'],
+  const { data: items, isLoading, isError, refetch } = useQuery({
+    queryKey: queryKeys.items.cloud(),
     queryFn: fetchAllCloudItems,
     staleTime: 30_000, // 30s cache
   })
@@ -165,6 +168,11 @@ export function CloudPage() {
           icon={Cloud}
           title="数据加载失败"
           description="采集结果加载出错，请检查网络连接后重试"
+          action={
+            <button onClick={() => refetch()} className="btn-primary">
+              重试
+            </button>
+          }
         />
       </div>
     )
@@ -204,6 +212,8 @@ export function CloudPage() {
           const animDuration = `${18 + (index % 12)}s`
           const animDelay = `${-(index * 1.3)}s`
           const depthZ = 10 + (index % 15)
+          // 爬取内容的外链只放行 http(s)（纵深防御，后端已有校验）
+          const safeHref = /^https?:\/\//i.test(item.url) ? item.url : undefined
 
           return (
             <div
@@ -225,8 +235,8 @@ export function CloudPage() {
             >
 
               <a
-                href={item.url}
-                target="_blank"
+                href={safeHref}
+                target={safeHref ? '_blank' : undefined}
                 rel="noopener noreferrer"
                 className={`font-medium ${getTitleSize(item.title)} leading-relaxed hover:underline block`}
                 style={{ wordBreak: 'break-word' }}
@@ -239,12 +249,7 @@ export function CloudPage() {
                 <span className="font-medium truncate max-w-[140px]">{getSiteName(item.url)}</span>
                 <span className="opacity-40">|</span>
                 <time dateTime={item.fetched_at} className="whitespace-nowrap">
-                  {new Date(item.fetched_at).toLocaleString('zh-CN', {
-                    month: 'short',
-                    day: 'numeric',
-                    hour: '2-digit',
-                    minute: '2-digit',
-                  })}
+                  {formatDateTime(item.fetched_at)}
                 </time>
               </div>
             </div>
@@ -253,7 +258,7 @@ export function CloudPage() {
       </div>
 
       {/* Stats overlay */}
-      <div className="absolute bottom-4 right-4 text-xs text-gray-500/70 bg-white/50 px-3 py-1.5 rounded-full backdrop-blur-sm shadow-sm">
+      <div className="absolute bottom-4 right-4 text-xs text-gray-700 bg-white/80 px-3 py-1.5 rounded-full backdrop-blur-sm shadow-sm">
         共 {items.length} 条采集结果
       </div>
     </div>

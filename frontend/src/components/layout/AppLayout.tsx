@@ -55,11 +55,11 @@ function SidebarContent({ onLinkClick }: SidebarContentProps) {
       {/* Logo */}
       <div className="px-5 py-4 border-b border-gray-700 shrink-0">
         <Link to="/" className="flex items-center gap-2" onClick={onLinkClick}>
-          {/* SVG 搜索图标替代 emoji */}
+          {/* SVG 搜索图标替代 emoji（形状与 LoginPage 品牌区一致） */}
           <svg className="h-5 w-5 text-primary-400 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <title>DevHunter Logo</title>
-
-
+            <circle cx="11" cy="11" r="8"/>
+            <path d="m21 21-4.35-4.35"/>
           </svg>
           <div>
             <span className="text-white font-bold text-base block leading-tight">
@@ -169,6 +169,14 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex h-screen overflow-hidden">
+      {/* 键盘用户跳过 7 个导航项直达主内容（获得焦点时才可见） */}
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:fixed focus:z-[300] focus:top-2 focus:left-2
+                   focus:bg-primary-600 focus:text-white focus:px-3 focus:py-2 focus:rounded-md focus:text-sm"
+      >
+        跳到主内容
+      </a>
       {/*
        * ── 桌面端侧边栏 ──────────────────────────────────
        * hidden md:flex  → 移动端隐藏，桌面端显示为 flex

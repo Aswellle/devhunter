@@ -6,6 +6,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'react-hot-toast'
 import type { Task } from '../../types'
 import { tasksApi } from '../../api/tasks'
+import { queryKeys } from '../../api/queryKeys'
 import { errorMessage } from '../../api/client'
 import { formatDistanceToNow } from '../../utils/time'
 import { describeCron } from '../../utils/schedule'
@@ -80,19 +81,19 @@ export function TaskCard({ task, onEdit, onViewHistory }: TaskCardProps) {
         status: task.status === 'paused' ? 'active' : 'paused',
       }),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['tasks'] })
+      qc.invalidateQueries({ queryKey: queryKeys.tasks.all })
       toast.success(task.status === 'paused' ? '任务已恢复' : '任务已暂停')
     },
-    onError: () => toast.error('操作失败'),
+    onError: (e: unknown) => toast.error(errorMessage(e, '操作失败')),
   })
 
   const deleteTask = useMutation({
     mutationFn: () => tasksApi.delete(task.id),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['tasks'] })
+      qc.invalidateQueries({ queryKey: queryKeys.tasks.all })
       toast.success('任务已删除（数据保留 30 天）')
     },
-    onError: () => toast.error('删除失败'),
+    onError: (e: unknown) => toast.error(errorMessage(e, '删除失败')),
   })
 
   const triggerNow = useMutation({

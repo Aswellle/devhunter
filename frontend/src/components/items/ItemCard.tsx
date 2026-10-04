@@ -4,6 +4,7 @@ import { clsx } from 'clsx'
 import { toast } from 'react-hot-toast'
 import type { Item } from '../../types'
 import { itemsApi } from '../../api/items'
+import { queryKeys } from '../../api/queryKeys'
 import { userPrefsApi } from '../../api/user_prefs'
 import { formatDistanceToNow } from '../../utils/time'
 
@@ -14,15 +15,21 @@ interface ItemCardProps {
 export function ItemCard({ item }: ItemCardProps) {
   const qc = useQueryClient()
 
-  const handleTitleClick = async () => {
-    // 记录点击交互
-    userPrefsApi.recordInteraction({ item_id: item.id, interaction_type: 'click' })
+  const handleTitleClick = () => {
+    // 记录点击交互（fire-and-forget，失败静默）
+    userPrefsApi
+      .recordInteraction({ item_id: item.id, interaction_type: 'click' })
+      .catch(() => {})
     if (!item.is_read) {
-      await itemsApi.patch(item.id, { is_read: true })
-      // 记录阅读（已读）交互
-      userPrefsApi.recordInteraction({ item_id: item.id, interaction_type: 'view' })
-      qc.invalidateQueries({ queryKey: ['items'] })
-      qc.invalidateQueries({ queryKey: ['items-grouped'] })
+      itemsApi
+        .patch(item.id, { is_read: true })
+        .then(() => {
+          // 记录阅读（已读）交互
+          return userPrefsApi.recordInteraction({ item_id: item.id, interaction_type: 'view' })
+        })
+        .catch(() => {})
+      // 未读状态的变化需要反映到列表缓存；stats/推荐由列表页的 onSettled 兜底
+      qc.invalidateQueries({ queryKey: queryKeys.items.all })
     }
   }
 
@@ -31,11 +38,12 @@ export function ItemCard({ item }: ItemCardProps) {
       itemsApi.patch(item.id, { is_starred: starred }),
     onSuccess: (_, { starred }) => {
       // 记录收藏交互
-      userPrefsApi.recordInteraction({ item_id: item.id, interaction_type: starred ? 'star' : 'click' })
-      qc.invalidateQueries({ queryKey: ['items'] })
-      qc.invalidateQueries({ queryKey: ['items-grouped'] })
-      qc.invalidateQueries({ queryKey: ['items-starred'] })
-      qc.invalidateQueries({ queryKey: ['recommendations'] })
+      userPrefsApi
+        .recordInteraction({ item_id: item.id, interaction_type: starred ? 'star' : 'click' })
+        .catch(() => {})
+      qc.invalidateQueries({ queryKey: queryKeys.items.all })
+      qc.invalidateQueries({ queryKey: queryKeys.items.starredAll })
+      qc.invalidateQueries({ queryKey: queryKeys.recommendations.all })
       toast.success(starred ? '已收藏' : '已取消收藏')
     },
     onError: () => {
@@ -75,7 +83,7 @@ export function ItemCard({ item }: ItemCardProps) {
             )}
             <span className="sr-only">{item.is_read ? '已读' : '未读'}</span>
             <span className="line-clamp-2">{item.title}</span>
-            <ExternalLink className="h-3 w-3 shrink-0 opacity-0 group-hover:opacity-100" />
+            <ExternalLink className="h-3 w-3 shrink-0 opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100" />
           </a>
 
           {/* 摘要 */}
@@ -99,10 +107,12 @@ export function ItemCard({ item }: ItemCardProps) {
             e.stopPropagation()
             starMutation.mutate({ starred: !item.is_starred })
           }}
+          disabled={starMutation.isPending}
+          aria-busy={starMutation.isPending}
           aria-pressed={item.is_starred}
           aria-label={item.is_starred ? '取消收藏' : '收藏'}
           className={clsx(
-            'p-1 rounded transition-colors shrink-0',
+            'p-2 -m-1 rounded transition-colors shrink-0 disabled:opacity-50',
             item.is_starred
               ? 'text-yellow-500 hover:text-yellow-600'
               : 'text-gray-300 hover:text-yellow-400'

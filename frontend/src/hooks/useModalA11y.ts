@@ -18,6 +18,13 @@ import { useEffect, useRef } from 'react'
  */
 export function useModalA11y(onClose: () => void, active: boolean = true) {
   const containerRef = useRef<HTMLDivElement>(null)
+  // 用 ref 持有 onClose：调用方传入的回调身份经常变化（如依赖表单状态的闭包），
+  // 若直接进 effect 依赖会导致模态内 effect 重跑、焦点被抢回第一个可聚焦元素
+  const onCloseRef = useRef(onClose)
+
+  useEffect(() => {
+    onCloseRef.current = onClose
+  }, [onClose])
 
   useEffect(() => {
     if (!active) return
@@ -47,7 +54,7 @@ export function useModalA11y(onClose: () => void, active: boolean = true) {
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        onClose()
+        onCloseRef.current()
         return
       }
       if (e.key !== 'Tab') return
@@ -82,7 +89,7 @@ export function useModalA11y(onClose: () => void, active: boolean = true) {
         previouslyFocused.focus()
       }
     }
-  }, [onClose, active])
+  }, [active])
 
   return containerRef
 }

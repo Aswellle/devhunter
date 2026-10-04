@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { Settings } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { statsApi } from '../api/stats'
+import { queryKeys } from '../api/queryKeys'
 import { StatsCards } from '../components/dashboard/StatsCards'
 import { DailyChart } from '../components/dashboard/DailyChart'
 import { ForYouSection } from '../components/dashboard/ForYouSection'
@@ -13,19 +14,16 @@ import { Empty } from '../components/ui/Empty'
 
 export function DashboardPage() {
   const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: ['stats'],
+    queryKey: queryKeys.stats.all,
     queryFn: statsApi.get,
     refetchInterval: (query) => {
-      // 出错时停止轮询，避免持续 401
-      if (query.state.errorUpdateCount > 0) return false
+      // 上一次拉取失败时暂停自动轮询（页面已有重试按钮）；
+      // errorUpdateCount 是累计值、成功后不清零，用它会让一次网络抖动永久关闭轮询
+      if (query.state.status === 'error') return false
       return 60_000
     },
   })
 
-
-
-  // U8: ForYouSection/PreferenceModal existed in components/dashboard/ but
-  // were never imported or rendered anywhere — the personalized
   const [preferencesOpen, setPreferencesOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
 

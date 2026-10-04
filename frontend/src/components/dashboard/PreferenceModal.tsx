@@ -3,6 +3,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { X, Plus, Sparkles, ThumbsUp } from 'lucide-react'
 import { clsx } from 'clsx'
 import { userPrefsApi } from '../../api/user_prefs'
+import { queryKeys } from '../../api/queryKeys'
+import { errorMessage } from '../../api/client'
 import { toast } from 'react-hot-toast'
 import type { UserTopic, RecommendedTopic } from '../../types'
 import { useModalA11y } from '../../hooks/useModalA11y'
@@ -35,13 +37,13 @@ export function PreferenceModal({ isOpen, onClose }: PreferenceModalProps) {
   const modalRef = useModalA11y(onClose, isOpen)
 
   const { data: topics = [] } = useQuery({
-    queryKey: ['user-topics'],
+    queryKey: queryKeys.userPrefs.topics(),
     queryFn: userPrefsApi.listTopics,
     enabled: isOpen,
   })
 
   const { data: recommendedTopics = [], isLoading: recLoading } = useQuery({
-    queryKey: ['recommended-topics'],
+    queryKey: queryKeys.recommendations.topics(),
     queryFn: () => userPrefsApi.getRecommendedTopics({ limit: 15 }),
     enabled: isOpen,
   })
@@ -50,33 +52,33 @@ export function PreferenceModal({ isOpen, onClose }: PreferenceModalProps) {
     mutationFn: (data: { topic: string; category: string }) =>
       userPrefsApi.addTopic(data),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['user-topics'] })
-      qc.invalidateQueries({ queryKey: ['recommendations'] })
+      qc.invalidateQueries({ queryKey: queryKeys.userPrefs.topics() })
+      qc.invalidateQueries({ queryKey: queryKeys.recommendations.all })
       toast.success('已添加偏好主题')
       setNewTopic('')
     },
-    onError: () => toast.error('添加失败'),
+    onError: (e: unknown) => toast.error(errorMessage(e, '添加失败')),
   })
 
   const removeTopicMutation = useMutation({
     mutationFn: (topic: string) => userPrefsApi.removeTopic(topic),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['user-topics'] })
-      qc.invalidateQueries({ queryKey: ['recommendations'] })
+      qc.invalidateQueries({ queryKey: queryKeys.userPrefs.topics() })
+      qc.invalidateQueries({ queryKey: queryKeys.recommendations.all })
       toast.success('已移除偏好主题')
     },
-    onError: () => toast.error('移除失败'),
+    onError: (e: unknown) => toast.error(errorMessage(e, '移除失败')),
   })
 
   const addRecommendedMutation = useMutation({
     mutationFn: (topic: RecommendedTopic) =>
       userPrefsApi.addTopic({ topic: topic.topic, category: topic.category, weight: 1.0 }),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['user-topics'] })
-      qc.invalidateQueries({ queryKey: ['recommendations'] })
+      qc.invalidateQueries({ queryKey: queryKeys.userPrefs.topics() })
+      qc.invalidateQueries({ queryKey: queryKeys.recommendations.all })
       toast.success('已添加推荐主题')
     },
-    onError: () => toast.error('添加失败'),
+    onError: (e: unknown) => toast.error(errorMessage(e, '添加失败')),
   })
 
   const handleAddTopic = () => {

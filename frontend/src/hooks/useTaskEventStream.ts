@@ -68,6 +68,16 @@ function backoffDelay(attempt: number): number {
   return Math.min(1000 * Math.pow(2, attempt), 30_000)
 }
 
+// 事件日志滑动窗口上限：防长任务内存无限增长；写满后丢弃最旧的事件
+const MAX_EVENTS = 500
+
+function pushEvent(prev: StreamEvent[], evt: StreamEvent): StreamEvent[] {
+  return prev.length >= MAX_EVENTS ? [...prev.slice(-(MAX_EVENTS - 1)), evt] : [...prev, evt]
+}
+
+// 无活动的卡住警告阈值（毫秒），文案直接引用同一常量避免两处数字漂移
+const STUCK_TIMEOUT_MS = 25_000
+
 // E1: 安全提取 hint 字段（避免 any）
 function extractHint(data: Record<string, unknown> | undefined): string | undefined {
   if (data && typeof data === "object" && "hint" in data) {
@@ -168,9 +178,9 @@ export function useTaskEventStream({ taskId, active }: { taskId: string | null; 
       setEvents((prev) => [...prev, {
         id: 'stuck-warning',
         type: 'warning',
-        message: '⚠️ 超过 20 秒无活动，执行可能卡住。请检查任务状态是否为 active，或重启服务。',
+        message: `⚠️ 超过 ${STUCK_TIMEOUT_MS / 1000} 秒无活动，执行可能卡住。请检查任务状态是否为 active，或重启服务。`,
       }])
-    }, 25_000)
+    }, STUCK_TIMEOUT_MS)
 
     ;(async () => {
       const MAX_RETRIES = 5
@@ -213,11 +223,7 @@ export function useTaskEventStream({ taskId, active }: { taskId: string | null; 
                   const evt: StreamEvent = JSON.parse(buffer.trim().slice(6))
                   applyEvent(evt)
                   if (evt.type !== 'connected') {
-                    setEvents((prev) => {
-                      const MAX_EVENTS = 500
-                      const next = [...prev, evt]
-                      return next.length > MAX_EVENTS ? next.slice(-MAX_EVENTS) : next
-                    })
+                    setEvents((prev) => pushEvent(prev, evt))
                   }
                 } catch { /* ignore parse error */ }
               }
@@ -248,11 +254,7 @@ export function useTaskEventStream({ taskId, active }: { taskId: string | null; 
                 // 终态事件同样要进日志：否则失败原因只存在于 finalData，
                 // 原始日志里看不到任何线索（本次报障的直接现象）
                 if (evt.type !== 'connected') {
-                  setEvents((prev) => {
-                    const MAX_EVENTS = 500
-                    const next = [...prev, evt]
-                    return next.length > MAX_EVENTS ? next.slice(-MAX_EVENTS) : next
-                  })
+                  setEvents((prev) => pushEvent(prev, evt))
                 }
 
                 if (['success', 'failure', 'warning'].includes(evt.type)) {
@@ -267,15 +269,11 @@ export function useTaskEventStream({ taskId, active }: { taskId: string | null; 
                 if (evt.type === 'diagnostic') {
                   const hint = extractHint(evt.data)
                   if (hint === 'worker_not_started') {
-                    setEvents((prev) => {
-                      const MAX_EVENTS = 500
-                      const next = [...prev, {
-                        id: 'diagnostic-warn',
-                        type: 'warning',
-                        message: '⚠️ Worker 尚未响应，任务可能卡在队列中，或 APScheduler 未正确加载该任务。请检查任务状态是否为 active。',
-                      }]
-                      return next.length > MAX_EVENTS ? next.slice(-MAX_EVENTS) : next
-                    })
+                    setEvents((prev) => pushEvent(prev, {
+                      id: 'diagnostic-warn',
+                      type: 'warning',
+                      message: '⚠️ Worker 尚未响应，任务可能卡在队列中，或 APScheduler 未正确加载该任务。请检查任务状态是否为 active。',
+                    }))
                   }
                 }
 
@@ -283,8 +281,34 @@ export function useTaskEventStream({ taskId, active }: { taskId: string | null; 
             }
           }
 
-          setStatus((s) => s === 'running' ? 'waiting' : s)
-          break
+          // 走到这里说明流被服务端干净关闭（reader done）但未收到终态事件
+          // （success/failure/warning 会直接 return）——多为服务端重启或代理断开。
+          // 视同连接中断走重试，而不是永久停在"等待 Worker 响应"的误导提示上。
+          if (retryCount.current < MAX_RETRIES && !controller.signal.aborted) {
+            retryCount.current++
+            const delay = backoffDelay(retryCount.current - 1)
+            setStatus('connecting')
+            setEvents((prev) => pushEvent(prev, {
+              id: `retry-${retryCount.current}`,
+              type: 'warning',
+              message: `⚠️ 连接被服务端关闭，${(delay / 1000).toFixed(0)}s 后自动重连 (${retryCount.current}/${MAX_RETRIES})`,
+            }))
+            let retryResolve: () => void
+            const promise = new Promise<void>((r) => { retryResolve = r })
+            retryTimer.current = setTimeout(() => retryResolve(), delay)
+
+            await promise
+            continue
+          }
+
+          clearTimeout(stuckTimerId)
+          setStatus('error')
+          setEvents((prev) => pushEvent(prev, {
+            id: 'final-error',
+            type: 'warning',
+            message: `⚠️ 连接多次被关闭，已重试 ${MAX_RETRIES} 次。请手动刷新页面重试。`,
+          }))
+          return
 
         } catch (err: unknown) {
           if ((err as Error).name === 'AbortError') {
@@ -295,11 +319,11 @@ export function useTaskEventStream({ taskId, active }: { taskId: string | null; 
             retryCount.current++
             const delay = backoffDelay(retryCount.current - 1)
             setStatus('connecting')
-            setEvents((prev) => [...prev, {
+            setEvents((prev) => pushEvent(prev, {
               id: `retry-${retryCount.current}`,
               type: 'warning',
               message: `⚠️ 连接中断，${(delay / 1000).toFixed(0)}s 后自动重试 (${retryCount.current}/${MAX_RETRIES})`,
-            }])
+            }))
             let retryResolve: () => void
             const promise = new Promise<void>((r) => { retryResolve = r })
             retryTimer.current = setTimeout(() => retryResolve(), delay)
@@ -308,15 +332,11 @@ export function useTaskEventStream({ taskId, active }: { taskId: string | null; 
           } else {
             clearTimeout(stuckTimerId)
             setStatus('error')
-            setEvents((prev) => {
-              const MAX_EVENTS = 500
-              const next = [...prev, {
-                id: 'final-error',
-                type: 'warning',
-                message: `⚠️ 连接失败，已重试 ${MAX_RETRIES} 次。请手动刷新页面重试。`,
-              }]
-              return next.length > MAX_EVENTS ? next.slice(-MAX_EVENTS) : next
-            })
+            setEvents((prev) => pushEvent(prev, {
+              id: 'final-error',
+              type: 'warning',
+              message: `⚠️ 连接失败，已重试 ${MAX_RETRIES} 次。请手动刷新页面重试。`,
+            }))
             return
           }
         }

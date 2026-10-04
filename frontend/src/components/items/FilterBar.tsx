@@ -72,19 +72,19 @@ interface PillProps {
   count?: number
   showBadge?: boolean
   className?: string
-  'aria-pressed'?: boolean
   tabIndex?: number
   onKeyDown?: (e: React.KeyboardEvent<HTMLButtonElement>) => void
   children: React.ReactNode
 }
 
-function Pill({ isActive, onClick, count, showBadge = true, className, 'aria-pressed': ariaPressed, tabIndex, onKeyDown, children }: PillProps) {
+// 语义上 Pill 是单选（radiogroup 内的 radio），不再输出 aria-pressed——
+// 同一元素上 radio 与按钮的按压语义互斥，组合是无效 ARIA
+function Pill({ isActive, onClick, count, showBadge = true, className, tabIndex, onKeyDown, children }: PillProps) {
   return (
     <button
       type="button"
       role="radio"
       aria-checked={isActive}
-      aria-pressed={ariaPressed}
       tabIndex={tabIndex}
       onClick={onClick}
       onKeyDown={onKeyDown}
@@ -170,7 +170,7 @@ export function FilterBar({
   onFilterChange,
   allCount,
   className,
-  'aria-label': ariaLabel = 'Filter bar',
+  'aria-label': ariaLabel = '内容筛选',
 }: FilterBarProps) {
   const categoryGroupRef = useRef<HTMLDivElement>(null)
   const readStatusGroupRef = useRef<HTMLDivElement>(null)
@@ -212,7 +212,7 @@ export function FilterBar({
       <PillGroup
         ref={categoryGroupRef}
         role="radiogroup"
-        aria-label="Filter by category"
+        aria-label="按数据源筛选"
         horizontalScrollable
         className="filter-bar__row filter-bar__row--categories"
       >
@@ -246,7 +246,7 @@ export function FilterBar({
       <PillGroup
         ref={readStatusGroupRef}
         role="radiogroup"
-        aria-label="Filter by read status"
+        aria-label="按已读状态筛选"
         className="filter-bar__row filter-bar__row--read-status"
       >
         {readStatuses.map((status, index) => (

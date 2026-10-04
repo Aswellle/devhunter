@@ -1,8 +1,11 @@
 import { useState } from 'react'
-import { useMutation } from '@tanstack/react-query'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Globe, Search, Eye, Check, Loader2, AlertCircle } from 'lucide-react'
 import { sourcesApi } from '../../api/sources'
 import { tasksApi } from '../../api/tasks'
+import { queryKeys } from '../../api/queryKeys'
+import { errorMessage } from '../../api/client'
+import { useModalA11y } from '../../hooks/useModalA11y'
 import type { DiscoveryResult, PreviewResult } from '../../types'
 
 interface SourceWizardProps {
@@ -13,6 +16,7 @@ interface SourceWizardProps {
 type Step = 1 | 2 | 3
 
 export function SourceWizard({ onClose, onCreated }: SourceWizardProps) {
+  const qc = useQueryClient()
   const [step, setStep] = useState<Step>(1)
   const [url, setUrl] = useState('')
   const [discoveryResult, setDiscoveryResult] = useState<DiscoveryResult | null>(null)
@@ -21,16 +25,21 @@ export function SourceWizard({ onClose, onCreated }: SourceWizardProps) {
   const [keywords, setKeywords] = useState('')
   const [cronExpression, setCronExpression] = useState('0 9 * * *')
   const [error, setError] = useState('')
+  // 焦点陷阱 + Escape 关闭（组件随模态打开条件挂载）
+  const modalRef = useModalA11y(onClose)
 
   const discoverMutation = useMutation({
     mutationFn: () => sourcesApi.discover(url),
     onSuccess: (data) => {
       setDiscoveryResult(data)
+      // URL 变了就重新发现，旧 URL 的预览结果必须作废，
+      // 否则"继续"按钮会用上一个 URL 的 preview.success 放行
+      setPreviewResult(null)
       setStep(2)
     },
     onError: (e: unknown) => {
-      const msg = e instanceof Error ? e.message : '发现失败，请检查 URL 是否正确'
-      setError(msg)
+      // 拦截器产出的是 ApiError（非 Error 实例），用 errorMessage 提取后端具体文案
+      setError(errorMessage(e, '发现失败，请检查 URL 是否正确'))
     },
   })
 
@@ -40,8 +49,7 @@ export function SourceWizard({ onClose, onCreated }: SourceWizardProps) {
       setPreviewResult(data)
     },
     onError: (e: unknown) => {
-      const msg = e instanceof Error ? e.message : '预览失败'
-      setError(msg)
+      setError(errorMessage(e, '预览失败'))
     },
   })
 
@@ -60,12 +68,12 @@ export function SourceWizard({ onClose, onCreated }: SourceWizardProps) {
         cron_expression: cronExpression,
       }),
     onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.tasks.all })
       onCreated?.()
       onClose()
     },
     onError: (e: unknown) => {
-      const msg = e instanceof Error ? e.message : '保存失败'
-      setError(msg)
+      setError(errorMessage(e, '保存失败'))
     },
   })
 
@@ -94,6 +102,7 @@ export function SourceWizard({ onClose, onCreated }: SourceWizardProps) {
   return (
     <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50" onClick={(e) => { if (e.target === e.currentTarget) onClose() }}>
       <div
+        ref={modalRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="source-wizard-title"

@@ -22,7 +22,10 @@ export const queryKeys = {
       ['items', 'grouped', filters] as const,
     counts: () => ['items', 'counts'] as const,
     detail: (id: string) => ['items', 'detail', id] as const,
-    starred: () => ['items', 'starred'] as const,
+    // 收藏列表按页缓存；starredAll 用于跨页失效（前缀匹配）
+    starred: (page: number = 1) => ['items', 'starred', page] as const,
+    starredAll: ['items', 'starred'] as const,
+    cloud: () => ['items', 'cloud'] as const,
   },
 
   // ── Tasks ──────────────────────────────────────────────
@@ -57,6 +60,7 @@ export const queryKeys = {
     all: ['user-prefs'] as const,
     topics: () => ['user-prefs', 'topics'] as const,
     affinities: () => ['user-prefs', 'affinities'] as const,
+    recommendationConfig: () => ['user-prefs', 'recommendation-config'] as const,
   },
 
   // ── Sources ────────────────────────────────────────────
