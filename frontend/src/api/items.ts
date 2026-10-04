@@ -29,10 +29,7 @@ export const itemsApi = {
     client.patch<{ updated: number }>('/items/batch', { ids, ...data }).then((r) => r.data),
 
   batchDelete: (ids: string[]) =>
-    client.request<{ deleted: number }>({
-      method: 'DELETE',
-      url: '/items/batch-delete',
-      data: { ids },
-    }).then((r) => r.data),
+    // 后端注册的是 POST /items/batch-delete（items.py @router.post），DELETE 会 405
+    client.post<{ deleted: number }>('/items/batch-delete', { ids }).then((r) => r.data),
 }
 

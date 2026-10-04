@@ -24,6 +24,9 @@ export const useAuthStore = create<AuthState>((set) => ({
   logout: () => {
     localStorage.removeItem(_AUTH_FLAG)
     set({ isAuthenticated: false })
-    import('../api/auth').then(({ authApi }) => authApi.logout())
+    // best-effort：让服务端清除 httpOnly cookie。未认证时该请求返回 401 属预期，静默忽略
+    import('../api/auth')
+      .then(({ authApi }) => authApi.logout())
+      .catch(() => {})
   },
 }))
