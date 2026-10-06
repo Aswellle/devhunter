@@ -59,7 +59,7 @@ class RecommendedTopicResponse(BaseModel):
 class RecommendationReason(BaseModel):
     """推荐原因"""
     type: str
-    description: str
+    label: str
 
 
 class RecommendedItemResponse(BaseModel):

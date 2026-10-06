@@ -8,6 +8,7 @@ import { userPrefsApi } from '../api/user_prefs'
 import { queryKeys } from '../api/queryKeys'
 import { formatDistanceToNow } from '../utils/time'
 import { RECOMMENDED_BADGE_SCORE } from '../utils/scores'
+import { ReasonBadges } from '../components/recommend/ReasonBadges'
 import { Spinner } from '../components/ui/Spinner'
 import { Empty } from '../components/ui/Empty'
 import type { RecommendedItem, ThreadWithItems } from '../types'
@@ -197,11 +198,14 @@ function RecommendedItemCard({ item }: { item: RecommendedItem }) {
           rel="noopener noreferrer"
           className="block text-sm font-medium text-gray-900 hover:text-primary-600 transition-colors leading-snug line-clamp-2"
           onClick={() => {
-            userPrefsApi.recordInteraction({ item_id: item.id, interaction_type: 'click' })
+            userPrefsApi
+              .recordInteraction({ item_id: item.id, interaction_type: 'click' })
+              .catch(() => {})
           }}
         >
           {item.title}
         </a>
+        <ReasonBadges reasons={item.recommendation_reasons} max={3} />
         {item.summary && (
           <p className="text-xs text-gray-500 mt-1 line-clamp-2">{item.summary}</p>
         )}

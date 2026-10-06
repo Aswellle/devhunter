@@ -17,6 +17,7 @@ from app.repositories.user_prefs_repo import (
     user_interaction_repo,
     user_topics_repo,
 )
+from app.recommendation.explanations import explanation_generator
 from app.utils.similarity import tokenize
 
 logger = logging.getLogger(__name__)
@@ -114,13 +115,16 @@ class RecommendationService:
             [item["id"] for item in items if item.get("id")]
         )
 
+        # 推荐解释用：把用户兴趣词传给解释器，让它点出具体命中的兴趣
+        user_profile = {"topics": [topic for topic, _ in user_topics]}
+
         # 5. 计算每条 Item 的推荐得分
         scored_items: list[tuple[float, dict]] = []
         for item in items:
             if exclude_read and item.get("is_read"):
                 continue
 
-            score = self._compute_item_score(
+            score, score_details = self._compute_item_score_details(
                 item=item,
                 topic_tokens_map=topic_tokens_map,
                 affinity_map=affinity_map,
@@ -131,7 +135,9 @@ class RecommendationService:
             )
 
             if score >= config["min_score_threshold"]:
-                scored_items.append((score, item))
+                # F5: 附上可解释的推荐理由（前端以徽章展示）
+                reasons = explanation_generator.generate(item, score_details, user_profile)
+                scored_items.append((score, {**item, "recommendation_reasons": reasons}))
 
         # 6. 排序返回 top N
         scored_items.sort(key=lambda x: x[0], reverse=True)
@@ -153,7 +159,30 @@ class RecommendationService:
         engagement_stats_map: dict[str, dict] | None = None,
     ) -> float:
         """
-        计算单条 Item 的推荐得分。
+        计算单条 Item 的推荐得分（仅总分）。
+        """
+        return self._compute_item_score_details(
+            item=item,
+            topic_tokens_map=topic_tokens_map,
+            affinity_map=affinity_map,
+            task_affinities=task_affinities,
+            platform_affinities=platform_affinities,
+            config=config,
+            engagement_stats_map=engagement_stats_map,
+        )[0]
+
+    def _compute_item_score_details(
+        self,
+        item: dict,
+        topic_tokens_map: dict[str, float],
+        affinity_map: dict[str, float],
+        task_affinities: dict[str, float],
+        platform_affinities: dict[str, float],
+        config: dict,
+        engagement_stats_map: dict[str, dict] | None = None,
+    ) -> tuple[float, dict[str, float]]:
+        """
+        计算单条 Item 的推荐得分，并返回分因子明细（供推荐解释使用）。
         """
         title = item.get("title", "")
         summary = item.get("summary", "") or ""
@@ -192,7 +221,12 @@ class RecommendationService:
             + config["engagement_weight"] * engagement_score
         )
 
-        return min(1.0, total)
+        return min(1.0, total), {
+            "preference_score": topic_score,
+            "affinity_score": affinity_score,
+            "recency_score": recency_score,
+            "engagement_score": engagement_score,
+        }
 
     def _calc_topic_score(self, text: str, topic_tokens_map: dict[str, float]) -> float:
         """计算文本与用户主题偏好的匹配程度"""

@@ -4,6 +4,7 @@ import { userPrefsApi } from '../../api/user_prefs'
 import { queryKeys } from '../../api/queryKeys'
 import { formatDistanceToNow } from '../../utils/time'
 import { RECOMMENDED_BADGE_SCORE } from '../../utils/scores'
+import { ReasonBadges } from '../recommend/ReasonBadges'
 import { Spinner } from '../ui/Spinner'
 import type { RecommendedItem } from '../../types'
 
@@ -117,6 +118,7 @@ function ForYouItemCard({ item }: { item: RecommendedItem }) {
             </>
           )}
         </div>
+        <ReasonBadges reasons={item.recommendation_reasons} max={2} />
       </div>
     </div>
   )

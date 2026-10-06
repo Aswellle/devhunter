@@ -32,15 +32,16 @@ class ExplanationGenerator:
         """
         reasons = []
 
-        # 1. 偏好匹配
+        # 1. 偏好匹配（尽量点出命中的具体兴趣词）
         if score_details.get("preference_score", 0) > 0.3:
             reasons.append({
                 "type": "topic",
-                "label": "符合你的兴趣",
+                "label": self._topic_label(item, user_profile),
             })
 
-        # 2. 亲缘度
-        if score_details.get("affinity_score", 0) > 0.3:
+        # 2. 亲缘度（现行评分器中 affinity_score 是 0.6*任务 + 0.4*来源 的加权
+        # 衰减累积值，0.05+ 已代表多次交互；0.3 的旧阈值按 V2 尺度写的，永不可达）
+        if score_details.get("affinity_score", 0) > 0.05:
             task_name = item.get("task_name", "")
             if task_name:
                 reasons.append({
@@ -77,6 +78,17 @@ class ExplanationGenerator:
             })
 
         return reasons
+
+    def _topic_label(self, item: dict[str, Any], user_profile: dict[str, Any]) -> str:
+        """主题匹配原因：点出命中的兴趣词，匹配不到时回退到通用文案。"""
+        topics = user_profile.get("topics") or []
+        title = (item.get("title") or "").lower()
+        summary = (item.get("summary") or "").lower()
+        for topic in topics:
+            t = str(topic).lower().strip()
+            if t and (t in title or t in summary):
+                return f"匹配你的兴趣「{topic}」"
+        return "符合你的兴趣"
 
 
 # 全局单例
