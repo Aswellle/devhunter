@@ -154,6 +154,21 @@ export interface TaskExecution {
   executed_at: string
 }
 
+// ── 阅读亲缘度（我的画像）─────────────────────────────────
+export interface AffinityEntry {
+  id: string
+  affinity_type: string
+  affinity_value: string
+  affinity_score: number
+  interaction_count: number
+  last_interacted_at: string
+  updated_at: string
+  /** 后端解析后的展示名：task 行原始值是 task_id，platform 行按历史约定存任务名 */
+  display_value: string | null
+  /** 解析后的展示维度：task | keyword */
+  display_type: string | null
+}
+
 // ── 通用分页响应 ──────────────────────────────────────────
 export interface PaginatedResponse<T> {
   items: T[]

@@ -6,13 +6,14 @@
 import { useQuery } from '@tanstack/react-query'
 import { userPrefsApi } from '../api/user_prefs'
 import { queryKeys } from '../api/queryKeys'
+import { formatDistanceToNow } from '../utils/time'
 import { Empty } from '../components/ui/Empty'
 import { SkeletonList } from '../components/ui/Skeleton'
+import type { AffinityEntry } from '../types'
 
-// 亲缘度类型 → 中文标签（后端为 task/platform/keyword 三类）
+// 展示维度 → 中文标签（后端已把 task/platform 归一为 task）
 const AFFINITY_TYPE_LABELS: Record<string, string> = {
-  task: '任务来源',
-  platform: '平台',
+  task: '任务',
   keyword: '关键词',
 }
 
@@ -95,26 +96,62 @@ export function ProfilePage() {
             )}
           </section>
 
-          {/* 阅读亲缘度 */}
+          {/* 阅读偏好 */}
           <section>
-            <h2 className="text-lg font-semibold mb-3">阅读偏好</h2>
-            {affinities?.length ? (
-              <div className="grid gap-3 sm:grid-cols-2">
-                {affinities.map((aff: { affinity_type: string; affinity_value: string; affinity_score: number }) => (
-                  <div key={`${aff.affinity_type}:${aff.affinity_value}`} className="p-3 border rounded-lg">
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="font-medium">{aff.affinity_value}</span>
-                      <span className="text-sm text-gray-500">
-                        {(aff.affinity_score * 100).toFixed(0)}%
-                      </span>
-                    </div>
-                    <div className="text-xs text-gray-500">
-                      {AFFINITY_TYPE_LABELS[aff.affinity_type] ?? aff.affinity_type}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
+            <h2 className="text-lg font-semibold mb-1">阅读偏好</h2>
+            <p className="text-xs text-gray-500 mb-3">
+              根据你的浏览、点击、收藏行为按时间衰减累积。百分比以列表中互动最多的来源为
+              100% 基准，表示相对偏好强度，不是绝对占比。
+            </p>
+            {affinities?.length ? (() => {
+              const maxScore = Math.max(...affinities.map((a) => a.affinity_score), 0)
+              return (
+                <div className="space-y-4">
+                  {affinities.map((aff: AffinityEntry) => {
+                    const name = aff.display_value ?? aff.affinity_value
+                    const rawType = aff.display_type ?? aff.affinity_type
+                    const typeLabel = AFFINITY_TYPE_LABELS[rawType] ?? rawType
+                    // 相对偏好强度：以互动最多的来源为 100% 基准（原始分是无上限的衰减累积值）
+                    const relPct = maxScore > 0
+                      ? Math.max(1, Math.round((aff.affinity_score / maxScore) * 100))
+                      : 0
+                    return (
+                      <div
+                        key={aff.id}
+                        className="flex items-start gap-3"
+                        title={`偏好分 ${aff.affinity_score.toFixed(2)}（衰减累积值）`}
+                      >
+                        <span className="badge badge-gray shrink-0 mt-0.5">{typeLabel}</span>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between gap-2 mb-1">
+                            <span className="text-sm font-medium truncate" title={name}>
+                              {name}
+                            </span>
+                            <span className="text-sm text-gray-600 shrink-0">{relPct}%</span>
+                          </div>
+                          <div
+                            className="h-2 bg-gray-100 rounded-full overflow-hidden"
+                            role="progressbar"
+                            aria-valuenow={relPct}
+                            aria-valuemin={0}
+                            aria-valuemax={100}
+                            aria-label={`${name} 相对偏好强度`}
+                          >
+                            <div
+                              className="h-full bg-blue-500 rounded-full"
+                              style={{ width: `${relPct}%` }}
+                            />
+                          </div>
+                          <div className="text-xs text-gray-400 mt-1">
+                            {aff.interaction_count} 次互动 · 最近 {formatDistanceToNow(aff.last_interacted_at)}
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )
+            })() : (
               <Empty
                 title="暂无阅读偏好"
                 description="与内容互动后，系统会学习你的阅读偏好"

@@ -1,5 +1,5 @@
 import client from './client'
-import type { RecommendedItem, RecommendedTopic, UserTopic, UserTopicCreate } from '../types'
+import type { RecommendedItem, RecommendedTopic, UserTopic, UserTopicCreate, AffinityEntry } from '../types'
 import type { PaginatedResponse } from '../types'
 
 export const userPrefsApi = {
@@ -33,7 +33,7 @@ export const userPrefsApi = {
 
   // 获取用户亲缘度
   getAffinities: () =>
-    client.get('/user-prefs/affinities').then((r) => r.data),
+    client.get<AffinityEntry[]>('/user-prefs/affinities').then((r) => r.data),
 
   // 获取推荐配置（四因子权重 + 推断的模式；从未保存过时返回打分引擎默认值）
   getRecommendationConfig: () =>

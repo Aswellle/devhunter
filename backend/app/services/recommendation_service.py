@@ -314,6 +314,54 @@ class RecommendationService:
         keywords = [t for t in tokens if len(t) > 3 and t not in stopwords]
         return keywords[:5]
 
+    def get_reading_affinities(self, limit: int = 50) -> list[dict]:
+        """
+        画像页「阅读偏好」展示数据：解析可读名称并合并重复维度。
+
+        存储层语义：task 行的 affinity_value 是 task_id（对用户不可读），
+        platform 行按历史约定存的是任务名称——两者描述的都是"任务"维度，
+        直接展示会出现 UUID、且同一任务出现两行。这里把 task 行解析成
+        任务名称后与 platform 行按名称合并（得分求和、互动次数取较大值，
+        因为两行记录的是同一批交互），keyword 行原样透传。
+        """
+        rows = user_affinity_repo.get_top_affinities(limit=limit)
+        task_name_cache: dict[str, str | None] = {}
+        merged: dict[tuple[str, str], dict] = {}
+
+        for row in rows:
+            a_type = row.get("affinity_type", "")
+            value = row.get("affinity_value", "")
+
+            if a_type == "task":
+                if value not in task_name_cache:
+                    task = task_repo.get(value)
+                    task_name_cache[value] = task.get("name") if task else None
+                # 任务已删除（软删除）时保留一个可读的兜底名称
+                name = task_name_cache[value] or "已删除的任务"
+                display_type = "task"
+            elif a_type == "platform":
+                name = value
+                display_type = "task"
+            else:
+                name = value
+                display_type = a_type or "keyword"
+
+            key = (display_type, name)
+            if key in merged:
+                agg = merged[key]
+                agg["affinity_score"] = agg.get("affinity_score", 0.0) + row.get("affinity_score", 0.0)
+                # 同一批交互会同时写入 task 与 platform 两行，互动次数取较大值而非求和
+                agg["interaction_count"] = max(
+                    agg.get("interaction_count", 0), row.get("interaction_count", 0)
+                )
+                agg["last_interacted_at"] = max(
+                    agg.get("last_interacted_at") or "", row.get("last_interacted_at") or ""
+                )
+            else:
+                merged[key] = {**row, "display_type": display_type, "display_value": name}
+
+        return sorted(merged.values(), key=lambda r: r["affinity_score"], reverse=True)[:limit]
+
     # ── 用户偏好管理 ────────────────────────────────────────
 
     def get_user_topics(self) -> list[dict]:

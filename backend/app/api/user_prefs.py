@@ -10,7 +10,6 @@ from app.api.deps import require_auth
 from app.repositories.item_repo import item_repo
 from app.repositories.user_prefs_repo import (
     recommendation_config_repo,
-    user_affinity_repo,
     user_interaction_repo,
 )
 from app.schemas.common import PaginatedResponse
@@ -125,12 +124,14 @@ def list_affinities(
     _: str = Depends(require_auth),
 ):
     """
-    获取阅读亲缘度（task / platform / keyword 三类），按得分倒序。
+    获取阅读亲缘度，按得分倒序。
 
     「我的画像」页的"阅读偏好"区块读取该接口；数据由阅读行为累积
-    （record_interaction → update_affinity），不是用户手填的。
+    （record_interaction → update_affinity）。返回的 display_value /
+    display_type 是解析合并后的展示字段：task 行的原始值是 task_id、
+    platform 行按历史约定存的是任务名称，展示层不应直接读原始值。
     """
-    return user_affinity_repo.get_top_affinities(limit=limit)
+    return recommendation_service.get_reading_affinities(limit=limit)
 
 
 # ── 推荐配置 ──────────────────────────────────────────────

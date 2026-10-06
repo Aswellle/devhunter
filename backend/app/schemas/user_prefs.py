@@ -98,6 +98,10 @@ class AffinityResponse(BaseModel):
     interaction_count: int
     last_interacted_at: str
     updated_at: str
+    # 画像页展示用：task 行的原始值是 task_id、platform 行按历史约定存的是
+    # 任务名称，展示层统一解析为可读名称（display_value）与归一维度（display_type）
+    display_value: str | None = None
+    display_type: str | None = None
 
     model_config = {"from_attributes": True}
 
