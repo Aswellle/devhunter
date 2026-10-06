@@ -116,7 +116,7 @@ export function ConfirmDialog({
   }
 
   const confirmClass = variant === 'danger'
-    ? 'bg-danger hover:bg-danger/90 text-white'
+    ? 'btn-danger'
     : 'btn-primary'
 
   return (
@@ -127,9 +127,11 @@ export function ConfirmDialog({
       aria-labelledby={titleId}
       onClose={handleCancel}
       onClick={handleBackdropClick}
-      className="fixed inset-0 z-[300] m-auto p-0 rounded-lg shadow-2xl border-0 backdrop:bg-black/50 bg-transparent"
+      // 显式宽度：dialog 的 UA 默认宽度是 fit-content（随文字收缩），
+      // 内层卡片的 w-full max-w-sm 永远撑不起来，卡片会塌缩成一条窄条
+      className="fixed inset-0 z-[300] m-auto p-0 rounded-lg shadow-2xl border-0 backdrop:bg-black/50 bg-transparent w-[calc(100vw-2rem)] max-w-sm overflow-hidden"
     >
-      <div className="w-full max-w-sm bg-surface rounded-lg shadow-xl">
+      <div className="w-full bg-surface rounded-lg shadow-xl">
         <div className="px-6 py-4 border-b border-subtle">
           <h3 id={titleId} className="text-base font-semibold text-primary">
             {title}
@@ -138,7 +140,7 @@ export function ConfirmDialog({
         <div className="px-6 py-4">
           <p className="text-sm text-secondary">{message}</p>
         </div>
-        <div className="flex justify-end gap-3 px-6 py-4 border-t border-subtle bg-hover rounded-b-lg">
+        <div className="flex justify-end gap-3 px-6 py-4 border-t border-subtle bg-hover">
           <button
             type="button"
             onClick={handleCancel}
