@@ -96,6 +96,8 @@ class LLMProvider:
                             pool=5.0,
                         ),
                         limits=httpx.Limits(max_keepalive_connections=2, max_connections=4),
+                        # 测试注入口：MockTransport 替换真实 HTTP 层
+                        transport=self._test_transport,
                     )
         return self._client
 
