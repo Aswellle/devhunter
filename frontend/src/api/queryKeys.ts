@@ -79,4 +79,10 @@ export const queryKeys = {
     all: ['feeds'] as const,
     overview: () => ['feeds', 'overview'] as const,
   },
+
+  // ── LLM 接入配置 ────────────────────────────────────────
+  llm: {
+    all: ['llm'] as const,
+    config: () => ['llm', 'config'] as const,
+  },
 }

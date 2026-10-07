@@ -211,6 +211,44 @@ export interface FeedOverview {
   feeds: FeedInfo[]
 }
 
+// ── LLM 接入配置 ──────────────────────────────────────────
+export interface LLMUsageStatus {
+  used_today: number
+  budget: number
+  remaining: number
+  breaker_open: boolean
+  consecutive_failures: number
+  max_consecutive_failures: number
+}
+
+/** GET/PUT/DELETE /api/llm/config 响应：密钥只回脱敏掩码 */
+export interface LLMConfigStatus {
+  configured: boolean
+  /** api_key 来源：db（界面配置）/ env（环境变量）/ none（未配置） */
+  source: 'db' | 'env' | 'none'
+  /** 界面已覆盖的字段（llm_api_key / llm_base_url / llm_model） */
+  overrides: string[]
+  base_url: string
+  model: string
+  api_key_masked: string | null
+  env_key_present: boolean
+  usage: LLMUsageStatus
+}
+
+/** 保存/测试请求体：缺失或 null 不改动，空字符串清除覆盖 */
+export interface LLMConfigPayload {
+  api_key?: string | null
+  base_url?: string | null
+  model?: string | null
+}
+
+export interface LLMTestResult {
+  ok: boolean
+  message: string
+  model: string | null
+  latency_ms: number | null
+}
+
 // ── 阅读亲缘度（我的画像）─────────────────────────────────
 export interface AffinityEntry {
   id: string

@@ -13,6 +13,7 @@ import { queryKeys } from '../api/queryKeys'
 import { formatDistanceToNow } from '../utils/time'
 import { Empty } from '../components/ui/Empty'
 import { SkeletonList } from '../components/ui/Skeleton'
+import { LLMSetupCard } from '../components/profile/LLMSetupCard'
 import type { AffinityEntry, FeedInfo } from '../types'
 
 // 展示维度 → 中文标签（后端已把 task/platform 归一为 task）
@@ -248,6 +249,9 @@ export function ProfilePage() {
               />
             )}
           </section>
+
+          {/* AI 接入 */}
+          <LLMSetupCard />
         </div>
       )}
     </div>
