@@ -47,6 +47,7 @@ def get_templates(_: str = Depends(require_auth)):
             "recommended_cron": t.recommended_cron,
             "category": t.category,
             "subcategory": t.subcategory,
+            "content_kind": t.content_kind,
         }
         for t in templates
     ]

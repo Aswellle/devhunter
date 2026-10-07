@@ -41,24 +41,41 @@ class ThreadService:
         V2 流程：对每个新 Item，使用多因素评分在近期活跃 Thread 中找最佳匹配；
         匹配则加入，否则创建新 Thread。
 
+        内容性质门控：条目型（content_kind=catalog）任务的条目是独立资源
+        （开源项目、产品、视频），彼此无事件关联，聚类只会产生无意义的
+        单条目 Thread —— 直接跳过，不建 Thread 也不入 Thread。
+
         候选 Thread 逐条目刷新：同批次中先前条目刚创建/加入的 Thread 也会
         出现在后续条目的候选里——同一条事件的多篇报道才能聚进同一个 Thread。
 
-        返回处理的新 Item 数量。
+        返回实际参与聚类的 Item 数量。
         """
         if not new_items:
             return 0
 
-        # 获取各 task_id -> platform 名称的映射
-        tasks = {t["id"]: t["name"] for t in task_repo.list_active()}
+        # 获取各 task_id -> (platform 名称, content_kind) 的映射
+        tasks = {t["id"]: t for t in task_repo.list_active()}
         item_id_to_platform = {
-            item["id"]: tasks.get(item.get("task_id"), "unknown")
+            item["id"]: tasks.get(item.get("task_id"), {}).get("name", "unknown")
             for item in new_items
         }
+        clusterable = [
+            item for item in new_items
+            if tasks.get(item.get("task_id"), {}).get("content_kind", "discussion") == "discussion"
+        ]
+        skipped = len(new_items) - len(clusterable)
+        if skipped:
+            logger.info(
+                "Thread compute: skipped %d catalog-kind items (no clustering for catalog sources)",
+                skipped,
+            )
+
+        if not clusterable:
+            return 0
 
         # 处理每个新 Item
         matched_count = 0
-        for item in new_items:
+        for item in clusterable:
             item_id = item["id"]
             title = item["title"]
             platform = item_id_to_platform.get(item_id, "unknown")
@@ -85,10 +102,10 @@ class ThreadService:
                 thread_repo.create(title=title, item_id=item_id, platform=platform, algorithm_version="v2", similarity_threshold=threshold, match_reason="no_match")
 
         logger.info(
-            "Thread compute: %d new items, %d matched to existing threads, %d created new",
-            len(new_items), matched_count, len(new_items) - matched_count,
+            "Thread compute: %d items clustered, %d matched to existing threads, %d created new, %d catalog-skipped",
+            len(clusterable), matched_count, len(clusterable) - matched_count, skipped,
         )
-        return len(new_items)
+        return len(clusterable)
 
     def merge_threads(
         self,

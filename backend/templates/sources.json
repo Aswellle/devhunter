@@ -11,7 +11,8 @@
     "default_keywords": [],
     "recommended_cron": "0 */1 * * *",
     "category": "开发趋势",
-    "subcategory": "技术聚合"
+    "subcategory": "技术聚合",
+    "content_kind": "discussion"
   },
   {
     "id": "hackernews_show",
@@ -25,7 +26,8 @@
     "default_keywords": [],
     "recommended_cron": "0 */2 * * *",
     "category": "创意发现",
-    "subcategory": "项目展示"
+    "subcategory": "项目展示",
+    "content_kind": "discussion"
   },
   {
     "id": "github_trending",
@@ -39,7 +41,8 @@
     "default_keywords": [],
     "recommended_cron": "0 9 * * *",
     "category": "开发趋势",
-    "subcategory": "开源项目"
+    "subcategory": "开源项目",
+    "content_kind": "catalog"
   },
   {
     "id": "producthunt",
@@ -53,7 +56,8 @@
     "default_keywords": [],
     "recommended_cron": "0 10 * * *",
     "category": "创意发现",
-    "subcategory": "产品发布"
+    "subcategory": "产品发布",
+    "content_kind": "catalog"
   },
   {
     "id": "indiehackers",
@@ -67,7 +71,8 @@
     "default_keywords": [],
     "recommended_cron": "0 */6 * * *",
     "category": "创意发现",
-    "subcategory": "独立开发"
+    "subcategory": "独立开发",
+    "content_kind": "discussion"
   },
   {
     "id": "lobsters",
@@ -81,7 +86,8 @@
     "default_keywords": [],
     "recommended_cron": "0 */2 * * *",
     "category": "开发趋势",
-    "subcategory": "技术聚合"
+    "subcategory": "技术聚合",
+    "content_kind": "discussion"
   },
   {
     "id": "v2ex",
@@ -95,7 +101,8 @@
     "default_keywords": [],
     "recommended_cron": "0 */2 * * *",
     "category": "社区讨论",
-    "subcategory": "开发者社区"
+    "subcategory": "开发者社区",
+    "content_kind": "discussion"
   },
   {
     "id": "v2ex_create",
@@ -109,7 +116,8 @@
     "default_keywords": [],
     "recommended_cron": "0 */3 * * *",
     "category": "创意发现",
-    "subcategory": "项目展示"
+    "subcategory": "项目展示",
+    "content_kind": "discussion"
   },
   {
     "id": "v2ex_jobs",
@@ -123,7 +131,8 @@
     "default_keywords": [],
     "recommended_cron": "0 */6 * * *",
     "category": "需求分享",
-    "subcategory": "工作机会"
+    "subcategory": "工作机会",
+    "content_kind": "discussion"
   },
   {
     "id": "devto",
@@ -137,7 +146,8 @@
     "default_keywords": [],
     "recommended_cron": "0 */2 * * *",
     "category": "技术博客",
-    "subcategory": "开发者博客"
+    "subcategory": "开发者博客",
+    "content_kind": "discussion"
   },
   {
     "id": "hashnode",
@@ -151,7 +161,8 @@
     "default_keywords": [],
     "recommended_cron": "0 */3 * * *",
     "category": "技术博客",
-    "subcategory": "开发者博客"
+    "subcategory": "开发者博客",
+    "content_kind": "discussion"
   },
   {
     "id": "reddit_webdev",
@@ -165,7 +176,8 @@
     "default_keywords": [],
     "recommended_cron": "0 */3 * * *",
     "category": "社区讨论",
-    "subcategory": "开发者社区"
+    "subcategory": "开发者社区",
+    "content_kind": "discussion"
   },
   {
     "id": "reddit_sideproject",
@@ -179,7 +191,8 @@
     "default_keywords": [],
     "recommended_cron": "0 */4 * * *",
     "category": "创意发现",
-    "subcategory": "项目展示"
+    "subcategory": "项目展示",
+    "content_kind": "discussion"
   },
   {
     "id": "reddit_startups",
@@ -193,7 +206,8 @@
     "default_keywords": [],
     "recommended_cron": "0 */4 * * *",
     "category": "社区讨论",
-    "subcategory": "创业"
+    "subcategory": "创业",
+    "content_kind": "discussion"
   },
   {
     "id": "juejin",
@@ -207,7 +221,8 @@
     "default_keywords": [],
     "recommended_cron": "0 */3 * * *",
     "category": "技术博客",
-    "subcategory": "开发者博客"
+    "subcategory": "开发者博客",
+    "content_kind": "discussion"
   },
   {
     "id": "sspai",
@@ -221,7 +236,8 @@
     "default_keywords": [],
     "recommended_cron": "0 */6 * * *",
     "category": "技术博客",
-    "subcategory": "效率工具"
+    "subcategory": "效率工具",
+    "content_kind": "discussion"
   },
   {
     "id": "medium_programming",
@@ -235,7 +251,8 @@
     "default_keywords": [],
     "recommended_cron": "0 */4 * * *",
     "category": "技术博客",
-    "subcategory": "开发者博客"
+    "subcategory": "开发者博客",
+    "content_kind": "discussion"
   },
   {
     "id": "bilibili_comprehensive",
@@ -249,7 +266,8 @@
     "default_keywords": [],
     "recommended_cron": "0 */3 * * *",
     "category": "内容创作",
-    "subcategory": "视频素材"
+    "subcategory": "视频素材",
+    "content_kind": "catalog"
   },
   {
     "id": "bilibili_music",
@@ -263,7 +281,8 @@
     "default_keywords": [],
     "recommended_cron": "0 */4 * * *",
     "category": "内容创作",
-    "subcategory": "视频素材"
+    "subcategory": "视频素材",
+    "content_kind": "catalog"
   },
   {
     "id": "douyin_trending",
@@ -277,7 +296,8 @@
     "default_keywords": [],
     "recommended_cron": "0 */2 * * *",
     "category": "内容创作",
-    "subcategory": "热点趋势"
+    "subcategory": "热点趋势",
+    "content_kind": "catalog"
   },
   {
     "id": "zhihu_hot",
@@ -291,7 +311,8 @@
     "default_keywords": [],
     "recommended_cron": "0 */2 * * *",
     "category": "内容创作",
-    "subcategory": "热点趋势"
+    "subcategory": "热点趋势",
+    "content_kind": "discussion"
   },
   {
     "id": "trending_github_repos",
@@ -305,7 +326,8 @@
     "default_keywords": [],
     "recommended_cron": "0 9 * * *",
     "category": "开发趋势",
-    "subcategory": "开源项目"
+    "subcategory": "开源项目",
+    "content_kind": "catalog"
   },
   {
     "id": "reddit_forhire",
@@ -319,7 +341,8 @@
     "default_keywords": [],
     "recommended_cron": "0 */6 * * *",
     "category": "需求分享",
-    "subcategory": "自由职业"
+    "subcategory": "自由职业",
+    "content_kind": "discussion"
   },
   {
     "id": "reddit_ideas",
@@ -333,7 +356,8 @@
     "default_keywords": [],
     "recommended_cron": "0 */6 * * *",
     "category": "需求分享",
-    "subcategory": "创意需求"
+    "subcategory": "创意需求",
+    "content_kind": "discussion"
   },
   {
     "id": "hackernews_ask",
@@ -347,6 +371,7 @@
     "default_keywords": [],
     "recommended_cron": "0 */3 * * *",
     "category": "需求分享",
-    "subcategory": "问题讨论"
+    "subcategory": "问题讨论",
+    "content_kind": "discussion"
   }
 ]

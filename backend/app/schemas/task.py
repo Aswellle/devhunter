@@ -166,6 +166,13 @@ class TaskBase(BaseModel):
     )
     cron_expression: str = Field(..., max_length=100, description="Cron 表达式（5 段）")
     config_snapshot: dict | None = Field(None, description="创建时的模板配置快照（JSON）")
+    content_kind: Literal["discussion", "catalog"] = Field(
+        "discussion",
+        description=(
+            "内容性质：discussion=讨论型（跨来源聚合成 Thread 有意义）；"
+            "catalog=条目型（独立资源条目，不参与热点聚合）"
+        ),
+    )
 
     @field_validator("keywords")
     @classmethod
@@ -243,6 +250,7 @@ class TaskUpdate(BaseModel):
     keywords: list[str] | None = Field(None, max_length=20)
     cron_expression: str | None = Field(None, max_length=100)
     status: Literal["active", "paused"] | None = None
+    content_kind: Literal["discussion", "catalog"] | None = None
 
     @field_validator("keywords")
     @classmethod
@@ -325,6 +333,7 @@ class TaskResponse(BaseModel):
     cron_expression: str
     config_snapshot: dict | None = None
     status: str
+    content_kind: Literal["discussion", "catalog"] = "discussion"
     consecutive_failures: int
     consecutive_empty: int
     last_executed_at: str | None
@@ -344,6 +353,7 @@ class TaskListItem(BaseModel):
     keywords: list[str]
     cron_expression: str
     status: str
+    content_kind: Literal["discussion", "catalog"] = "discussion"
     consecutive_failures: int
     consecutive_empty: int
     last_executed_at: str | None

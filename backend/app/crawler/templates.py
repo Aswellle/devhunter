@@ -26,6 +26,9 @@ class SourceTemplate:
     recommended_cron: str
     category: str = ""
     subcategory: str = ""
+    # 内容性质：discussion=讨论型（跨来源聚合成 Thread 有意义）
+    #          catalog=条目型（独立资源条目，不参与热点聚合）
+    content_kind: str = "discussion"
 
 
 _templates: dict[str, SourceTemplate] = {}

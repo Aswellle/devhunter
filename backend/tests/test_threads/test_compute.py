@@ -163,3 +163,84 @@ class TestComputeThreadsForItems:
                 "SELECT thread_id FROM items WHERE id = ?", (first_batch[0]["id"],)
             ).fetchone()
         assert row["thread_id"] == first_row["thread_id"], "跨批次条目应加入同一 Thread"
+
+
+def _catalog_task_id() -> str:
+    return task_repo.insert({
+        "name": "条目型任务",
+        "source_url": "https://github.com/trending",
+        "template_id": None,
+        "selector_list": "div.item",
+        "selector_title": "h2",
+        "selector_link": "a",
+        "selector_summary": None,
+        "selector_next_page": None,
+        "keywords": [],
+        "cron_expression": "0 9 * * *",
+        "content_kind": "catalog",
+    })["id"]
+
+
+class TestCatalogKindGating:
+    """条目型（catalog）任务的门控：不参与热点聚合"""
+
+    def test_catalog_items_never_create_threads(self):
+        """条目型任务的条目即使标题相似也不建 Thread"""
+        threads_before = _thread_count()
+        task_id = _catalog_task_id()
+        token = uuid.uuid4().hex[:8]
+        now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        item_repo.bulk_insert([
+            {
+                "task_id": task_id,
+                "title": f"same repo title {token}",
+                "url": f"https://example.com/catalog/{token}/{i}",
+                "url_hash": f"catalog-hash-{token}-{i}",
+                "summary": "s",
+                "fetched_at": now,
+            }
+            for i in range(3)
+        ])
+        items, _ = item_repo.query(task_id=task_id)
+
+        processed = thread_service.compute_threads_for_items(items)
+
+        assert processed == 0, "条目型条目不应参与聚类"
+        assert _thread_count() == threads_before, "不应产生任何 Thread"
+        with get_db() as conn:
+            for item in items:
+                row = conn.execute(
+                    "SELECT thread_id FROM items WHERE id = ?", (item["id"],)
+                ).fetchone()
+                assert row["thread_id"] is None, "条目型条目不应挂载 Thread"
+
+    def test_recompute_drops_catalog_threads(self):
+        """任务改为条目型后重建：其旧 Thread 被清除且不再重建"""
+        # 先以讨论型建任务并生成 Thread
+        task_id = _task_id()
+        items = _items(task_id, 2)
+        thread_service.compute_threads_for_items(items)
+        with get_db() as conn:
+            thread_ids_before = [
+                r["id"] for r in conn.execute("SELECT id FROM threads").fetchall()
+            ]
+        assert thread_ids_before, "前置条件：讨论型时应有 Thread"
+
+        # 任务改为条目型 → 重建
+        task_repo.update(task_id, {"content_kind": "catalog"})
+        result = thread_service.recompute_all_threads(window_hours=24)
+
+        with get_db() as conn:
+            remaining = conn.execute(
+                "SELECT COUNT(*) FROM threads WHERE id IN (%s)"
+                % ",".join("?" for _ in thread_ids_before),
+                thread_ids_before,
+            ).fetchone()[0]
+            linked = conn.execute(
+                "SELECT COUNT(*) FROM thread_items WHERE item_id IN (%s)"
+                % ",".join("?" for _ in [i["id"] for i in items]),
+                [i["id"] for i in items],
+            ).fetchone()[0]
+        assert remaining == 0, "条目型任务的旧 Thread 应回收"
+        assert linked == 0, "条目型条目重建后不应再挂载 Thread"
+        assert result["items"] >= 2

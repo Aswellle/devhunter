@@ -57,7 +57,7 @@ class TaskRepository:
                     selector_next_page,
                     keywords, cron_expression, status,
                     consecutive_failures, consecutive_empty,
-                    config_snapshot,
+                    config_snapshot, content_kind,
                     created_at, updated_at
                 ) VALUES (
                     ?, ?, ?, ?,
@@ -65,7 +65,7 @@ class TaskRepository:
                     ?,
                     ?, ?, 'active',
                     0, 0,
-                    ?,
+                    ?, ?,
                     ?, ?
                 )
                 """,
@@ -82,6 +82,7 @@ class TaskRepository:
                     keywords_json,
                     data["cron_expression"],
                     config_snapshot_json,
+                    data.get("content_kind") or "discussion",
                     now, now,
                 ),
             )
@@ -157,7 +158,7 @@ class TaskRepository:
             "name", "source_url", "template_id",
             "selector_list", "selector_title", "selector_link", "selector_summary",
             "selector_next_page",
-            "keywords", "cron_expression", "status",
+            "keywords", "cron_expression", "status", "content_kind",
         }
         set_parts: list[str] = []
         values: list[Any] = []

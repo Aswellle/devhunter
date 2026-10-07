@@ -1,0 +1,11 @@
+-- ===========================================
+-- migrations/021_content_kind.sql
+-- 任务内容性质分类：讨论型数据才参与热点聚合
+--
+-- - discussion（默认，向后兼容）：围绕事件/话题的讨论内容，
+--   跨来源聚合成 Thread 有意义（Hacker News、V2EX、Reddit 等）
+-- - catalog：独立资源条目（开源项目、产品、视频），彼此无事件关联，
+--   聚合只会产生无意义的单条目 Thread，爬取与重建时跳过聚类
+-- 模板预设各自声明建议分类，任务创建时落库、可随时改。
+-- ===========================================
+ALTER TABLE tasks ADD COLUMN content_kind TEXT NOT NULL DEFAULT 'discussion';
