@@ -7,6 +7,7 @@ import { formatDistanceToNow } from '../../utils/time'
 import { queryKeys } from '../../api/queryKeys'
 import { threadsApi } from '../../api/threads'
 import { ClampText } from '../ui/ClampText'
+import { deriveThreadStatus, THREAD_STATUS_META } from '../../utils/threadStatus'
 
 // Platform display name mapping
 const PLATFORM_NAMES: Record<string, string> = {
@@ -37,6 +38,24 @@ const CONFIDENCE_META: Record<string, { label: string; cls: string }> = {
   high: { label: '高', cls: 'bg-emerald-50 text-emerald-700' },
   medium: { label: '中', cls: 'bg-amber-50 text-amber-700' },
   low: { label: '低', cls: 'bg-gray-100 text-gray-500' },
+}
+
+/** Thread 生命周期徽章：更新中 / 观察中 / 历史事件 */
+function ThreadStatusBadge({ lastSeenAt }: { lastSeenAt: string }) {
+  const status = deriveThreadStatus(lastSeenAt)
+  const meta = THREAD_STATUS_META[status]
+  return (
+    <span
+      className={clsx(
+        'inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[11px] font-medium shrink-0',
+        meta.cls,
+      )}
+      title={`最近更新：${formatDistanceToNow(lastSeenAt)}`}
+    >
+      <span className={clsx('inline-block h-1.5 w-1.5 rounded-full', meta.dotCls)} aria-hidden="true" />
+      {meta.label}
+    </span>
+  )
 }
 
 /**
@@ -142,6 +161,7 @@ export function ThreadCard({ thread, defaultExpanded = false }: ThreadCardProps)
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <span className="font-medium text-gray-900 truncate">{thread.title}</span>
+            <ThreadStatusBadge lastSeenAt={thread.last_seen_at} />
           </div>
           <div className="flex items-center gap-2 mt-1 flex-wrap">
             {/* Platform badges */}
