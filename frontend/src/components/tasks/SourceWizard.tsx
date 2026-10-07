@@ -31,7 +31,18 @@ export function SourceWizard({ onClose, onCreated }: SourceWizardProps) {
   const discoverMutation = useMutation({
     mutationFn: () => sourcesApi.discover(url),
     onSuccess: (data) => {
+      // 发现接口对"抓不到/被拦截/结构识别失败"返回 200 + errors 清单：
+      // 有错误时留在第一步并显示原因，否则用户会在第二步面对一排 N/A 选择器不知所措
+      if (data.errors?.length) {
+        setError(data.errors.join('；'))
+        setDiscoveryResult(null)
+        return
+      }
       setDiscoveryResult(data)
+      // 用站点标题预填任务名称（用户已输入或站点无名时保持现状）
+      if (!name && data.title) {
+        setName(data.title)
+      }
       // URL 变了就重新发现，旧 URL 的预览结果必须作废，
       // 否则"继续"按钮会用上一个 URL 的 preview.success 放行
       setPreviewResult(null)
@@ -235,10 +246,17 @@ export function SourceWizard({ onClose, onCreated }: SourceWizardProps) {
                 </button>
               </div>
 
+              {previewResult?.error && (
+                <div role="alert" className="p-3 bg-danger-light border border-danger/20 rounded-lg flex items-start gap-2 text-danger text-sm">
+                  <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
+                  <span className="break-all">{previewResult.error}</span>
+                </div>
+              )}
+
               {previewResult?.items && previewResult.items.length > 0 && (
                 <div className="border rounded-lg overflow-hidden">
                   <div className="px-3 py-2 bg-gray-50 border-b text-sm font-medium">
-                    预览 ({previewResult.items.length} 条)
+                    预览（{previewResult.items.length} 条{previewResult.total_found > previewResult.items.length ? `，共 ${previewResult.total_found} 条` : ''}）
                   </div>
                   <div className="max-h-60 overflow-y-auto">
                     {previewResult.items.map((item, i) => (
@@ -251,6 +269,12 @@ export function SourceWizard({ onClose, onCreated }: SourceWizardProps) {
                 </div>
               )}
 
+              {previewResult && !previewResult.error && previewResult.items.length === 0 && (
+                <p className="text-sm text-gray-500">
+                  页面可以访问，但没有提取到条目——该页面可能不是列表页，可尝试换用列表页 URL。
+                </p>
+              )}
+
               <div className="flex gap-2">
                 <button
                   onClick={() => setStep(1)}
@@ -260,7 +284,7 @@ export function SourceWizard({ onClose, onCreated }: SourceWizardProps) {
                 </button>
                 <button
                   onClick={() => setStep(3)}
-                  disabled={!previewResult?.success}
+                  disabled={!previewResult?.success || previewResult.items.length === 0}
                   className="btn-primary flex-1 px-4 py-2 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   继续
@@ -323,7 +347,8 @@ export function SourceWizard({ onClose, onCreated }: SourceWizardProps) {
                 </button>
                 <button
                   onClick={handleSave}
-                  disabled={saveMutation.isPending}
+                  disabled={saveMutation.isPending || !name.trim()}
+                  title={name.trim() ? undefined : '请先填写任务名称'}
                   className="btn-primary flex-1 px-4 py-2 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                 >
                   {saveMutation.isPending ? (
