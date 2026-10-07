@@ -214,7 +214,7 @@ class ThreadRepository:
         with get_db() as conn:
             rows = conn.execute(
                 """
-                SELECT i.*, t.name AS task_name, ti.similarity
+                SELECT i.*, t.name AS task_name, ti.similarity, ti.match_reason
                 FROM thread_items ti
                 JOIN items i ON ti.item_id = i.id
                 LEFT JOIN tasks t ON i.task_id = t.id

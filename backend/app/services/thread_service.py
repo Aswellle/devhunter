@@ -13,6 +13,7 @@ from app.features.extractor import feature_extractor
 from app.threads.clustering import thread_clusterer
 from app.threads.merge import thread_merger
 from app.threads.split import thread_splitter
+from app.threads.stats import build_thread_stats
 
 logger = logging.getLogger(__name__)
 
@@ -159,12 +160,12 @@ class ThreadService:
         return thread_repo.list_all(task_id=task_id, page=page, per_page=per_page)
 
     def get_thread(self, thread_id: str) -> dict | None:
-        """获取 Thread 详情（包含 Items）"""
+        """获取 Thread 详情（包含 Items 与聚合画像 stats）"""
         thread = thread_repo.get(thread_id)
         if not thread:
             return None
         items = thread_repo.get_items_in_thread(thread_id)
-        return {**thread, "items": items}
+        return {**thread, "items": items, "stats": build_thread_stats(thread, items)}
 
     def _get_thread_id_for_item(self, item_id: str) -> str | None:
         """获取 Item 所属的 Thread ID"""

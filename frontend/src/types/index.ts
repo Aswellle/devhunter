@@ -139,6 +139,24 @@ export interface Thread {
 
 export interface ThreadWithItems extends Thread {
   items: Item[]
+  /** 聚合画像：为什么聚为一个 Thread（规模/活跃度/匹配置信度） */
+  stats?: ThreadStats
+}
+
+/** Thread 聚合画像，由后端从 items 推导（app/threads/stats.py） */
+export interface ThreadStats {
+  item_count: number
+  platform_count: number
+  platform_breakdown: { platform: string; count: number }[]
+  recent_6h_count: number
+  recent_24h_count: number
+  span_hours: number | null
+  /** 非种子条目数（种子 = 创建 Thread 的首条报道） */
+  matched_item_count: number
+  similarity_avg: number | null
+  similarity_max: number | null
+  confidence: 'high' | 'medium' | 'low' | null
+  is_cross_platform: boolean
 }
 
 // ── TaskExecution 执行记录 ────────────────────────────────

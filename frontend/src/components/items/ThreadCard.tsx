@@ -1,8 +1,8 @@
 import { useState } from 'react'
-import { ChevronDown, ChevronRight, ExternalLink, Star, Rss } from 'lucide-react'
+import { ChevronDown, ChevronRight, ExternalLink, Flame, Gauge, Globe, Star, Rss, TrendingUp } from 'lucide-react'
 import { clsx } from 'clsx'
 import { useQuery } from '@tanstack/react-query'
-import type { Thread } from '../../types'
+import type { Thread, ThreadStats } from '../../types'
 import { formatDistanceToNow } from '../../utils/time'
 import { queryKeys } from '../../api/queryKeys'
 import { threadsApi } from '../../api/threads'
@@ -29,6 +29,67 @@ function PlatformBadge({ name }: { name: string }) {
 interface ThreadCardProps {
   thread: Thread
   defaultExpanded?: boolean
+}
+
+/** 置信度 → 展示文案与配色（阈值与后端 app/threads/stats.py 一致） */
+const CONFIDENCE_META: Record<string, { label: string; cls: string }> = {
+  high: { label: '高', cls: 'bg-emerald-50 text-emerald-700' },
+  medium: { label: '中', cls: 'bg-amber-50 text-amber-700' },
+  low: { label: '低', cls: 'bg-gray-100 text-gray-500' },
+}
+
+/**
+ * 「为什么聚为一个 Thread」画像条：
+ * 用一句自然语言 + 三个指标 chip 解释聚合依据（AIHOT "为什么热" 的本地化）。
+ */
+function ThreadStatsBand({ stats }: { stats: ThreadStats }) {
+  const pct = stats.similarity_avg != null ? Math.round(stats.similarity_avg * 100) : null
+  const confidence = stats.confidence ? CONFIDENCE_META[stats.confidence] : null
+
+  const caption = stats.item_count <= 1
+    ? '目前只有 1 条报道，后续相似内容会自动聚合到这里。'
+    : `${stats.item_count} 条报道来自 ${stats.platform_count} 个平台`
+      + (pct != null ? `，与首发报道的平均匹配相似度 ${pct}%` : '')
+      + (stats.recent_24h_count > 0 ? `，最近 24 小时仍在更新（+${stats.recent_24h_count} 条）` : '')
+      + '。'
+
+  return (
+    <div className="border-t border-gray-100 bg-gray-50/60 px-4 py-3">
+      <div className="flex items-center gap-1.5 text-xs font-medium text-gray-600 mb-1.5">
+        <Flame className="h-3.5 w-3.5 text-orange-500" aria-hidden="true" />
+        为什么聚为一个 Thread？
+      </div>
+      <p className="text-xs text-gray-500 leading-relaxed mb-2">{caption}</p>
+      <div className="flex flex-wrap gap-2">
+        <span
+          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-white ring-1 ring-gray-200 text-gray-600"
+          title="覆盖的平台数量；跨平台共识越多，事件可信度越高"
+        >
+          <Globe className="h-3 w-3 text-gray-400" aria-hidden="true" />
+          {stats.platform_count} 平台
+        </span>
+        <span
+          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-white ring-1 ring-gray-200 text-gray-600"
+          title="最近 24 小时新聚合的报道数"
+        >
+          <TrendingUp className="h-3 w-3 text-gray-400" aria-hidden="true" />
+          24h 新增 {stats.recent_24h_count}
+        </span>
+        {confidence && (
+          <span
+            className={clsx(
+              'inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs',
+              confidence.cls,
+            )}
+            title={pct != null ? `同事件其他报道与首发报道的平均匹配相似度 ${pct}%` : '聚合匹配置信度'}
+          >
+            <Gauge className="h-3 w-3 opacity-70" aria-hidden="true" />
+            聚类置信度 {confidence.label}
+          </span>
+        )}
+      </div>
+    </div>
+  )
 }
 
 export function ThreadCard({ thread, defaultExpanded = false }: ThreadCardProps) {
@@ -114,6 +175,7 @@ export function ThreadCard({ thread, defaultExpanded = false }: ThreadCardProps)
           </div>
         ) : items.length > 0 ? (
           <div className="border-t border-gray-100">
+            {details?.stats && <ThreadStatsBand stats={details.stats} />}
             <div className="divide-y divide-gray-100">
               {items.map(item => (
                 <div key={item.id} className="flex items-start gap-0">
