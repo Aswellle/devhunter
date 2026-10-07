@@ -158,7 +158,7 @@ export function TaskCard({ task, onEdit, onViewHistory }: TaskCardProps) {
                 {status.label}
               </Badge>
               <Badge
-                color={task.content_kind === 'catalog' ? 'gray' : 'blue'}
+                color={task.content_kind === 'catalog' ? 'gray' : 'primary'}
                 className="shrink-0"
               >
                 {task.content_kind === 'catalog' ? '条目型' : '讨论型'}

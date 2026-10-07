@@ -57,6 +57,7 @@ export function TemplateMarket({ onClose, onCreated }: TemplateMarketProps) {
         selector_next_page: null,
         keywords: tpl.default_keywords || [],
         cron_expression: tpl.recommended_cron,
+        content_kind: tpl.content_kind,
       }),
     onSuccess: (data, tpl) => {
       // 记录"模板 id"而非新建 Task 的 id——两者是不同的 ID 空间，

@@ -66,6 +66,8 @@ export function SourceWizard({ onClose, onCreated }: SourceWizardProps) {
         selector_next_page: null,
         keywords: keywords ? keywords.split(/[,，]/).map((k) => k.trim()).filter(Boolean) : [],
         cron_expression: cronExpression,
+        // 自定义来源默认讨论型；条目型可在任务设置里改
+        content_kind: 'discussion',
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: queryKeys.tasks.all })
