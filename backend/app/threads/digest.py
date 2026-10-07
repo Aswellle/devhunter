@@ -75,7 +75,9 @@ def generate_digest(thread_id: str, force: bool = False) -> str | None:
 
     items = thread_repo.get_items_in_thread(thread_id)
     system, user = build_digest_prompt(thread.get("title", ""), items)
-    text = llm_provider.chat(user, system, purpose="thread_digest", max_tokens=500)
+    # max_tokens 是"思考+正文"总上限：推理模型的思考长度波动大（实测 15~750+），
+    # 上限过小会被思考耗尽导致正文为空；实际计费按真实用量，预算熔断约束总成本
+    text = llm_provider.chat(user, system, purpose="thread_digest", max_tokens=4096)
     if not text:
         return None
 

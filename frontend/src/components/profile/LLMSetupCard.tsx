@@ -33,6 +33,7 @@ import type { LLMConfigPayload, LLMConfigStatus, LLMReceipt, LLMReceiptsOverview
 
 /** OpenAI 兼容服务商预设：一键填充接口地址与常用模型 */
 const PRESETS = [
+  { label: 'LongCat', baseUrl: 'https://api.longcat.chat/openai', model: 'LongCat-2.0' },
   { label: 'DeepSeek', baseUrl: 'https://api.deepseek.com', model: 'deepseek-chat' },
   { label: 'Kimi', baseUrl: 'https://api.moonshot.cn/v1', model: 'moonshot-v1-8k' },
   { label: '智谱', baseUrl: 'https://open.bigmodel.cn/api/paas/v4', model: 'glm-4-flash' },
