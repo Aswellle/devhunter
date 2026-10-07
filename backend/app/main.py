@@ -13,6 +13,7 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
 from app.api.router import api_router
+from app.api.mcp_server import mcp, mcp_asgi_app
 from app.core.config import settings
 from app.core.rate_limit import limiter
 from app.core.database import close_database, init_database
@@ -39,7 +40,9 @@ async def lifespan(app: FastAPI):
     scheduler_manager.restore_jobs()
 
     logger.info("DevHunter ready on port %d", settings.app_port)
-    yield
+    # MCP streamable HTTP 的 session manager 必须在服务整个生命周期内运行
+    async with mcp.session_manager.run():
+        yield
 
     logger.info("DevHunter shutting down...")
     scheduler_manager.shutdown(wait=True)
@@ -165,6 +168,13 @@ def create_app() -> FastAPI:
 
     # ── 挂载路由 ─────────────────────────────────────────
     app.include_router(api_router)
+
+    # ── MCP（Model Context Protocol）────
+    # 必须在 include_router 之后挂载：Starlette 按注册顺序匹配，常规 API 路由
+    # 先于挂载点命中。挂载在 "/api" 前缀（而非 "/api/mcp"）：Mount 的路径正则
+    # 要求挂载点后必须跟 "/"，挂 /api/mcp 会让裸路径 307 重定向且 POST 不可跟随；
+    # 挂 /api 后请求 /api/mcp 剥前缀为 /mcp，正好命中子应用内部路由。
+    app.mount("/api", mcp_asgi_app)
 
     # ── 健康检查 ─────────────────────────────────────────
     @app.get("/health", tags=["system"])

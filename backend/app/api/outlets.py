@@ -43,6 +43,8 @@ DevHunter 是单用户自托管服务。除 `/api/health` 与本文件外，所�
 - [RSS 全部条目](/api/rss)：最新 100 条采集内容，含全文摘要。需要能力令牌（`?token=`），令牌可经认证请求 `GET /api/rss/feeds` 获取。
 - [RSS 按数据源](/api/rss/{task_id})：单个爬取任务的订阅，同上需要令牌。
 - [订阅地址清单](/api/rss/feeds)：认证后返回所有订阅 URL 与能力令牌（JSON）。
+- MCP（Model Context Protocol）：`/api/mcp`，Streamable HTTP 传输，同一能力令牌认证。
+  工具集（只读）：`latest_items`、`search_items`、`list_threads`、`get_thread`、`get_stats`、`list_tasks`。
 
 ## 主要 API（需认证）
 
