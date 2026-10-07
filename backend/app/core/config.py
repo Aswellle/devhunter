@@ -62,6 +62,17 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     log_format: Literal["json", "text"] = "json"
 
+    # ── LLM（可选；不配置 Key 则所有 LLM 功能静默关闭）──────
+    # OpenAI 兼容 Chat Completions 端点（DeepSeek / 千问 / 智谱 / OpenAI 均可）
+    llm_api_key: str = ""
+    llm_base_url: str = "https://api.deepseek.com"
+    llm_model: str = "deepseek-chat"
+    # 每日（UTC）token 预算：输入+输出累计超过即熔断，次日自动恢复
+    llm_daily_token_budget: int = 200_000
+    llm_timeout: float = 60.0
+    # 连续失败达到该次数后停止调用（进程生命周期内），防止服务端故障时重试烧钱
+    llm_max_consecutive_failures: int = 5
+
     # ── CORS ────────────────────────────────────
     cors_origins: str = "http://localhost:5173,http://localhost:3000,http://localhost:5200,http://127.0.0.1:5200"
 

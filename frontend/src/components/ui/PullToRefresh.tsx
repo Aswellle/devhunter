@@ -1,6 +1,6 @@
 /**
  * PullToRefresh.tsx
- * 移动端下拉刷新（借鉴 AIHOT 移动壳层的 PullToRefresh）。
+ * 移动端下拉刷新。
  *
  * - 仅触屏设备启用（pointer: coarse / hover: none / maxTouchPoints>0），
  *   桌面端原样渲染 children，零开销

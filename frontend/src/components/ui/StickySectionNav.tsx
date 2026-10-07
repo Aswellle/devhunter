@@ -1,6 +1,6 @@
 /**
  * StickySectionNav.tsx
- * 粘性锚点导航（借鉴 AIHOT 事件详情页的 PillTabs + scroll-spy）。
+ * 粘性锚点导航：PillTabs 风格 + scroll-spy。
  *
  * - 吸顶于滚动容器（#main-content）顶部，毛玻璃底
  * - scroll-spy：滚动时高亮当前分区；点按平滑滚到分区（尊重

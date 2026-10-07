@@ -60,7 +60,7 @@ function ThreadStatusBadge({ lastSeenAt }: { lastSeenAt: string }) {
 
 /**
  * 「为什么聚为一个 Thread」画像条：
- * 用一句自然语言 + 三个指标 chip 解释聚合依据（AIHOT "为什么热" 的本地化）。
+ * 用一句自然语言 + 三个指标 chip 解释聚合依据。
  */
 function ThreadStatsBand({ stats }: { stats: ThreadStats }) {
   const pct = stats.similarity_avg != null ? Math.round(stats.similarity_avg * 100) : null

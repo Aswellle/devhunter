@@ -1,0 +1,37 @@
+INFO:     Will watch for changes in these directories: ['D:\\Chrome_Downloads\\AI_Coding\\11.DevHunter\\SRC\\devhunter\\backend']
+INFO:     Uvicorn running on http://0.0.0.0:18100 (Press CTRL+C to quit)
+INFO:     Started reloader process [30176] using WatchFiles
+INFO:     Started server process [29228]
+INFO:     Waiting for application startup.
+{"timestamp": "2026-10-07T17:05:51", "level": "INFO", "logger": "app.main", "message": "DevHunter starting up (env=development)", "request_id": "system"}
+{"timestamp": "2026-10-07T17:05:51", "level": "INFO", "logger": "app.core.database", "message": "Running migration: 001_init.sql", "request_id": "system"}
+{"timestamp": "2026-10-07T17:05:51", "level": "INFO", "logger": "app.core.database", "message": "Running migration: 002_fts.sql", "request_id": "system"}
+{"timestamp": "2026-10-07T17:05:51", "level": "INFO", "logger": "app.core.database", "message": "Running migration: 003_threads.sql", "request_id": "system"}
+{"timestamp": "2026-10-07T17:05:51", "level": "INFO", "logger": "app.core.database", "message": "Running migration: 004_user_prefs.sql", "request_id": "system"}
+{"timestamp": "2026-10-07T17:05:51", "level": "INFO", "logger": "app.core.database", "message": "Running migration: 005_pagination.sql", "request_id": "system"}
+{"timestamp": "2026-10-07T17:05:51", "level": "INFO", "logger": "app.core.database", "message": "Running migration: 006_execution_running_status.sql", "request_id": "system"}
+{"timestamp": "2026-10-07T17:05:51", "level": "INFO", "logger": "app.core.database", "message": "Running migration: 007_user_topics_unique.sql", "request_id": "system"}
+{"timestamp": "2026-10-07T17:05:51", "level": "INFO", "logger": "app.core.database", "message": "Running migration: 008_fk_cascade.sql", "request_id": "system"}
+{"timestamp": "2026-10-07T17:05:51", "level": "INFO", "logger": "app.core.database", "message": "Running migration: 009_missing_indices.sql", "request_id": "system"}
+{"timestamp": "2026-10-07T17:05:51", "level": "INFO", "logger": "app.core.database", "message": "Running migration: 010_execution_events.sql", "request_id": "system"}
+{"timestamp": "2026-10-07T17:05:51", "level": "INFO", "logger": "app.core.database", "message": "Running migration: 011_source_templates.sql", "request_id": "system"}
+{"timestamp": "2026-10-07T17:05:51", "level": "INFO", "logger": "app.core.database", "message": "Running migration: 012_items_extended.sql", "request_id": "system"}
+{"timestamp": "2026-10-07T17:05:51", "level": "INFO", "logger": "app.core.database", "message": "Running migration: 013_tasks_config_snapshot.sql", "request_id": "system"}
+{"timestamp": "2026-10-07T17:05:51", "level": "INFO", "logger": "app.core.database", "message": "Running migration: 014_source_templates_sharing.sql", "request_id": "system"}
+{"timestamp": "2026-10-07T17:05:51", "level": "INFO", "logger": "app.core.database", "message": "Running migration: 015_execution_recovery_and_metrics.sql", "request_id": "system"}
+{"timestamp": "2026-10-07T17:05:51", "level": "INFO", "logger": "app.core.database", "message": "Running migration: 016_items_dedup_and_stable_pagination.sql", "request_id": "system"}
+{"timestamp": "2026-10-07T17:05:51", "level": "INFO", "logger": "app.core.database", "message": "Running migration: 017_thread_algorithm_version.sql", "request_id": "system"}
+{"timestamp": "2026-10-07T17:05:51", "level": "INFO", "logger": "app.core.database", "message": "Running migration: 018_recommendation_r1_r2_r3.sql", "request_id": "system"}
+{"timestamp": "2026-10-07T17:05:51", "level": "INFO", "logger": "app.core.database", "message": "Running migration: 019_execution_event_sequence.sql", "request_id": "system"}
+{"timestamp": "2026-10-07T17:05:51", "level": "INFO", "logger": "app.core.database", "message": "Running migration: 020_restore_items_fts_triggers.sql", "request_id": "system"}
+{"timestamp": "2026-10-07T17:05:51", "level": "INFO", "logger": "app.core.database", "message": "Running migration: 021_content_kind.sql", "request_id": "system"}
+{"timestamp": "2026-10-07T17:05:51", "level": "INFO", "logger": "app.core.database", "message": "Database initialized at: data/devhunter.db", "request_id": "system"}
+{"timestamp": "2026-10-07T17:05:51", "level": "INFO", "logger": "app.scheduler.manager", "message": "Scheduler started (max_workers=3)", "request_id": "system"}
+{"timestamp": "2026-10-07T17:05:51", "level": "INFO", "logger": "app.scheduler.manager", "message": "Restored 1 scheduler jobs from DB", "request_id": "system"}
+{"timestamp": "2026-10-07T17:05:51", "level": "INFO", "logger": "app.main", "message": "DevHunter ready on port 18100", "request_id": "system"}
+{"timestamp": "2026-10-07T17:05:51", "level": "INFO", "logger": "mcp.server.streamable_http_manager", "message": "StreamableHTTP session manager started", "request_id": "system"}
+INFO:     Application startup complete.
+{"timestamp": "2026-10-07T17:06:45", "level": "INFO", "logger": "app.services.thread_service", "message": "Thread compute: skipped 37 catalog-kind items (no clustering for catalog sources)", "request_id": "system"}
+{"timestamp": "2026-10-07T17:06:45", "level": "INFO", "logger": "app.services.thread_service", "message": "Thread recompute done: 37 items -> 0 threads in 15ms (window=24h)", "request_id": "system"}
+WARNING:  WatchFiles detected changes in 'app\core\config.py'. Reloading...
+ 

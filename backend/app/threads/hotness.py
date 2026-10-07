@@ -1,6 +1,6 @@
 """
 app/threads/hotness.py
-Thread 热度模型（借鉴 AIHOT 的热度口径，本地化为派生指标）。
+Thread 热度模型：派生指标，读取时从条目数据计算，不落库。
 
 定义：
     hotness = Σ_平台 2^(-该平台最新条目年龄 / 24h)
