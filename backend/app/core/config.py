@@ -67,6 +67,8 @@ class Settings(BaseSettings):
     llm_api_key: str = ""
     llm_base_url: str = "https://api.deepseek.com"
     llm_model: str = "deepseek-chat"
+    # API 协议：openai（OpenAI 兼容 /chat/completions）或 anthropic（/v1/messages）
+    llm_api_protocol: Literal["openai", "anthropic"] = "openai"
     # 每日（UTC）token 预算：输入+输出累计超过即熔断，次日自动恢复
     llm_daily_token_budget: int = 200_000
     llm_timeout: float = 60.0

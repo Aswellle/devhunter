@@ -4,6 +4,7 @@ LLM 接入配置 API 测试：认证、三态保存语义、密钥脱敏、连�
 """
 import httpx
 import pytest
+import uuid
 from fastapi.testclient import TestClient
 
 from app.core import config
@@ -152,6 +153,50 @@ class TestConfigStatusAndSave:
                       "consecutive_failures", "max_consecutive_failures"):
             assert field in usage
 
+    def test_save_protocol_override(self):
+        data = client.put(
+            "/api/llm/config", headers=_auth_headers(), json={"api_protocol": "anthropic"},
+        ).json()
+        assert "llm_api_protocol" in data["overrides"]
+        assert data["api_protocol"] == "anthropic"
+        assert client.get("/api/llm/config", headers=_auth_headers()).json()["api_protocol"] == "anthropic"
+
+    def test_invalid_protocol_rejected(self):
+        assert client.put(
+            "/api/llm/config", headers=_auth_headers(), json={"api_protocol": "grpc"},
+        ).status_code == 422
+
+
+class TestModelsEndpoint:
+
+    def test_requires_auth(self):
+        assert client.post("/api/llm/models", json={}).status_code == 401
+
+    def test_lists_models_from_provider(self):
+        llm_provider.set_test_transport(httpx.MockTransport(
+            lambda request: httpx.Response(200, json={"data": [{"id": "m-2"}, {"id": "m-1"}]}),
+        ))
+        data = client.post("/api/llm/models", headers=_auth_headers(), json={
+            "api_key": "k", "base_url": "https://x.example/v1", "api_protocol": "openai",
+        }).json()
+        assert data["ok"] is True
+        assert data["models"] == ["m-1", "m-2"]
+
+    def test_blank_fields_fall_back_to_saved_config(self):
+        client.put("/api/llm/config", headers=_auth_headers(), json={
+            "api_key": "saved-key", "base_url": "https://saved.example/v1",
+        })
+        seen: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            seen.append(request)
+            return httpx.Response(200, json={"data": [{"id": "m"}]})
+
+        llm_provider.set_test_transport(httpx.MockTransport(handler))
+        data = client.post("/api/llm/models", headers=_auth_headers(), json={}).json()
+        assert data["ok"] is True
+        assert seen[0].headers["Authorization"] == "Bearer saved-key"
+
 
 class TestConnectionEndpoint:
 
@@ -216,6 +261,7 @@ class TestReceiptsEndpoint:
         assert data["today"]["done"] >= 1
         assert data["today"]["failed"] >= 1
         assert data["today"]["tokens"] >= 150
+        assert data["total"] >= 2
 
         receipts = data["receipts"]
         assert receipts[0]["created_at"] >= receipts[-1]["created_at"]
@@ -223,6 +269,26 @@ class TestReceiptsEndpoint:
         assert done["input_tokens"] == 120 and done["output_tokens"] == 30
         failed = next(r for r in receipts if r["status"] == "failed")
         assert failed["error"] == "boom"
+
+    def test_pagination(self):
+        """分页参数：offset 跳页，total 供计算页数"""
+        ids = []
+        for i in range(5):
+            rid = model_receipt_repo.create_pending("thread_digest", "m", f"h-page-{uuid.uuid4().hex}")
+            ids.append(rid)
+            model_receipt_repo.complete(rid, "x", 1, 1, 1)
+
+        page1 = client.get(
+            "/api/llm/receipts?limit=2&offset=0", headers=_auth_headers()).json()
+        page3 = client.get(
+            "/api/llm/receipts?limit=2&offset=4", headers=_auth_headers()).json()
+
+        assert page1["total"] >= 5
+        assert len(page1["receipts"]) == 2
+        assert len(page3["receipts"]) >= 1
+        page1_ids = {r["id"] for r in page1["receipts"]}
+        page3_ids = {r["id"] for r in page3["receipts"]}
+        assert not (page1_ids & page3_ids), "不同页不应出现相同回执"
 
     def test_limit_clamped(self):
         response = client.get("/api/llm/receipts?limit=0", headers=_auth_headers())

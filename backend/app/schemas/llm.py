@@ -26,10 +26,11 @@ class LLMConfigStatus(BaseModel):
     configured: bool
     # api_key 来源：db（界面配置）/ env（环境变量）/ none（未配置）
     source: Literal["db", "env", "none"]
-    # 界面已覆盖的字段名（llm_api_key / llm_base_url / llm_model）
+    # 界面已覆盖的字段名（llm_api_key / llm_base_url / llm_model / ...）
     overrides: list[str] = []
     base_url: str
     model: str
+    api_protocol: Literal["openai", "anthropic"]
     api_key_masked: str | None = None
     # 环境变量中是否存在密钥（提示用户界面配置会覆盖它）
     env_key_present: bool = False
@@ -38,9 +39,9 @@ class LLMConfigStatus(BaseModel):
 
 class LLMConfigUpdate(BaseModel):
     """
-    保存/测试 LLM 接入配置。
+    保存/测试/拉取模型列表的请求体。
 
-    - 字段缺失或为 null：保存时表示"不改动该字段"；测试时表示"沿用当前生效值"
+    - 字段缺失或为 null：保存时表示"不改动该字段"；测试/拉取时表示"沿用当前生效值"
     - 字段为空字符串：保存时表示"清除该字段的界面覆盖"，回落环境变量
     - daily_token_budget 为整数：null 不改动；设值即覆盖（回落默认用"清除配置"）
     """
@@ -49,6 +50,7 @@ class LLMConfigUpdate(BaseModel):
     api_key: str | None = Field(None, max_length=400)
     base_url: str | None = Field(None, max_length=300)
     model: str | None = Field(None, max_length=120)
+    api_protocol: Literal["openai", "anthropic"] | None = None
     daily_token_budget: int | None = Field(None, ge=1000, le=100_000_000)
 
     @field_validator("base_url")
@@ -67,6 +69,14 @@ class LLMTestResult(BaseModel):
     latency_ms: int | None = None
 
 
+class LLMModelsResult(BaseModel):
+    """模型列表拉取结果：models 供用户点选"""
+    ok: bool
+    message: str
+    models: list[str] = []
+    latency_ms: int | None = None
+
+
 # ── 用量与回执 ────────────────────────────────────────────
 
 class LLMUsageSummary(BaseModel):
@@ -79,6 +89,7 @@ class LLMUsageSummary(BaseModel):
 
 class LLMReceiptItem(BaseModel):
     """单条付费回执"""
+    id: str
     purpose: str
     model: str
     status: Literal["pending", "done", "failed"]
@@ -90,6 +101,7 @@ class LLMReceiptItem(BaseModel):
 
 
 class LLMReceiptsResponse(BaseModel):
-    """用量查询响应：当日汇总 + 最近回执"""
+    """用量查询响应：当日汇总 + 回执分页"""
     today: LLMUsageSummary
     receipts: list[LLMReceiptItem]
+    total: int

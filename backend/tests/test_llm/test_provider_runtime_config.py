@@ -85,6 +85,105 @@ class TestRuntimeConfig:
         assert llm_provider.is_configured() is False
 
 
+class TestAnthropicProtocol:
+    """Anthropic Messages 协议：请求形态与响应解析"""
+
+    def test_chat_request_shape_and_parsing(self, monkeypatch):
+        monkeypatch.setattr(config.settings, "llm_api_key", "")
+        app_settings_repo.set("llm_api_key", "ak-key")
+        app_settings_repo.set("llm_base_url", "https://anthropic.example")
+        app_settings_repo.set("llm_model", "claude-model")
+        app_settings_repo.set("llm_api_protocol", "anthropic")
+        calls: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            calls.append(request)
+            return httpx.Response(200, json={
+                "content": [
+                    {"type": "thinking", "thinking": "推理过程"},
+                    {"type": "text", "text": "最终"},
+                    {"type": "text", "text": "回答"},
+                ],
+                "usage": {"input_tokens": 11, "output_tokens": 7},
+            })
+
+        llm_provider.set_test_transport(httpx.MockTransport(handler))
+        assert llm_provider.chat("p", "系统提示", "t") == "最终回答"
+        assert str(calls[0].url) == "https://anthropic.example/v1/messages"
+        assert calls[0].headers["Authorization"] == "Bearer ak-key"
+        assert calls[0].headers["anthropic-version"] == "2023-06-01"
+        body = json.loads(calls[0].content)
+        assert body["model"] == "claude-model"
+        assert body["system"] == "系统提示", "Anthropic 协议 system 是顶层参数"
+        assert body["messages"] == [{"role": "user", "content": "p"}]
+        assert "max_tokens" in body
+
+    def test_empty_system_omitted(self, monkeypatch):
+        monkeypatch.setattr(config.settings, "llm_api_key", "")
+        app_settings_repo.set("llm_api_key", "ak-key")
+        app_settings_repo.set("llm_api_protocol", "anthropic")
+        calls: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            calls.append(request)
+            return httpx.Response(200, json={
+                "content": [{"type": "text", "text": "OK"}],
+                "usage": {"input_tokens": 1, "output_tokens": 1},
+            })
+
+        llm_provider.set_test_transport(httpx.MockTransport(handler))
+        assert llm_provider.chat("p", "", "t") == "OK"
+        assert "system" not in json.loads(calls[0].content), "空 system 不应下发"
+
+
+class TestListModels:
+    """模型列表拉取（诊断动作）"""
+
+    def test_openai_style_sorted(self):
+        calls: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            calls.append(request)
+            return httpx.Response(200, json={"data": [
+                {"id": "model-b"}, {"id": "model-a"}, {"id": "model-c"},
+            ]})
+
+        llm_provider.set_test_transport(httpx.MockTransport(handler))
+        result = llm_provider.list_models("k", "https://x.example/v1", "openai")
+        assert result["ok"] is True
+        assert result["models"] == ["model-a", "model-b", "model-c"]
+        assert str(calls[0].url) == "https://x.example/v1/models"
+
+    def test_anthropic_style(self):
+        calls: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            calls.append(request)
+            return httpx.Response(200, json={"data": [{"id": "claude-x"}]})
+
+        llm_provider.set_test_transport(httpx.MockTransport(handler))
+        result = llm_provider.list_models("k", "https://x.example", "anthropic")
+        assert result["models"] == ["claude-x"]
+        assert str(calls[0].url) == "https://x.example/v1/models"
+        assert calls[0].headers["anthropic-version"] == "2023-06-01"
+
+    def test_401_friendly(self):
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(401, text="unauthorized")
+
+        llm_provider.set_test_transport(httpx.MockTransport(handler))
+        result = llm_provider.list_models("bad", "https://x.example/v1", "openai")
+        assert result["ok"] is False
+        assert "密钥" in result["message"]
+        assert result["models"] == []
+
+    def test_missing_key_short_circuits(self):
+        llm_provider.set_test_transport(None)
+        result = llm_provider.list_models("", "https://x.example/v1", "openai")
+        assert result["ok"] is False
+        assert "API Key" in result["message"]
+
+
 class TestConnectionDiagnostic:
 
     def test_success_reports_latency(self):
@@ -115,7 +214,7 @@ class TestConnectionDiagnostic:
 
         result = llm_provider.test_connection("k", "https://x.example", "m")
         assert result["ok"] is False
-        assert "Base URL" in result["message"]
+        assert "接口地址" in result["message"]
 
     def test_connect_error_friendly(self):
         def handler(request: httpx.Request) -> httpx.Response:

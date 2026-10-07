@@ -18,8 +18,12 @@ LLM_SETTING_KEYS = (
     "llm_api_key",
     "llm_base_url",
     "llm_model",
+    "llm_api_protocol",
     "llm_daily_token_budget",
 )
+
+# 支持的 API 协议
+LLM_PROTOCOLS = ("openai", "anthropic")
 
 
 def utc_day_start_iso() -> str:
@@ -33,6 +37,8 @@ class EffectiveLLMConfig:
     base_url: str
     model: str
     daily_budget: int
+    # API 协议：openai（/chat/completions）或 anthropic（/v1/messages）
+    api_protocol: str
     # api_key 的来源：db（界面配置）/ env（环境变量）/ none（未配置）
     source: str
 
@@ -56,11 +62,16 @@ def resolve_llm_config() -> EffectiveLLMConfig:
     else:
         source = "none"
 
+    protocol = overrides["llm_api_protocol"] or settings.llm_api_protocol
+    if protocol not in LLM_PROTOCOLS:
+        protocol = "openai"
+
     return EffectiveLLMConfig(
         api_key=overrides["llm_api_key"] or settings.llm_api_key or "",
         base_url=overrides["llm_base_url"] or settings.llm_base_url,
         model=overrides["llm_model"] or settings.llm_model,
         daily_budget=_int_or(overrides["llm_daily_token_budget"], settings.llm_daily_token_budget),
+        api_protocol=protocol,
         source=source,
     )
 

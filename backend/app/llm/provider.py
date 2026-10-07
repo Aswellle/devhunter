@@ -1,6 +1,6 @@
 """
 app/llm/provider.py
-LLM 调用基础设施：OpenAI 兼容 Chat Completions + 付费回执纪律。
+LLM 调用基础设施：OpenAI 兼容 / Anthropic 两种 API 协议 + 付费回执纪律。
 
 付费纪律（四条，全部在 chat() 内强制执行）：
 1. 回执先行 —— 调用前落 pending 回执，成功补全结果；崩溃/重启不丢"已付费"账
@@ -10,7 +10,7 @@ LLM 调用基础设施：OpenAI 兼容 Chat Completions + 付费回执纪律。
    防止服务端故障时重试烧钱
 
 配置来源：每次调用实时解析有效配置（llm.config.resolve_llm_config，界面保存值
-优先于环境变量），用户在界面改 Key/换服务商后立即生效，无需重启。
+优先于环境变量），用户在界面改 Key/换服务商/换协议后立即生效，无需重启。
 
 未配置 api_key 时全链路静默关闭：chat() 返回 None，调用方优雅降级，
 页面不出现任何 LLM 相关 UI。
@@ -30,13 +30,28 @@ from app.llm.receipt_repo import model_receipt_repo
 
 logger = logging.getLogger(__name__)
 
+_ANTHROPIC_VERSION = "2023-06-01"
+
 
 def _prompt_hash(model: str, system: str, prompt: str) -> str:
     return hashlib.sha256(f"{model}\x00{system}\x00{prompt}".encode("utf-8")).hexdigest()
 
 
+def _friendly_http_error(status_code: int, body_text: str) -> str:
+    """HTTP 状态码 → 用户可读的中文提示（配置页诊断用）"""
+    if status_code in (401, 403):
+        return "密钥无效或无权限，请检查 API Key"
+    if status_code == 404:
+        return "接口路径不存在，请确认接口地址与协议是否匹配"
+    if status_code == 429:
+        return "触发服务端限流或额度不足"
+    if status_code >= 500:
+        return f"服务端错误（HTTP {status_code}），请稍后重试"
+    return f"请求被拒绝（HTTP {status_code}）：{body_text[:120]}"
+
+
 class LLMProvider:
-    """OpenAI 兼容 Chat Completions 客户端（带付费纪律）"""
+    """LLM 客户端（OpenAI 兼容 / Anthropic 协议，带付费纪律）"""
 
     def __init__(self) -> None:
         self._client: httpx.Client | None = None
@@ -112,6 +127,78 @@ class LLMProvider:
                     )
         return self._client
 
+    def _openai_chat(
+        self, api_key: str, base_url: str, model: str,
+        system: str, prompt: str, max_tokens: int, temperature: float,
+    ) -> tuple[str, int, int]:
+        """OpenAI 兼容协议：POST {base}/chat/completions → (正文, 输入, 输出)"""
+        response = self._get_client().post(
+            base_url.rstrip("/") + "/chat/completions",
+            headers={"Authorization": f"Bearer {api_key}"},
+            json={
+                "model": model,
+                "messages": [
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": prompt},
+                ],
+                "max_tokens": max_tokens,
+                "temperature": temperature,
+            },
+        )
+        response.raise_for_status()
+        data = response.json()
+        text = (data.get("choices") or [{}])[0].get("message", {}).get("content", "") or ""
+        usage = data.get("usage") or {}
+        return (
+            text.strip(),
+            int(usage.get("prompt_tokens") or 0),
+            int(usage.get("completion_tokens") or 0),
+        )
+
+    def _anthropic_chat(
+        self, api_key: str, base_url: str, model: str,
+        system: str, prompt: str, max_tokens: int, temperature: float,
+    ) -> tuple[str, int, int]:
+        """Anthropic Messages 协议：POST {base}/v1/messages → (正文, 输入, 输出)"""
+        payload: dict = {
+            "model": model,
+            "messages": [{"role": "user", "content": prompt}],
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+        }
+        if system:
+            payload["system"] = system
+        response = self._get_client().post(
+            base_url.rstrip("/") + "/v1/messages",
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "anthropic-version": _ANTHROPIC_VERSION,
+            },
+            json=payload,
+        )
+        response.raise_for_status()
+        data = response.json()
+        text = "".join(
+            block.get("text", "")
+            for block in (data.get("content") or [])
+            if isinstance(block, dict) and block.get("type") == "text"
+        )
+        usage = data.get("usage") or {}
+        return (
+            text.strip(),
+            int(usage.get("input_tokens") or 0),
+            int(usage.get("output_tokens") or 0),
+        )
+
+    def _chat_via(
+        self, api_protocol: str, api_key: str, base_url: str, model: str,
+        system: str, prompt: str, max_tokens: int, temperature: float,
+    ) -> tuple[str, int, int]:
+        """按协议分派对话请求 → (正文, 输入 tokens, 输出 tokens)"""
+        if api_protocol == "anthropic":
+            return self._anthropic_chat(api_key, base_url, model, system, prompt, max_tokens, temperature)
+        return self._openai_chat(api_key, base_url, model, system, prompt, max_tokens, temperature)
+
     # ── 主入口 ───────────────────────────────────────
 
     def chat(
@@ -159,27 +246,12 @@ class LLMProvider:
         receipt_id = model_receipt_repo.create_pending(purpose, cfg.model, prompt_hash)
         started = time.monotonic()
         try:
-            response = self._get_client().post(
-                cfg.base_url.rstrip("/") + "/chat/completions",
-                headers={"Authorization": f"Bearer {cfg.api_key}"},
-                json={
-                    "model": cfg.model,
-                    "messages": [
-                        {"role": "system", "content": system},
-                        {"role": "user", "content": prompt},
-                    ],
-                    "max_tokens": max_tokens,
-                    "temperature": 0.3,
-                },
+            text, input_tokens, output_tokens = self._chat_via(
+                cfg.api_protocol, cfg.api_key, cfg.base_url, cfg.model,
+                system, prompt, max_tokens, 0.3,
             )
-            response.raise_for_status()
-            data = response.json()
-            text = (data.get("choices") or [{}])[0].get("message", {}).get("content", "").strip()
             if not text:
                 raise ValueError("empty completion")
-            usage = data.get("usage") or {}
-            input_tokens = int(usage.get("prompt_tokens") or 0)
-            output_tokens = int(usage.get("completion_tokens") or 0)
             duration_ms = int((time.monotonic() - started) * 1000)
 
             model_receipt_repo.complete(receipt_id, text, input_tokens, output_tokens, duration_ms)
@@ -203,7 +275,9 @@ class LLMProvider:
 
     # ── 连通性诊断 ───────────────────────────────────
 
-    def test_connection(self, api_key: str, base_url: str, model: str) -> dict:
+    def test_connection(
+        self, api_key: str, base_url: str, model: str, api_protocol: str = "openai",
+    ) -> dict:
         """
         配置页的"测试连接"：用给定参数发一次极小请求（max_tokens=16）。
 
@@ -220,19 +294,10 @@ class LLMProvider:
 
         started = time.monotonic()
         try:
-            response = self._get_client().post(
-                base_url.rstrip("/") + "/chat/completions",
-                headers={"Authorization": f"Bearer {api_key}"},
-                json={
-                    "model": model,
-                    "messages": [{"role": "user", "content": "连接测试，请回复：OK"}],
-                    "max_tokens": 16,
-                    "temperature": 0,
-                },
+            sample, _, _ = self._chat_via(
+                api_protocol, api_key, base_url, model,
+                "", "连接测试，请回复：OK", 16, 0,
             )
-            response.raise_for_status()
-            data = response.json()
-            sample = ((data.get("choices") or [{}])[0].get("message", {}).get("content", "") or "").strip()
             message = "连接成功"
             if sample:
                 message += f"，模型回复：{sample[:40]}"
@@ -242,22 +307,68 @@ class LLMProvider:
                 False, "连接超时，请检查接口地址与网络后重试", model, started)
         except httpx.TransportError:
             return self._test_result(
-                False, "无法连接到接口地址，请检查 Base URL 与网络", model, started)
+                False, "无法连接到接口地址，请检查接口地址与网络", model, started)
         except httpx.HTTPStatusError as e:
-            code = e.response.status_code
-            if code in (401, 403):
-                message = "密钥无效或无权限，请检查 API Key"
-            elif code == 404:
-                message = "接口路径不存在，请确认 Base URL（通常需以 /v1 结尾）"
-            elif code == 429:
-                message = "触发服务端限流或额度不足"
-            elif code >= 500:
-                message = f"服务端错误（HTTP {code}），请稍后重试"
-            else:
-                message = f"请求被拒绝（HTTP {code}）：{e.response.text[:120]}"
-            return self._test_result(False, message, model, started)
+            return self._test_result(
+                False, _friendly_http_error(e.response.status_code, e.response.text), model, started)
         except Exception as e:  # noqa: BLE001 —— 诊断入口必须给出可读结果而非 500
             return self._test_result(False, f"测试失败：{e}", model, started)
+
+    def list_models(self, api_key: str, base_url: str, api_protocol: str = "openai") -> dict:
+        """
+        用给定参数拉取服务商的可用模型列表（模型选择用）。
+
+        诊断动作：不写回执、不计入预算与失败熔断。
+        返回 {ok, message, models, latency_ms}
+        """
+        if not api_key:
+            return {"ok": False, "message": "请先填写 API Key", "models": [], "latency_ms": None}
+        if not base_url:
+            return {"ok": False, "message": "请先填写接口地址", "models": [], "latency_ms": None}
+
+        started = time.monotonic()
+        if api_protocol == "anthropic":
+            url = base_url.rstrip("/") + "/v1/models"
+            headers = {
+                "Authorization": f"Bearer {api_key}",
+                "anthropic-version": _ANTHROPIC_VERSION,
+            }
+        else:
+            url = base_url.rstrip("/") + "/models"
+            headers = {"Authorization": f"Bearer {api_key}"}
+
+        try:
+            response = self._get_client().get(url, headers=headers)
+            response.raise_for_status()
+            data = response.json()
+            items = data.get("data") or data.get("models") or []
+            models = []
+            for item in items:
+                model_id = item.get("id") or item.get("name") if isinstance(item, dict) else str(item)
+                if model_id:
+                    models.append(str(model_id))
+            models.sort()
+            message = f"获取到 {len(models)} 个模型" if models else "服务商未返回任何模型，请手动填写模型名称"
+            return {
+                "ok": True,
+                "message": message,
+                "models": models,
+                "latency_ms": int((time.monotonic() - started) * 1000),
+            }
+        except httpx.TimeoutException:
+            return {"ok": False, "message": "连接超时，请检查接口地址与网络后重试", "models": [],
+                    "latency_ms": int((time.monotonic() - started) * 1000)}
+        except httpx.TransportError:
+            return {"ok": False, "message": "无法连接到接口地址，请检查接口地址与网络", "models": [],
+                    "latency_ms": int((time.monotonic() - started) * 1000)}
+        except httpx.HTTPStatusError as e:
+            return {"ok": False,
+                    "message": _friendly_http_error(e.response.status_code, e.response.text),
+                    "models": [],
+                    "latency_ms": int((time.monotonic() - started) * 1000)}
+        except Exception as e:  # noqa: BLE001 —— 诊断入口必须给出可读结果而非 500
+            return {"ok": False, "message": f"获取失败：{e}", "models": [],
+                    "latency_ms": int((time.monotonic() - started) * 1000)}
 
     @staticmethod
     def _test_result(ok: bool, message: str, model: str, started: float) -> dict:

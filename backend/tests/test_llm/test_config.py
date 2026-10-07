@@ -52,6 +52,28 @@ class TestResolve:
         assert cfg.source == "db"
 
 
+class TestProtocolResolution:
+
+    def test_default_openai(self, monkeypatch):
+        monkeypatch.setattr(config.settings, "llm_api_protocol", "openai")
+        assert resolve_llm_config().api_protocol == "openai"
+
+    def test_env_anthropic(self, monkeypatch):
+        monkeypatch.setattr(config.settings, "llm_api_protocol", "anthropic")
+        assert resolve_llm_config().api_protocol == "anthropic"
+
+    def test_db_override(self, monkeypatch):
+        monkeypatch.setattr(config.settings, "llm_api_protocol", "openai")
+        app_settings_repo.set("llm_api_protocol", "anthropic")
+        assert resolve_llm_config().api_protocol == "anthropic"
+
+    def test_invalid_value_falls_back_to_openai(self, monkeypatch):
+        """库中的非法协议值（如手工改动）不应炸掉解析"""
+        monkeypatch.setattr(config.settings, "llm_api_protocol", "openai")
+        app_settings_repo.set("llm_api_protocol", "grpc")
+        assert resolve_llm_config().api_protocol == "openai"
+
+
 class TestBudgetResolution:
 
     def test_env_fallback(self, monkeypatch):

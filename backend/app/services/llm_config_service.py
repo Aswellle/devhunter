@@ -35,6 +35,7 @@ class LLMConfigService:
             "overrides": overrides,
             "base_url": cfg.base_url,
             "model": cfg.model,
+            "api_protocol": cfg.api_protocol,
             "api_key_masked": mask_secret(cfg.api_key),
             "env_key_present": bool(settings.llm_api_key),
             "usage": llm_provider.status(),
@@ -53,6 +54,8 @@ class LLMConfigService:
             if settings_key == "llm_base_url":
                 value = value.rstrip("/")
             app_settings_repo.set(settings_key, value)
+        if payload.api_protocol is not None:
+            app_settings_repo.set("llm_api_protocol", payload.api_protocol)
         if payload.daily_token_budget is not None:
             app_settings_repo.set("llm_daily_token_budget", str(payload.daily_token_budget))
         return self.get_status()
@@ -70,13 +73,24 @@ class LLMConfigService:
             api_key=(payload.api_key or "").strip() or cfg.api_key,
             base_url=(payload.base_url or "").strip() or cfg.base_url,
             model=(payload.model or "").strip() or cfg.model,
+            api_protocol=payload.api_protocol or cfg.api_protocol,
         )
 
-    def usage(self, limit: int = 30) -> dict:
-        """当日调用汇总 + 最近付费回执（运维/用量页展示）"""
+    def list_models(self, payload: LLMConfigUpdate) -> dict:
+        """用表单参数（空白处沿用生效值）拉取服务商可用模型列表"""
+        cfg = resolve_llm_config()
+        return llm_provider.list_models(
+            api_key=(payload.api_key or "").strip() or cfg.api_key,
+            base_url=(payload.base_url or "").strip() or cfg.base_url,
+            api_protocol=payload.api_protocol or cfg.api_protocol,
+        )
+
+    def usage(self, limit: int = 10, offset: int = 0) -> dict:
+        """当日调用汇总 + 回执分页（含失败原因）"""
         return {
             "today": model_receipt_repo.usage_summary(utc_day_start_iso()),
-            "receipts": model_receipt_repo.stats(limit=limit),
+            "receipts": model_receipt_repo.stats(limit=limit, offset=offset),
+            "total": model_receipt_repo.count_all(),
         }
 
 

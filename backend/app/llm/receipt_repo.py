@@ -103,18 +103,24 @@ class ModelReceiptRepository:
             "tokens": int(row["tokens"]),
         }
 
-    def stats(self, limit: int = 50) -> list[dict[str, Any]]:
-        """最近回执（运维诊断用）"""
+    def stats(self, limit: int = 50, offset: int = 0) -> list[dict[str, Any]]:
+        """最近回执（分页，created_at 倒序）"""
         with get_db() as conn:
             rows = conn.execute(
                 """
                 SELECT id, purpose, model, status, input_tokens, output_tokens,
                        duration_ms, error, created_at
-                FROM model_receipts ORDER BY created_at DESC LIMIT ?
+                FROM model_receipts ORDER BY created_at DESC LIMIT ? OFFSET ?
                 """,
-                (limit,),
+                (limit, offset),
             ).fetchall()
         return [dict(r) for r in rows]
+
+    def count_all(self) -> int:
+        """回执总数（分页用）"""
+        with get_db() as conn:
+            row = conn.execute("SELECT COUNT(*) AS n FROM model_receipts").fetchone()
+        return int(row["n"])
 
 
 # 全局单例
