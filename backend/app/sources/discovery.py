@@ -80,7 +80,10 @@ class URLDiscoverer:
             # 1. 获取页面
             response = self._fetch(url)
             if not response:
-                result.errors.append("Failed to fetch URL")
+                result.errors.append(
+                    "无法访问该 URL：请检查网址是否正确、站点是否可访问；"
+                    "内网/保留地址会被安全策略拦截"
+                )
                 return result
 
             content_type = response.headers.get("content-type", "")

@@ -92,7 +92,8 @@ class PreviewExtractor:
             "summary": discovery.summary_selector or "p",
         }
 
-        crawl_result = fetch_and_parse(url, selectors)
+        # 预览不做关键词过滤，全量展示
+        crawl_result = fetch_and_parse(url, selectors, [])
 
         if crawl_result.error:
             result.error = crawl_result.error
@@ -122,7 +123,7 @@ class PreviewExtractor:
             "summary": "rss:description",
         }
 
-        crawl_result = fetch_and_parse(url, selectors)
+        crawl_result = fetch_and_parse(url, selectors, [])
 
         if crawl_result.error:
             result.error = crawl_result.error
@@ -153,7 +154,7 @@ class PreviewExtractor:
             "summary": "description",
         }
 
-        crawl_result = fetch_and_parse(url, selectors)
+        crawl_result = fetch_and_parse(url, selectors, [])
 
         if crawl_result.error:
             result.error = crawl_result.error

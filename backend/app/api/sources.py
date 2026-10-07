@@ -108,7 +108,13 @@ def preview_source(
     discovery_data = body.discovery_result
     discovery_result = None
     if discovery_data:
-        discovery_result = DiscoveryResult(**discovery_data)
+        try:
+            discovery_result = DiscoveryResult(**discovery_data)
+        except TypeError as e:
+            raise HTTPException(
+                status_code=400,
+                detail={"code": "INVALID_DISCOVERY", "message": f"发现结果格式不正确: {e}"},
+            )
 
     result = preview_extractor.preview(url, discovery_result)
     return result.to_dict()
@@ -153,41 +159,29 @@ def create_source(
         "cron_expression": "..."
     }
     """
-    name = body.name
-    if not name:
-        raise HTTPException(status_code=400, detail="Name is required")
-
-    source_url = body.source_url
-    if not source_url:
-        raise HTTPException(status_code=400, detail="source_url is required")
-
-    selectors = body.selectors
-    keywords = body.keywords
-    cron_expression = body.cron_expression
-
     # 构建 config
     config = {
-        "source": {"url": source_url},
+        "source": {"url": body.source_url},
         "fields": {
-            "list": selectors.get("list", ""),
-            "title": selectors.get("title", ""),
-            "link": selectors.get("link", ""),
-            "summary": selectors.get("summary"),
+            "list": body.selectors.get("list", ""),
+            "title": body.selectors.get("title", ""),
+            "link": body.selectors.get("link", ""),
+            "summary": body.selectors.get("summary"),
         },
         "schedule": {
-            "recommended": cron_expression,
+            "recommended": body.cron_expression,
         },
     }
 
     # 创建模板
     template = template_registry.create({
         "id": str(uuid.uuid4()),
-        "name": name,
+        "name": body.name,
         "kind": "custom",
         "config": config,
         "status": "draft",
-        "category": body.get("category"),
-        "tags": body.get("tags", []),
+        "category": body.category,
+        "tags": body.tags,
     })
 
     return template
@@ -331,7 +325,7 @@ def clone_source(
         raise HTTPException(status_code=404, detail="Source not found")
 
     new_id = str(uuid.uuid4())
-    name = body.get("name", f"Copy of {template.get('name', 'Template')}")
+    name = body.name or f"Copy of {template.get('name', 'Template')}"
 
     cloned = template_registry.create({
         "id": new_id,

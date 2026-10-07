@@ -72,8 +72,8 @@ class ConfigTester:
         result = TestResult()
 
         try:
-            # 1. 抓取页面
-            crawl_result = fetch_and_parse(url, selectors)
+            # 1. 抓取页面（测试不做关键词过滤）
+            crawl_result = fetch_and_parse(url, selectors, [])
 
             if crawl_result.error:
                 result.errors.append(crawl_result.error)
