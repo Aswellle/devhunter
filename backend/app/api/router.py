@@ -4,7 +4,7 @@ app/api/router.py
 """
 from fastapi import APIRouter
 
-from app.api import auth, events, executions, items, outlets, sources, stats, tasks, threads, user_prefs
+from app.api import auth, events, executions, items, llm, outlets, sources, stats, tasks, threads, user_prefs
 
 api_router = APIRouter(prefix="/api")
 
@@ -18,3 +18,4 @@ api_router.include_router(events.router)
 api_router.include_router(sources.router)
 api_router.include_router(stats.router)
 api_router.include_router(user_prefs.router)
+api_router.include_router(llm.router)
