@@ -35,6 +35,8 @@ export function StickySectionNav({ sections, containerId = 'main-content' }: Sti
   // 点按跳转后跳过若干 scroll 事件，抑制平滑滚动路径上 spy 的中途高亮；
   // scrollend（Chromium/Safari 均已支持）到达时立即解除
   const skipSpyRef = useRef(0)
+  // 为让末节够到锚位而补的容器底部内边距——卸载时还原为此前的内联值
+  const padRestoreRef = useRef<string | null>(null)
 
   useEffect(() => {
     const container = document.getElementById(containerId)
@@ -72,17 +74,38 @@ export function StickySectionNav({ sections, containerId = 'main-content' }: Sti
     }
   }, [sections, containerId])
 
+  // 离开页面时还原点按跳转补出的容器底部内边距
+  useEffect(() => {
+    const container = document.getElementById(containerId)
+    return () => {
+      if (container && padRestoreRef.current !== null) {
+        container.style.paddingBottom = padRestoreRef.current
+        padRestoreRef.current = null
+      }
+    }
+  }, [containerId])
+
   const go = (id: string) => {
     const el = document.getElementById(id)
     const container = document.getElementById(containerId)
     if (!el || !container) return
     const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-    const targetTop =
+    const target =
       container.scrollTop +
       el.getBoundingClientRect().top -
       container.getBoundingClientRect().top -
       NAV_CLEARANCE
-    container.scrollTo({ top: Math.max(0, targetTop), behavior: reduced ? 'auto' : 'smooth' })
+    // 末节下方内容不足一屏时，浏览器滚不到锚位（上限 = scrollHeight - clientHeight）。
+    // 按差额补足容器底部内边距，让目标分区真正到达视口锚位；离开页面时还原。
+    const maxScroll = container.scrollHeight - container.clientHeight
+    if (target > maxScroll) {
+      const computedPad = parseFloat(window.getComputedStyle(container).paddingBottom) || 0
+      if (padRestoreRef.current === null) {
+        padRestoreRef.current = container.style.paddingBottom
+      }
+      container.style.paddingBottom = `${computedPad + (target - maxScroll)}px`
+    }
+    container.scrollTo({ top: Math.max(0, target), behavior: reduced ? 'auto' : 'smooth' })
     skipSpyRef.current = CLICK_SKIP_EVENTS
     setActive(id)
     // 更新 hash 但不触发跳转
