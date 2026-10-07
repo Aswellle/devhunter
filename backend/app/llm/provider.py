@@ -25,16 +25,10 @@ import time
 import httpx
 
 from app.core.config import settings
-from app.llm.config import resolve_llm_config
+from app.llm.config import resolve_llm_config, utc_day_start_iso
 from app.llm.receipt_repo import model_receipt_repo
 
 logger = logging.getLogger(__name__)
-
-
-def _utc_day_start_iso() -> str:
-    """当前 UTC 日的零点（ISO），作为预算统计窗口起点"""
-    now = time.gmtime()
-    return time.strftime("%Y-%m-%dT00:00:00Z", now)
 
 
 def _prompt_hash(model: str, system: str, prompt: str) -> str:
@@ -69,19 +63,20 @@ class LLMProvider:
         return self.remaining_budget() > 0
 
     def remaining_budget(self) -> int:
-        """今日剩余 token 预算"""
-        used = model_receipt_repo.tokens_since(_utc_day_start_iso())
-        return max(0, settings.llm_daily_token_budget - used)
+        """今日剩余 token 预算（有效配置的每日预算）"""
+        used = model_receipt_repo.tokens_since(utc_day_start_iso())
+        return max(0, resolve_llm_config().daily_budget - used)
 
     def status(self) -> dict:
         """用量与熔断状态（配置页展示用）"""
-        used = model_receipt_repo.tokens_since(_utc_day_start_iso())
+        budget = resolve_llm_config().daily_budget
+        used = model_receipt_repo.tokens_since(utc_day_start_iso())
         with self._failure_lock:
             failures = self._consecutive_failures
         return {
             "used_today": used,
-            "budget": settings.llm_daily_token_budget,
-            "remaining": max(0, settings.llm_daily_token_budget - used),
+            "budget": budget,
+            "remaining": max(0, budget - used),
             "breaker_open": failures >= settings.llm_max_consecutive_failures,
             "consecutive_failures": failures,
             "max_consecutive_failures": settings.llm_max_consecutive_failures,
@@ -151,7 +146,7 @@ class LLMProvider:
         if remaining <= 0:
             logger.warning(
                 "LLM daily token budget exhausted (%d), skipping purpose=%s until next UTC day",
-                settings.llm_daily_token_budget, purpose,
+                cfg.daily_budget, purpose,
             )
             return None
 

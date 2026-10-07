@@ -80,6 +80,29 @@ class ModelReceiptRepository:
             ).fetchone()
         return int(row["total"])
 
+    def usage_summary(self, since_iso: str) -> dict[str, int]:
+        """自某时刻起（含）的调用次数与消耗汇总（含失败，供用量页展示）"""
+        with get_db() as conn:
+            row = conn.execute(
+                """
+                SELECT
+                    COUNT(*) AS calls,
+                    COALESCE(SUM(CASE WHEN status = 'done' THEN 1 ELSE 0 END), 0) AS done_calls,
+                    COALESCE(SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END), 0) AS failed_calls,
+                    COALESCE(SUM(CASE WHEN status = 'done'
+                        THEN COALESCE(input_tokens, 0) + COALESCE(output_tokens, 0) END), 0) AS tokens
+                FROM model_receipts
+                WHERE created_at >= ?
+                """,
+                (since_iso,),
+            ).fetchone()
+        return {
+            "calls": int(row["calls"]),
+            "done": int(row["done_calls"]),
+            "failed": int(row["failed_calls"]),
+            "tokens": int(row["tokens"]),
+        }
+
     def stats(self, limit: int = 50) -> list[dict[str, Any]]:
         """最近回执（运维诊断用）"""
         with get_db() as conn:

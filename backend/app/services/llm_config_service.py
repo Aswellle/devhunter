@@ -1,15 +1,17 @@
 """
 app/services/llm_config_service.py
-LLM 接入配置服务：界面保存值（app_settings）的写入/清除与状态组装。
+LLM 接入配置服务：界面保存值（app_settings）的写入/清除、状态组装与用量查询。
 
 保存语义（三态）：
 - 字段缺失或为 null → 不改动
 - 字段为空串 → 清除该字段的界面覆盖，回落环境变量
 - 字段有值   → 写入覆盖（保存前去除首尾空白与末尾斜杠）
+- daily_token_budget 为整数 → 直接覆盖（数值字段无"清空"态，回落默认用清除配置）
 """
 from app.core.config import settings
-from app.llm.config import LLM_SETTING_KEYS, mask_secret, resolve_llm_config
+from app.llm.config import LLM_SETTING_KEYS, mask_secret, resolve_llm_config, utc_day_start_iso
 from app.llm.provider import llm_provider
+from app.llm.receipt_repo import model_receipt_repo
 from app.repositories.settings_repo import app_settings_repo
 from app.schemas.llm import LLMConfigUpdate
 
@@ -51,6 +53,8 @@ class LLMConfigService:
             if settings_key == "llm_base_url":
                 value = value.rstrip("/")
             app_settings_repo.set(settings_key, value)
+        if payload.daily_token_budget is not None:
+            app_settings_repo.set("llm_daily_token_budget", str(payload.daily_token_budget))
         return self.get_status()
 
     def clear(self) -> dict:
@@ -67,6 +71,13 @@ class LLMConfigService:
             base_url=(payload.base_url or "").strip() or cfg.base_url,
             model=(payload.model or "").strip() or cfg.model,
         )
+
+    def usage(self, limit: int = 30) -> dict:
+        """当日调用汇总 + 最近付费回执（运维/用量页展示）"""
+        return {
+            "today": model_receipt_repo.usage_summary(utc_day_start_iso()),
+            "receipts": model_receipt_repo.stats(limit=limit),
+        }
 
 
 # 全局单例

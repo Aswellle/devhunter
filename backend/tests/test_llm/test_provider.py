@@ -97,7 +97,7 @@ class TestBudgetBreaker:
     def test_exhausted_budget_blocks_calls(self, provider, monkeypatch):
         # 用真实回执把当日消耗推到只剩 5 token
         used_now = model_receipt_repo.tokens_since(
-            provider_module._utc_day_start_iso()
+            provider_module.utc_day_start_iso()
         )
         monkeypatch.setattr(config.settings, "llm_daily_token_budget", used_now + 5)
 

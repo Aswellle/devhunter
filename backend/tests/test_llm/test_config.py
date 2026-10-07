@@ -52,6 +52,24 @@ class TestResolve:
         assert cfg.source == "db"
 
 
+class TestBudgetResolution:
+
+    def test_env_fallback(self, monkeypatch):
+        monkeypatch.setattr(config.settings, "llm_daily_token_budget", 200_000)
+        assert resolve_llm_config().daily_budget == 200_000
+
+    def test_db_override(self, monkeypatch):
+        monkeypatch.setattr(config.settings, "llm_daily_token_budget", 200_000)
+        app_settings_repo.set("llm_daily_token_budget", "5000")
+        assert resolve_llm_config().daily_budget == 5000
+
+    def test_invalid_db_value_falls_back(self, monkeypatch):
+        """库中的非法值（如手工改动）不应炸掉解析"""
+        monkeypatch.setattr(config.settings, "llm_daily_token_budget", 200_000)
+        app_settings_repo.set("llm_daily_token_budget", "not-a-number")
+        assert resolve_llm_config().daily_budget == 200_000
+
+
 class TestMaskSecret:
 
     def test_long_key_keeps_head_and_tail(self):

@@ -8,12 +8,23 @@ LLM 有效配置解析：界面保存值（app_settings 表）优先，回落 .e
 - API Key 只写不读：对外一律返回 mask_secret() 脱敏掩码。
 """
 from dataclasses import dataclass
+import time
 
 from app.core.config import settings
 from app.repositories.settings_repo import app_settings_repo
 
 # 界面可覆盖的 LLM 配置字段（app_settings 表中的键名）
-LLM_SETTING_KEYS = ("llm_api_key", "llm_base_url", "llm_model")
+LLM_SETTING_KEYS = (
+    "llm_api_key",
+    "llm_base_url",
+    "llm_model",
+    "llm_daily_token_budget",
+)
+
+
+def utc_day_start_iso() -> str:
+    """当前 UTC 日的零点（ISO），作为每日预算统计窗口起点"""
+    return time.strftime("%Y-%m-%dT00:00:00Z", time.gmtime())
 
 
 @dataclass(frozen=True)
@@ -21,8 +32,17 @@ class EffectiveLLMConfig:
     api_key: str
     base_url: str
     model: str
+    daily_budget: int
     # api_key 的来源：db（界面配置）/ env（环境变量）/ none（未配置）
     source: str
+
+
+def _int_or(value: str | None, fallback: int) -> int:
+    """设置值 → int；为空/非法时回落默认值"""
+    try:
+        return int(value) if value not in (None, "") else fallback
+    except (TypeError, ValueError):
+        return fallback
 
 
 def resolve_llm_config() -> EffectiveLLMConfig:
@@ -40,6 +60,7 @@ def resolve_llm_config() -> EffectiveLLMConfig:
         api_key=overrides["llm_api_key"] or settings.llm_api_key or "",
         base_url=overrides["llm_base_url"] or settings.llm_base_url,
         model=overrides["llm_model"] or settings.llm_model,
+        daily_budget=_int_or(overrides["llm_daily_token_budget"], settings.llm_daily_token_budget),
         source=source,
     )
 

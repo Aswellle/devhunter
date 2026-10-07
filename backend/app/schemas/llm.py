@@ -42,12 +42,14 @@ class LLMConfigUpdate(BaseModel):
 
     - 字段缺失或为 null：保存时表示"不改动该字段"；测试时表示"沿用当前生效值"
     - 字段为空字符串：保存时表示"清除该字段的界面覆盖"，回落环境变量
+    - daily_token_budget 为整数：null 不改动；设值即覆盖（回落默认用"清除配置"）
     """
     model_config = ConfigDict(str_strip_whitespace=True)
 
     api_key: str | None = Field(None, max_length=400)
     base_url: str | None = Field(None, max_length=300)
     model: str | None = Field(None, max_length=120)
+    daily_token_budget: int | None = Field(None, ge=1000, le=100_000_000)
 
     @field_validator("base_url")
     @classmethod
@@ -63,3 +65,31 @@ class LLMTestResult(BaseModel):
     message: str
     model: str | None = None
     latency_ms: int | None = None
+
+
+# ── 用量与回执 ────────────────────────────────────────────
+
+class LLMUsageSummary(BaseModel):
+    """当日（UTC）调用汇总"""
+    calls: int
+    done: int
+    failed: int
+    tokens: int
+
+
+class LLMReceiptItem(BaseModel):
+    """单条付费回执"""
+    purpose: str
+    model: str
+    status: Literal["pending", "done", "failed"]
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    duration_ms: int | None = None
+    error: str | None = None
+    created_at: str
+
+
+class LLMReceiptsResponse(BaseModel):
+    """用量查询响应：当日汇总 + 最近回执"""
+    today: LLMUsageSummary
+    receipts: list[LLMReceiptItem]

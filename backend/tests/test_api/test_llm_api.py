@@ -8,8 +8,10 @@ from fastapi.testclient import TestClient
 
 from app.core import config
 from app.core.security import create_access_token
+from app.llm import provider as provider_module
 from app.llm.config import LLM_SETTING_KEYS
 from app.llm.provider import llm_provider
+from app.llm.receipt_repo import model_receipt_repo
 from app.main import app
 from app.repositories.settings_repo import app_settings_repo
 
@@ -127,6 +129,22 @@ class TestConfigStatusAndSave:
         )
         assert response.status_code == 422
 
+    def test_save_budget_override(self, monkeypatch):
+        """预算整数覆盖：写入后 usage.budget 立即反映新预算"""
+        monkeypatch.setattr(config.settings, "llm_daily_token_budget", 200_000)
+        used_before = model_receipt_repo.tokens_since(provider_module.utc_day_start_iso())
+        data = client.put(
+            "/api/llm/config", headers=_auth_headers(), json={"daily_token_budget": 5000},
+        ).json()
+        assert "llm_daily_token_budget" in data["overrides"]
+        assert data["usage"]["budget"] == 5000
+        assert data["usage"]["remaining"] == 5000 - used_before, "剩余预算扣除共享测试库当日消耗"
+
+    def test_budget_below_minimum_rejected(self):
+        assert client.put(
+            "/api/llm/config", headers=_auth_headers(), json={"daily_token_budget": 5},
+        ).status_code == 422
+
     def test_usage_block_present(self):
         data = client.get("/api/llm/config", headers=_auth_headers()).json()
         usage = data["usage"]
@@ -178,3 +196,34 @@ class TestConnectionEndpoint:
         }).json()
         assert data["ok"] is False
         assert "密钥" in data["message"]
+
+
+class TestReceiptsEndpoint:
+
+    def test_requires_auth(self):
+        assert client.get("/api/llm/receipts").status_code == 401
+
+    def test_summary_and_recent_receipts(self):
+        """当日汇总包含调用次数与 token 消耗；回执列表按时间倒序"""
+        rid = model_receipt_repo.create_pending("thread_digest", "test-model", "h-r1")
+        model_receipt_repo.complete(rid, "正文", 120, 30, 800)
+        rid2 = model_receipt_repo.create_pending("thread_digest", "test-model", "h-r2")
+        model_receipt_repo.fail(rid2, "boom")
+
+        data = client.get("/api/llm/receipts", headers=_auth_headers()).json()
+
+        assert data["today"]["calls"] >= 2
+        assert data["today"]["done"] >= 1
+        assert data["today"]["failed"] >= 1
+        assert data["today"]["tokens"] >= 150
+
+        receipts = data["receipts"]
+        assert receipts[0]["created_at"] >= receipts[-1]["created_at"]
+        done = next(r for r in receipts if r["status"] == "done" and r["purpose"] == "thread_digest")
+        assert done["input_tokens"] == 120 and done["output_tokens"] == 30
+        failed = next(r for r in receipts if r["status"] == "failed")
+        assert failed["error"] == "boom"
+
+    def test_limit_clamped(self):
+        response = client.get("/api/llm/receipts?limit=0", headers=_auth_headers())
+        assert response.status_code == 422
