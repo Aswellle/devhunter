@@ -52,19 +52,21 @@ def build_digest_prompt(thread_title: str, items: list[dict[str, Any]]) -> tuple
     return DIGEST_SYSTEM_PROMPT, "\n".join(lines)
 
 
-def generate_digest(thread_id: str) -> str | None:
+def generate_digest(thread_id: str, force: bool = False) -> str | None:
     """
     为指定 Thread 生成并存储 AI 综述。
 
-    门槛：Thread 存在、无既有综述、条目数 >= DIGEST_MIN_ITEMS、LLM 可用。
-    任何不满足都返回 None（幂等，可安全重复调用）。
+    门槛：Thread 存在、条目数 >= DIGEST_MIN_ITEMS、LLM 可用；
+    已有综述时幂等返回原文（force=True 强制重新生成，相同材料会命中
+    结果复用，不重复付费）。
+    任何不满足都返回 None（可安全重复调用）。
     """
     from app.repositories.thread_repo import thread_repo
 
     thread = thread_repo.get(thread_id)
     if not thread:
         return None
-    if thread.get("digest"):
+    if thread.get("digest") and not force:
         return thread["digest"]
     if (thread.get("item_count") or 0) < DIGEST_MIN_ITEMS:
         return None

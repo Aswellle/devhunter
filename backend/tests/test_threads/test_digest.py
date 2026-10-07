@@ -1,19 +1,39 @@
 """
 tests/test_threads/test_digest.py
-Thread AI 综述测试：提示词构建（纯函数）+ 生成流程（stub 传输）。
+Thread AI 综述测试：提示词构建（纯函数）+ 生成流程（stub 传输）+ 手动生成。
 """
 import httpx
 import pytest
 
 from app.core import config
+from app.core.exceptions import (
+    DigestGenerationFailedError,
+    DigestTooFewItemsError,
+    LLMNotConfiguredError,
+    LLMUnavailableError,
+    NotFoundError,
+)
 from app.llm import provider as provider_module
+from app.llm.config import LLM_SETTING_KEYS
 from app.llm.provider import llm_provider
 from app.repositories.item_repo import item_repo
+from app.repositories.settings_repo import app_settings_repo
 from app.repositories.task_repo import task_repo
 from app.repositories.thread_repo import thread_repo
+from app.services.thread_service import thread_service
 from app.threads.digest import DIGEST_SYSTEM_PROMPT, build_digest_prompt, generate_digest
 from datetime import datetime, timezone
 import uuid
+
+
+@pytest.fixture(autouse=True)
+def _clean_llm_overrides():
+    """隔离共享测试库：界面覆盖的 LLM 配置不得影响 env 桩"""
+    for key in LLM_SETTING_KEYS:
+        app_settings_repo.delete(key)
+    yield
+    for key in LLM_SETTING_KEYS:
+        app_settings_repo.delete(key)
 
 
 def _stub(text: str = "这是一个多来源事件的中文综述。"):
@@ -148,3 +168,84 @@ class TestGenerateDigest:
 
     def test_unknown_thread(self, provider):
         assert generate_digest("nonexistent") is None
+
+
+class TestManualDigest:
+    """手动生成（thread_service.generate_thread_digest）：显式动作，错误要明确"""
+
+    def test_generates(self, provider):
+        thread_id = _thread_with_items(3)
+        transport, state = _stub("手动生成的综述")
+        provider.set_test_transport(transport)
+
+        result = thread_service.generate_thread_digest(thread_id)
+        assert result["digest"] == "手动生成的综述"
+        assert result["digest_at"]
+        assert state["count"] == 1
+
+    def test_existing_digest_returns_without_call(self, provider):
+        thread_id = _thread_with_items(2)
+        transport, state = _stub()
+        provider.set_test_transport(transport)
+        thread_service.generate_thread_digest(thread_id)
+        assert state["count"] == 1
+
+        again = thread_service.generate_thread_digest(thread_id, force=False)
+        assert again["digest"] == "这是一个多来源事件的中文综述。"
+        assert state["count"] == 1, "已有综述且未 force → 不重复调用"
+
+    def test_force_regenerates(self, provider):
+        """force 重新走生成链路；相同材料在 chat 层命中结果复用，不重复付费"""
+        thread_id = _thread_with_items(2)
+        transport, state = _stub()
+        provider.set_test_transport(transport)
+        thread_service.generate_thread_digest(thread_id)
+        first_at = thread_repo.get(thread_id)["digest_at"]
+        thread_service.generate_thread_digest(thread_id, force=True)
+        assert state["count"] == 1, "相同材料命中结果复用"
+        assert thread_repo.get(thread_id)["digest_at"] >= first_at
+
+    def test_single_item_raises(self, provider):
+        thread_id = _thread_with_items(1)
+        transport, _ = _stub()
+        provider.set_test_transport(transport)
+        with pytest.raises(DigestTooFewItemsError):
+            thread_service.generate_thread_digest(thread_id)
+
+    def test_not_configured_raises(self, provider, monkeypatch):
+        monkeypatch.setattr(config.settings, "llm_api_key", "")
+        thread_id = _thread_with_items(2)
+        transport, state = _stub()
+        provider.set_test_transport(transport)
+        with pytest.raises(LLMNotConfiguredError):
+            thread_service.generate_thread_digest(thread_id)
+        assert state["count"] == 0
+
+    def test_breaker_open_raises_unavailable(self, provider, monkeypatch):
+        monkeypatch.setattr(config.settings, "llm_max_consecutive_failures", 2)
+        with llm_provider._failure_lock:
+            llm_provider._consecutive_failures = 2
+        thread_id = _thread_with_items(2)
+        transport, state = _stub()
+        provider.set_test_transport(transport)
+        try:
+            with pytest.raises(LLMUnavailableError):
+                thread_service.generate_thread_digest(thread_id)
+            assert state["count"] == 0
+        finally:
+            with llm_provider._failure_lock:
+                llm_provider._consecutive_failures = 0
+
+    def test_generation_failure_raises(self, provider):
+        thread_id = _thread_with_items(2)
+
+        def failing_handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(500, text="boom")
+
+        provider.set_test_transport(httpx.MockTransport(failing_handler))
+        with pytest.raises(DigestGenerationFailedError):
+            thread_service.generate_thread_digest(thread_id)
+
+    def test_unknown_thread_raises(self, provider):
+        with pytest.raises(NotFoundError):
+            thread_service.generate_thread_digest("nonexistent")

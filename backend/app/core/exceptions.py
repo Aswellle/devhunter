@@ -89,3 +89,26 @@ class TaskAlreadyRunningError(ConflictError):
 class TaskLimitExceededError(ConflictError):
     error_code = "TASK_LIMIT_EXCEEDED"
     message = "Maximum number of tasks reached"
+
+
+# ── LLM 功能 ─────────────────────────────────────────────
+
+class LLMNotConfiguredError(ConflictError):
+    error_code = "LLM_NOT_CONFIGURED"
+    message = "尚未接入 AI，请先在「我的画像 → AI 接入」完成配置"
+
+
+class LLMUnavailableError(ConflictError):
+    error_code = "LLM_UNAVAILABLE"
+    message = "AI 暂不可用（预算已用尽或连续失败熔断），请稍后再试"
+
+
+class DigestTooFewItemsError(ConflictError):
+    error_code = "TOO_FEW_ITEMS"
+    message = "该热点只有一条内容，暂不生成综述"
+
+
+class DigestGenerationFailedError(DevHunterError):
+    status_code = 503
+    error_code = "DIGEST_GENERATION_FAILED"
+    message = "综述生成失败，请稍后重试"

@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from app.api.deps import require_auth
-from app.core.exceptions import ConflictError
+from app.core.exceptions import ConflictError, DevHunterError
 from app.schemas.common import PaginatedResponse
 from app.schemas.item import ItemResponse
 from app.services.thread_service import thread_service
@@ -79,3 +79,28 @@ def get_thread(thread_id: str, _: str = Depends(require_auth)):
     if not thread:
         raise HTTPException(status_code=404, detail={"code": "NOT_FOUND", "message": "Thread not found"})
     return thread
+
+
+class ThreadDigestRequest(BaseModel):
+    """综述生成参数：force=True 时重新生成（相同材料会命中结果复用，不重复付费）"""
+    force: bool = False
+
+
+@router.post("/{thread_id}/digest")
+def generate_thread_digest(thread_id: str, body: ThreadDigestRequest | None = None, _: str = Depends(require_auth)):
+    """
+    手动生成/更新该 Thread 的 AI 综述。
+
+    - 无既有综述 → 生成
+    - force=True（或综述落后于最新内容）→ 重新生成
+    - 未接入 AI / 熔断 / 预算用尽 / 单条内容 → 相应业务错误码
+    """
+    try:
+        return thread_service.generate_thread_digest(
+            thread_id, force=bool(body and body.force),
+        )
+    except DevHunterError as e:
+        raise HTTPException(
+            status_code=e.status_code,
+            detail={"code": e.error_code, "message": e.message},
+        )

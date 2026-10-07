@@ -163,6 +163,42 @@ class ThreadService:
         items = thread_repo.get_items_in_thread(thread_id)
         return {**thread, "items": items, "stats": build_thread_stats(thread, items)}
 
+    def generate_thread_digest(self, thread_id: str, force: bool = False) -> dict:
+        """
+        手动生成/更新 Thread AI 综述（与采集后自动触发同一生成函数）。
+
+        与 digest.generate_digest 的静默语义不同：这是用户显式动作，
+        不可用/失败原因要作为业务错误明确返回。
+        """
+        from app.core.exceptions import (
+            DigestGenerationFailedError,
+            DigestTooFewItemsError,
+            LLMNotConfiguredError,
+            LLMUnavailableError,
+            NotFoundError,
+        )
+        from app.threads.digest import DIGEST_MIN_ITEMS, generate_digest
+        from app.llm.provider import llm_provider
+
+        thread = thread_repo.get(thread_id)
+        if not thread:
+            raise NotFoundError("Thread 不存在")
+        if thread.get("digest") and not force:
+            return {"digest": thread["digest"], "digest_at": thread.get("digest_at")}
+        if (thread.get("item_count") or 0) < DIGEST_MIN_ITEMS:
+            raise DigestTooFewItemsError
+        if not llm_provider.is_configured():
+            raise LLMNotConfiguredError
+        if not llm_provider.is_available():
+            raise LLMUnavailableError
+
+        text = generate_digest(thread_id, force=True)
+        if not text:
+            raise DigestGenerationFailedError
+
+        updated = thread_repo.get(thread_id) or {}
+        return {"digest": text, "digest_at": updated.get("digest_at")}
+
     def recompute_all_threads(self, window_hours: int = 24) -> dict:
         """
         重建全部 Thread：清空后按 created_at 时间正序重放所有条目的聚类。
