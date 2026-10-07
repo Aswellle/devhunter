@@ -6,7 +6,7 @@ import json
 import logging
 import sqlite3
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from app.core.database import get_db
@@ -232,35 +232,41 @@ class ThreadRepository:
             result.append(d)
         return result
 
-    def get_recent_items_for_comparison(
+    def get_candidate_threads(
         self,
         hours: int = 24,
         limit: int = 500,
-        min_age_seconds: int = 600,
-    ) -> list[tuple[str, str, str]]:
+    ) -> list[dict[str, Any]]:
         """
-        获取 N 小时内未加入 Thread 的 Items，用于与新 Items 比较。
-        只取至少 min_age_seconds 秒前创建的 Items（避免新插入的 Items 自己匹配自己）。
-        返回: list of (item_id, title, fetched_at)
+        获取最近 N 小时内仍有活动的 Thread，作为新条目的聚类候选。
+
+        D7 修复：旧实现 get_recent_items_for_comparison 用
+        "LEFT JOIN thread_items ... IS NULL" 取**未入 Thread 的条目**再反查其
+        thread_id——而未入 Thread 的条目 thread_id 必为 NULL，导致候选 Thread
+        恒为空列表，同批次/跨批次的聚类 join 从未真正生效（Thread 全是单条目）。
+        现直接返回有近期活动的 Thread 行，语义与聚类器的输入完全对齐。
+
+        返回: Thread dict 列表（含 id/title/last_seen_at/platforms）。
         """
-        # datetime('now', '-10 minutes') 排除刚刚插入的 Items（避免同批次自匹配）
-        # D6 (同类修复): min_age_seconds 目前调用方固定传 600，尚不构成实际注入面，
-        # 但改为参数化与 user_prefs_repo.get_recent_interactions 保持一致的防护模式。
-        neg_seconds_modifier = f"-{int(min_age_seconds)}"
+        boundary = (
+            datetime.now(timezone.utc) - timedelta(hours=hours)
+        ).strftime("%Y-%m-%dT%H:%M:%SZ")
         with get_db() as conn:
             rows = conn.execute(
                 """
-                SELECT i.id, i.title, i.fetched_at
-                FROM items i
-                LEFT JOIN thread_items ti ON i.id = ti.item_id
-                WHERE ti.item_id IS NULL
-                  AND i.created_at < datetime('now', ? || ' seconds')
-                ORDER BY i.fetched_at DESC
+                SELECT * FROM threads
+                WHERE last_seen_at >= ?
+                ORDER BY last_seen_at DESC
                 LIMIT ?
                 """,
-                (neg_seconds_modifier, limit),
+                (boundary, limit),
             ).fetchall()
-        return [(r["id"], r["title"], r["fetched_at"]) for r in rows]
+        return [_row_to_dict(r) for r in rows]
+
+    def count_all(self) -> int:
+        """当前 Thread 总数（含可能成为孤儿的行）"""
+        with get_db() as conn:
+            return conn.execute("SELECT COUNT(*) FROM threads").fetchone()[0]
 
     def delete_item_from_thread(self, item_id: str) -> None:
         """将 Item 从 Thread 中移除（用于 Item 删除时级联清理）"""

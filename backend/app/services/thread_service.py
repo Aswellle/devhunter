@@ -24,15 +24,16 @@ class ThreadService:
         self,
         new_items: list[dict],
         threshold: float = DEFAULT_THRESHOLD,
+        window_hours: int = 24,
     ) -> int:
         """
         为一批新采集的 Items 计算 Thread 归属。
 
-        V2 流程：
-        1. 获取最近 24h 内未分配 Thread 的 Items 作为候选池
-        2. 对每个新 Item，使用多因素评分找到最佳匹配 Thread
-        3. 若找到匹配 → 加入已有 Thread
-          若未找到 → 创建新 Thread
+        V2 流程：对每个新 Item，使用多因素评分在近期活跃 Thread 中找最佳匹配；
+        匹配则加入，否则创建新 Thread。
+
+        候选 Thread 逐条目刷新：同批次中先前条目刚创建/加入的 Thread 也会
+        出现在后续条目的候选里——同一条事件的多篇报道才能聚进同一个 Thread。
 
         返回处理的新 Item 数量。
         """
@@ -46,16 +47,6 @@ class ThreadService:
             for item in new_items
         }
 
-        # 获取候选池：最近 24h 未分配 thread 的 items
-        # 注意：候选池为空时不需要在这里预创建 Thread —— 下面的主循环在
-        # cluster() 返回 action="create"（候选为空必然如此）时会创建，
-        # 曾经的"预创建 + 继续走主循环"会让每个 item 生成两个 Thread
-        # （一次执行 14 条产生 28 个 Thread，聚合列表里每条内容显示两遍）。
-        existing = thread_repo.get_recent_items_for_comparison(hours=24, limit=500)
-
-        # 构建候选 Thread 列表（从 existing items 中提取）
-        candidate_threads = self._get_candidate_threads(existing)
-
         # 处理每个新 Item
         matched_count = 0
         for item in new_items:
@@ -63,11 +54,15 @@ class ThreadService:
             title = item["title"]
             platform = item_id_to_platform.get(item_id, "unknown")
 
+            # 每个条目都重新取候选（近期活跃 Thread），见 get_candidate_threads
+            candidate_threads = thread_repo.get_candidate_threads(hours=window_hours)
+
             # 使用多因素聚类
-            result = thread_clusterer.cluster(item, candidate_threads)
+            result = thread_clusterer.cluster(item, candidate_threads, threshold=threshold)
 
             if result.action == "join" and result.thread_id:
                 # 加入已有 Thread
+                matched_count += 1
                 thread_repo.add_item(
                     thread_id=result.thread_id,
                     item_id=item_id,
@@ -78,39 +73,13 @@ class ThreadService:
                 )
             else:
                 # 创建新 Thread
-                thread_repo.create(title=title, item_id=item_id, platform=platform, algorithm_version="v2", similarity_threshold=0.45, match_reason="no_match")
+                thread_repo.create(title=title, item_id=item_id, platform=platform, algorithm_version="v2", similarity_threshold=threshold, match_reason="no_match")
 
         logger.info(
             "Thread compute: %d new items, %d matched to existing threads, %d created new",
             len(new_items), matched_count, len(new_items) - matched_count,
         )
         return len(new_items)
-
-    def _get_candidate_threads(self, existing_items: list[tuple]) -> list[dict]:
-        """
-        从 existing items 中提取候选 Thread 列表。
-
-        Args:
-            existing_items: [(item_id, title, fetched_at), ...]
-
-        Returns:
-            Thread dict 列表
-        """
-        # 获取所有相关的 thread_ids
-        thread_ids = set()
-        for item_id, _, _ in existing_items:
-            thread_id = self._get_thread_id_for_item(item_id)
-            if thread_id:
-                thread_ids.add(thread_id)
-
-        # 获取 Thread 详情
-        threads = []
-        for thread_id in thread_ids:
-            thread = thread_repo.get(thread_id)
-            if thread:
-                threads.append(thread)
-
-        return threads
 
     def merge_threads(
         self,
@@ -166,19 +135,6 @@ class ThreadService:
             return None
         items = thread_repo.get_items_in_thread(thread_id)
         return {**thread, "items": items, "stats": build_thread_stats(thread, items)}
-
-    def _get_thread_id_for_item(self, item_id: str) -> str | None:
-        """获取 Item 所属的 Thread ID"""
-        from app.repositories.item_repo import item_repo
-        item = item_repo.get(item_id)
-        return item.get("thread_id") if item else None
-
-    def _get_item_title(self, item_id: str) -> str:
-        """获取 Item 的标题"""
-        from app.repositories.item_repo import item_repo
-        item = item_repo.get(item_id)
-        return item.get("title", "") if item else ""
-
 
 # 全局单例
 thread_service = ThreadService()

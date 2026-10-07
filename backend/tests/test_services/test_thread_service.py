@@ -3,7 +3,7 @@ tests/test_services/test_thread_service.py
 Thread Service 单元测试
 """
 import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 from app.services.thread_service import thread_service
 from app.repositories.thread_repo import thread_repo
 
@@ -19,9 +19,9 @@ class TestThreadService:
     @patch("app.services.thread_service.thread_repo")
     @patch("app.services.thread_service.task_repo")
     def test_compute_threads_no_candidates(self, mock_task_repo, mock_thread_repo):
-        """无候选 items → 全部创建新 Thread"""
+        """无候选 Thread → 全部创建新 Thread"""
         mock_task_repo.list_active.return_value = []
-        mock_thread_repo.get_recent_items_for_comparison.return_value = []
+        mock_thread_repo.get_candidate_threads.return_value = []
         mock_thread_repo.create.return_value = "thread_1"
 
         new_items = [
@@ -29,6 +29,23 @@ class TestThreadService:
         ]
         result = thread_service.compute_threads_for_items(new_items)
         assert result == 1
+        # 候选逐条目刷新
+        assert mock_thread_repo.get_candidate_threads.call_count == 1
+        mock_thread_repo.create.assert_called_once()
+
+    @patch("app.services.thread_service.thread_repo")
+    @patch("app.services.thread_service.task_repo")
+    def test_compute_threads_forwards_threshold_and_window(self, mock_task_repo, mock_thread_repo):
+        """threshold 与 window_hours 应传达到候选查询与聚类器"""
+        mock_task_repo.list_active.return_value = []
+        mock_thread_repo.get_candidate_threads.return_value = []
+        mock_thread_repo.create.return_value = "thread_1"
+
+        new_items = [{"id": "item_1", "title": "T", "task_id": "task_1"}]
+        thread_service.compute_threads_for_items(new_items, threshold=0.6, window_hours=48)
+        mock_thread_repo.get_candidate_threads.assert_called_with(hours=48)
+        _, kwargs = mock_thread_repo.create.call_args
+        assert kwargs["similarity_threshold"] == 0.6
 
     def test_list_threads_empty(self):
         """空数据库 → 返回空列表"""
@@ -40,13 +57,3 @@ class TestThreadService:
         """不存在的 thread_id → 返回 None"""
         result = thread_service.get_thread("nonexistent_id")
         assert result is None
-
-    def test_get_thread_by_item_not_found(self):
-        """不存在的 item_id → 返回 None"""
-        result = thread_service._get_thread_id_for_item("nonexistent_item")
-        assert result is None
-
-    def test_get_item_title_not_found(self):
-        """不存在的 item_id → 返回空字符串"""
-        result = thread_service._get_item_title("nonexistent_item")
-        assert result == ""
