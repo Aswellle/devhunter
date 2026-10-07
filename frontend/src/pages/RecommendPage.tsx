@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
 import { ChevronDown, ChevronRight, Rss, Sparkles, TrendingUp } from 'lucide-react'
 import { clsx } from 'clsx'
@@ -9,6 +9,7 @@ import { queryKeys } from '../api/queryKeys'
 import { formatDistanceToNow } from '../utils/time'
 import { ReasonBadges } from '../components/recommend/ReasonBadges'
 import { ClampText } from '../components/ui/ClampText'
+import { PullToRefresh } from '../components/ui/PullToRefresh'
 import { ScorePill } from '../components/ui/ScorePill'
 import { Spinner } from '../components/ui/Spinner'
 import { Empty } from '../components/ui/Empty'
@@ -37,6 +38,12 @@ const PLATFORM_COLORS: Record<string, string> = {
 export function RecommendPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const [tab, setTab] = useState<Tab>((searchParams.get('tab') as Tab) || 'recommended')
+  const qc = useQueryClient()
+  // 移动端下拉刷新：失效两个 tab 的查询，激活中的 tab 会自动重取
+  const handlePullRefresh = () => Promise.allSettled([
+    qc.invalidateQueries({ queryKey: queryKeys.recommendations.all }),
+    qc.invalidateQueries({ queryKey: queryKeys.threads.all }),
+  ])
 
   // Sync tab to URL
   useEffect(() => {
@@ -57,6 +64,7 @@ export function RecommendPage() {
   }
 
   return (
+    <PullToRefresh onRefresh={handlePullRefresh}>
     <div className="max-w-4xl mx-auto px-4 sm:px-6 py-6">
       {/* Header */}
       <div className="mb-5">
@@ -89,6 +97,7 @@ export function RecommendPage() {
       {/* Content */}
       {tab === 'recommended' ? <RecommendedTab /> : <ThreadsTab />}
     </div>
+    </PullToRefresh>
   )
 }
 

@@ -139,8 +139,9 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           </Link>
         </header>
 
-        {/* pb 为移动端底部 TabBar 留出空间（含 iOS 安全区） */}
-        <main id="main-content" tabIndex={-1} className="flex-1 overflow-y-auto bg-gray-50 pb-[calc(64px+env(safe-area-inset-bottom))] md:pb-0">
+        {/* pb 为移动端底部 TabBar 留出空间（含 iOS 安全区）；
+            overscroll-y-contain 抑制浏览器原生下拉刷新，让位给 PullToRefresh */}
+        <main id="main-content" tabIndex={-1} className="flex-1 overflow-y-auto overscroll-y-contain bg-gray-50 pb-[calc(64px+env(safe-area-inset-bottom))] md:pb-0">
           {children}
         </main>
       </div>

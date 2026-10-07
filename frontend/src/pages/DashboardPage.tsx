@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Settings } from 'lucide-react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { statsApi } from '../api/stats'
 import { queryKeys } from '../api/queryKeys'
 import { StatsCards } from '../components/dashboard/StatsCards'
@@ -9,6 +9,7 @@ import { DailyChart } from '../components/dashboard/DailyChart'
 import { ForYouSection } from '../components/dashboard/ForYouSection'
 import { PreferenceModal } from '../components/dashboard/PreferenceModal'
 import { RecommendationSettings } from '../components/dashboard/RecommendationSettings'
+import { PullToRefresh } from '../components/ui/PullToRefresh'
 import { Spinner } from '../components/ui/Spinner'
 import { Empty } from '../components/ui/Empty'
 
@@ -24,10 +25,18 @@ export function DashboardPage() {
     },
   })
 
+  const qc = useQueryClient()
+  // 移动端下拉刷新：统计 + 推荐流一并重取
+  const handlePullRefresh = () => Promise.allSettled([
+    refetch(),
+    qc.invalidateQueries({ queryKey: queryKeys.recommendations.all }),
+  ])
+
   const [preferencesOpen, setPreferencesOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
 
   return (
+    <PullToRefresh onRefresh={handlePullRefresh}>
     <div className="max-w-4xl mx-auto px-4 sm:px-6 py-6 space-y-6">
 
       {/* Header */}
@@ -171,5 +180,6 @@ export function DashboardPage() {
         </>
       )}
     </div>
+    </PullToRefresh>
   )
 }

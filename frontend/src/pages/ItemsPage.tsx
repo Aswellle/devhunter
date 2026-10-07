@@ -15,6 +15,7 @@ import { Spinner } from '../components/ui/Spinner'
 import { Empty } from '../components/ui/Empty'
 import { SkeletonList } from '../components/ui/Skeleton'
 import { ConfirmDialog } from '../components/ui/ConfirmDialog'
+import { PullToRefresh } from '../components/ui/PullToRefresh'
 import { toast } from 'react-hot-toast'
 import type { Item, ThreadWithItems } from '../types'
 
@@ -376,7 +377,11 @@ export function ItemsPage() {
     batchMarkReadMutation.mutate(Array.from(selectedUnreadIds))
   }
 
+  // 移动端下拉刷新：两个视图的查询都重取（未启用的查询 refetch 立即返回）
+  const handlePullRefresh = () => Promise.allSettled([refetch(), refetchThreads()])
+
   return (
+    <PullToRefresh onRefresh={handlePullRefresh}>
     <div className="max-w-4xl mx-auto px-4 sm:px-6 py-6">
 
       {/* Page header */}
@@ -761,5 +766,6 @@ export function ItemsPage() {
         )
       )}
     </div>
+    </PullToRefresh>
   )
 }
