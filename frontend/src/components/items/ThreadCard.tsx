@@ -1,11 +1,14 @@
 import { useState } from 'react'
-import { ChevronDown, ChevronRight, ExternalLink, Flame, Gauge, Globe, Sparkles, Star, Rss, TrendingUp } from 'lucide-react'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { toast } from 'react-hot-toast'
+import { ChevronDown, ChevronRight, ExternalLink, Flame, Gauge, Globe, RefreshCw, Sparkles, Star, Rss, TrendingUp } from 'lucide-react'
 import { clsx } from 'clsx'
 import { useQuery } from '@tanstack/react-query'
 import type { Thread, ThreadStats } from '../../types'
 import { formatDistanceToNow } from '../../utils/time'
 import { queryKeys } from '../../api/queryKeys'
 import { threadsApi } from '../../api/threads'
+import { errorMessage } from '../../api/client'
 import { ClampText } from '../ui/ClampText'
 import { deriveThreadStatus, THREAD_STATUS_META } from '../../utils/threadStatus'
 
@@ -114,6 +117,7 @@ function ThreadStatsBand({ stats }: { stats: ThreadStats }) {
 
 export function ThreadCard({ thread, defaultExpanded = false }: ThreadCardProps) {
   const [expanded, setExpanded] = useState(defaultExpanded)
+  const qc = useQueryClient()
 
   // Fetch thread details (with items) only when expanded
   const { data: details, isError: detailsError, refetch: refetchDetails } = useQuery({
@@ -121,6 +125,21 @@ export function ThreadCard({ thread, defaultExpanded = false }: ThreadCardProps)
     queryFn: () => threadsApi.get(thread.id),
     enabled: expanded,
   })
+
+  // 手动生成/更新 AI 综述（相同材料命中后端结果复用，不重复付费）
+  const digestMutation = useMutation({
+    mutationFn: (force: boolean) => threadsApi.generateDigest(thread.id, force),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.threads.detail(thread.id) })
+      toast.success('AI 综述已更新')
+    },
+    onError: (e: unknown) => toast.error(errorMessage(e, '综述生成失败')),
+  })
+
+  // 综述落后于最新内容（聚合后又进了新报道）→ 提供"更新"入口
+  const digestStale = Boolean(
+    details?.digest && details.digest_at && details.last_seen_at > details.digest_at
+  )
 
   const spanDays = Math.floor(
     (new Date(thread.last_seen_at).getTime() - new Date(thread.first_seen_at).getTime()) / 86_400_000
@@ -213,8 +232,35 @@ export function ThreadCard({ thread, defaultExpanded = false }: ThreadCardProps)
                   <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
                   AI 综述
                   <span className="font-normal text-gray-400">· 由 AI 生成，可能存在误差</span>
+                  {digestStale && (
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); digestMutation.mutate(true) }}
+                      disabled={digestMutation.isPending}
+                      className="ml-auto btn-ghost btn-sm text-amber-700"
+                      title="聚合后有新报道加入，可让 AI 结合最新材料重新综述"
+                    >
+                      <RefreshCw className={clsx('h-3 w-3', digestMutation.isPending && 'animate-spin')} aria-hidden="true" />
+                      {digestMutation.isPending ? '更新中…' : '更新综述'}
+                    </button>
+                  )}
                 </div>
                 <p className="text-sm text-gray-700 leading-relaxed">{details.digest}</p>
+              </div>
+            )}
+            {/* 尚无综述且条目数足够 → 手动生成入口 */}
+            {!details?.digest && (details?.stats?.item_count ?? thread.item_count) >= 2 && (
+              <div className="border-b border-gray-100 bg-amber-50/40 px-4 py-3">
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); digestMutation.mutate(false) }}
+                  disabled={digestMutation.isPending}
+                  className="btn-ghost btn-sm text-amber-700 border border-amber-200"
+                >
+                  <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
+                  {digestMutation.isPending ? '生成中…' : '生成 AI 综述'}
+                </button>
+                <span className="text-xs text-gray-400 ml-2">由 AI 生成，可能存在误差</span>
               </div>
             )}
             {details?.stats && <ThreadStatsBand stats={details.stats} />}

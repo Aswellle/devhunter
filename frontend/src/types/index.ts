@@ -240,6 +240,7 @@ export interface LLMConfigPayload {
   api_key?: string | null
   base_url?: string | null
   model?: string | null
+  daily_token_budget?: number | null
 }
 
 export interface LLMTestResult {
@@ -247,6 +248,37 @@ export interface LLMTestResult {
   message: string
   model: string | null
   latency_ms: number | null
+}
+
+/** POST /api/items/threads/{id}/digest 响应 */
+export interface ThreadDigestResult {
+  digest: string
+  digest_at: string | null
+}
+
+// ── LLM 用量与回执 ────────────────────────────────────────
+export interface LLMUsageSummary {
+  calls: number
+  done: number
+  failed: number
+  tokens: number
+}
+
+export interface LLMReceipt {
+  id: string
+  purpose: string
+  model: string
+  status: 'pending' | 'done' | 'failed'
+  input_tokens: number | null
+  output_tokens: number | null
+  duration_ms: number | null
+  error: string | null
+  created_at: string
+}
+
+export interface LLMReceiptsOverview {
+  today: LLMUsageSummary
+  receipts: LLMReceipt[]
 }
 
 // ── 阅读亲缘度（我的画像）─────────────────────────────────

@@ -7,9 +7,19 @@
  *
  * 结构：外层查询状态；表单以"已保存配置签名"为 key 重挂载——保存/清除后
  * 字段自动回到新生效值，而普通重取（数据不变）不会打断输入。
+ * 字段带脏标记：只提交用户实际改动的字段，避免把预填值写成无意义覆盖。
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { CheckCircle2, Eye, EyeOff, XCircle } from 'lucide-react'
+import {
+  CheckCircle2,
+  ChevronDown,
+  ChevronRight,
+  Clock,
+  Eye,
+  EyeOff,
+  RefreshCw,
+  XCircle,
+} from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'react-hot-toast'
 import { llmApi } from '../../api/llm'
@@ -18,7 +28,8 @@ import { queryKeys } from '../../api/queryKeys'
 import { Badge } from '../ui/Badge'
 import { ConfirmDialog } from '../ui/ConfirmDialog'
 import { SkeletonList } from '../ui/Skeleton'
-import type { LLMConfigStatus, LLMTestResult } from '../../types'
+import { formatDistanceToNow } from '../../utils/time'
+import type { LLMConfigPayload, LLMConfigStatus, LLMReceipt, LLMReceiptsOverview, LLMTestResult } from '../../types'
 
 /** OpenAI 兼容服务商预设：一键填充接口地址与常用模型 */
 const PRESETS = [
@@ -33,14 +44,23 @@ const OVERRIDE_LABELS: Record<string, string> = {
   llm_api_key: '密钥',
   llm_base_url: '接口地址',
   llm_model: '模型',
+  llm_daily_token_budget: '预算',
+}
+
+const PURPOSE_LABELS: Record<string, string> = {
+  thread_digest: '热点综述',
 }
 
 function formatTokens(n: number): string {
   return n.toLocaleString('en-US')
 }
 
+function purposeLabel(purpose: string): string {
+  return PURPOSE_LABELS[purpose] ?? purpose
+}
+
 function savedSignature(status: LLMConfigStatus): string {
-  return [status.base_url, status.model, ...status.overrides].join('|')
+  return [status.base_url, status.model, status.usage.budget, ...status.overrides].join('|')
 }
 
 export function LLMSetupCard() {
@@ -70,19 +90,30 @@ function LLMSetupForm({ status }: { status: LLMConfigStatus }) {
   const [apiKey, setApiKey] = useState('')
   const [baseUrl, setBaseUrl] = useState(status.base_url)
   const [model, setModel] = useState(status.model)
+  const [budget, setBudget] = useState(String(status.usage.budget))
+  // 脏标记：保存时只提交用户实际改动过的字段（未动的发 null = 后端"不改动"）
+  const [dirty, setDirty] = useState({ api_key: false, base_url: false, model: false, budget: false })
   const [showKey, setShowKey] = useState(false)
   const [testResult, setTestResult] = useState<LLMTestResult | null>(null)
   const [confirmClear, setConfirmClear] = useState(false)
+  const [showUsage, setShowUsage] = useState(false)
 
   const invalidate = () => qc.invalidateQueries({ queryKey: queryKeys.llm.config() })
+  const markDirty = (field: keyof typeof dirty) =>
+    setDirty((d) => (d[field] ? d : { ...d, [field]: true }))
+
+  const buildPayload = (): LLMConfigPayload => ({
+    api_key: dirty.api_key ? apiKey.trim() : null,
+    base_url: dirty.base_url ? baseUrl.trim() : null,
+    model: dirty.model ? model.trim() : null,
+    daily_token_budget:
+      dirty.budget && budget.trim() !== '' && Number.isFinite(Number(budget.trim()))
+        ? Number(budget.trim())
+        : null,
+  })
 
   const saveMutation = useMutation({
-    mutationFn: () =>
-      llmApi.saveConfig({
-        api_key: apiKey.trim(),
-        base_url: baseUrl.trim(),
-        model: model.trim(),
-      }),
+    mutationFn: () => llmApi.saveConfig(buildPayload()),
     onSuccess: (data) => {
       invalidate()
       setTestResult(null)
@@ -92,12 +123,7 @@ function LLMSetupForm({ status }: { status: LLMConfigStatus }) {
   })
 
   const testMutation = useMutation({
-    mutationFn: () =>
-      llmApi.testConfig({
-        api_key: apiKey.trim(),
-        base_url: baseUrl.trim(),
-        model: model.trim(),
-      }),
+    mutationFn: () => llmApi.testConfig(buildPayload()),
     onSuccess: (result) => setTestResult(result),
     onError: (e: unknown) =>
       setTestResult({ ok: false, message: errorMessage(e, '测试失败'), model: null, latency_ms: null }),
@@ -115,8 +141,20 @@ function LLMSetupForm({ status }: { status: LLMConfigStatus }) {
 
   const handlePreset = (presetBaseUrl: string, presetModel: string) => {
     setBaseUrl(presetBaseUrl)
-    if (presetModel) setModel(presetModel)
+    markDirty('base_url')
+    if (presetModel) {
+      setModel(presetModel)
+      markDirty('model')
+    }
   }
+
+  // 用量明细（懒加载：展开才请求）
+  const receiptsQuery = useQuery({
+    queryKey: queryKeys.llm.receipts(),
+    queryFn: () => llmApi.getReceipts(20),
+    enabled: showUsage,
+    staleTime: 30_000,
+  })
 
   const { configured, source, overrides, usage } = status
   const hasKeyOverride = overrides.includes('llm_api_key')
@@ -182,7 +220,7 @@ function LLMSetupForm({ status }: { status: LLMConfigStatus }) {
               id="llm-api-key"
               type={showKey ? 'text' : 'password'}
               value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
+              onChange={(e) => { setApiKey(e.target.value); markDirty('api_key') }}
               placeholder={keyPlaceholder}
               autoComplete="off"
               spellCheck={false}
@@ -209,7 +247,7 @@ function LLMSetupForm({ status }: { status: LLMConfigStatus }) {
             id="llm-base-url"
             type="text"
             value={baseUrl}
-            onChange={(e) => setBaseUrl(e.target.value)}
+            onChange={(e) => { setBaseUrl(e.target.value); markDirty('base_url') }}
             placeholder="https://api.deepseek.com"
             autoComplete="off"
             spellCheck={false}
@@ -225,12 +263,30 @@ function LLMSetupForm({ status }: { status: LLMConfigStatus }) {
             id="llm-model"
             type="text"
             value={model}
-            onChange={(e) => setModel(e.target.value)}
+            onChange={(e) => { setModel(e.target.value); markDirty('model') }}
             placeholder="例如 deepseek-chat"
             autoComplete="off"
             spellCheck={false}
             className="input font-mono"
           />
+        </div>
+
+        <div>
+          <label htmlFor="llm-budget" className="block text-xs text-gray-500 mb-1">
+            每日 token 预算
+          </label>
+          <input
+            id="llm-budget"
+            type="number"
+            min={1000}
+            step={1000}
+            value={budget}
+            onChange={(e) => { setBudget(e.target.value); markDirty('budget') }}
+            className="input font-mono"
+          />
+          <p className="text-xs text-gray-400 mt-1">
+            当日（UTC）累计消耗超过该值即暂停调用，次日自动恢复。
+          </p>
         </div>
       </div>
 
@@ -284,6 +340,38 @@ function LLMSetupForm({ status }: { status: LLMConfigStatus }) {
         密钥保存在本机数据库，仅服务端调用使用。保存后立即生效，无需重启。
       </p>
 
+      {/* 最近调用 */}
+      <div className="border-t border-gray-100 pt-3">
+        <button
+          type="button"
+          onClick={() => setShowUsage((v) => !v)}
+          aria-expanded={showUsage}
+          className="flex items-center gap-1 text-xs font-medium text-gray-600 hover:text-gray-800"
+        >
+          {showUsage
+            ? <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
+            : <ChevronRight className="h-3.5 w-3.5" aria-hidden="true" />}
+          最近调用
+        </button>
+
+        {showUsage && (
+          <div className="mt-2">
+            {receiptsQuery.isLoading ? (
+              <p className="text-xs text-gray-400">加载中…</p>
+            ) : receiptsQuery.isError ? (
+              <p className="text-xs text-danger">
+                加载失败
+                <button type="button" onClick={() => receiptsQuery.refetch()} className="ml-2 text-primary-600 hover:underline">
+                  重试
+                </button>
+              </p>
+            ) : receiptsQuery.data ? (
+              <UsagePanel overview={receiptsQuery.data} onRefresh={() => receiptsQuery.refetch()} />
+            ) : null}
+          </div>
+        )}
+      </div>
+
       {confirmClear && (
         <ConfirmDialog
           title="清除 AI 配置"
@@ -297,6 +385,65 @@ function LLMSetupForm({ status }: { status: LLMConfigStatus }) {
           onCancel={() => setConfirmClear(false)}
         />
       )}
+    </div>
+  )
+}
+
+/** 用量明细面板：当日汇总 + 回执列表 */
+function UsagePanel({ overview, onRefresh }: { overview: LLMReceiptsOverview; onRefresh: () => void }) {
+  const { today, receipts } = overview
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center gap-2 flex-wrap text-xs text-gray-500">
+        <span className="badge badge-gray">今日 {today.calls} 次调用</span>
+        {today.failed > 0 && <span className="badge badge-red">{today.failed} 次失败</span>}
+        <span className="badge badge-gray">{formatTokens(today.tokens)} tokens</span>
+        <button
+          type="button"
+          onClick={onRefresh}
+          className="btn-ghost btn-sm ml-auto"
+          aria-label="刷新调用记录"
+        >
+          <RefreshCw className="h-3 w-3" aria-hidden="true" />
+        </button>
+      </div>
+
+      {receipts.length === 0 ? (
+        <p className="text-xs text-gray-400">还没有调用记录。接入后生成热点综述时会记录在这里。</p>
+      ) : (
+        <div className="divide-y divide-gray-100">
+          {receipts.map((r) => <ReceiptRow key={r.id} receipt={r} />)}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ReceiptRow({ receipt: r }: { receipt: LLMReceipt }) {
+  const tokens = (r.input_tokens ?? 0) + (r.output_tokens ?? 0)
+  return (
+    <div className="flex items-start gap-2 py-1.5">
+      {r.status === 'done' ? (
+        <CheckCircle2 className="h-3.5 w-3.5 mt-0.5 text-success shrink-0" aria-hidden="true" />
+      ) : r.status === 'failed' ? (
+        <XCircle className="h-3.5 w-3.5 mt-0.5 text-danger shrink-0" aria-hidden="true" />
+      ) : (
+        <Clock className="h-3.5 w-3.5 mt-0.5 text-gray-400 shrink-0" aria-hidden="true" />
+      )}
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 text-xs">
+          <span className="font-medium text-gray-700">{purposeLabel(r.purpose)}</span>
+          <span className="text-gray-400 truncate" title={r.model}>{r.model}</span>
+        </div>
+        {r.status === 'failed' && r.error && (
+          <div className="text-xs text-danger truncate mt-0.5" title={r.error}>{r.error}</div>
+        )}
+      </div>
+      <div className="text-xs text-gray-400 shrink-0 text-right">
+        {r.status === 'done' && `${formatTokens(tokens)} tok`}
+        {r.status === 'done' && r.duration_ms != null && ` · ${r.duration_ms}ms`}
+        <div>{formatDistanceToNow(r.created_at)}</div>
+      </div>
     </div>
   )
 }
