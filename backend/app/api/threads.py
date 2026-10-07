@@ -45,16 +45,22 @@ def list_threads(
     task_id: str | None = Query(None),
     page: int = Query(1, ge=1),
     per_page: int = Query(20, ge=1, le=100),
+    sort: str = Query("first_seen", pattern="^(first_seen|hotness)$"),
     _: str = Depends(require_auth),
 ):
     """
     获取 Thread 列表，支持按数据源过滤。
-    Threads 按最新事件倒序（first_seen_at DESC）。
+
+    sort:
+    - first_seen（默认）：最新事件优先
+    - hotness：热度优先（每个独立来源只计一次、24h 半衰期、48h 窗口），
+      返回行带 hotness 字段
     """
     threads, total = thread_service.list_threads(
         task_id=task_id,
         page=page,
         per_page=per_page,
+        sort=sort,
     )
     return PaginatedResponse(
         items=threads,

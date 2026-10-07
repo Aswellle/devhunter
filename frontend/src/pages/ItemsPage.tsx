@@ -47,6 +47,10 @@ export function ItemsPage() {
     is_read: searchParams.get('is_read') === 'true' ? true : searchParams.get('is_read') === 'false' ? false : undefined,
   })
   const [viewMode, setViewMode] = useState<ViewMode>((searchParams.get('view') as ViewMode) || 'source')
+  // Thread 视图排序：state 为源，URL 为镜像（与 filters/viewMode 同一模式）
+  const [threadSort, setThreadSort] = useState<'first_seen' | 'hotness'>(
+    searchParams.get('sort') === 'hotness' ? 'hotness' : 'first_seen',
+  )
   // Sync filter state to URL
   useEffect(() => {
     const params = new URLSearchParams()
@@ -55,8 +59,9 @@ export function ItemsPage() {
     if (filters.starred !== undefined) params.set('starred', String(filters.starred))
     if (filters.is_read !== undefined) params.set('is_read', String(filters.is_read))
     if (viewMode !== 'source') params.set('view', viewMode)
+    if (threadSort !== 'first_seen') params.set('sort', threadSort)
     setSearchParams(params, { replace: true })
-  }, [filters, viewMode, setSearchParams])
+  }, [filters, viewMode, threadSort, setSearchParams])
 
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
@@ -107,13 +112,14 @@ export function ItemsPage() {
     staleTime: 30_000,
   })
 
-  // Fetch Threads (only when in thread view)
+  // Fetch Threads (only when in thread view)；排序由 threadSort state 决定
   const { data: threadsPage, isError: threadsError, refetch: refetchThreads } = useQuery({
-    queryKey: queryKeys.threads.list({ task_id: filters.task_id }),
+    queryKey: queryKeys.threads.list({ task_id: filters.task_id, sort: threadSort }),
     queryFn: () =>
       threadsApi.list({
         task_id: filters.task_id || undefined,
         per_page: 50,
+        sort: threadSort,
       }),
     enabled: viewMode === 'thread',
   })
@@ -450,23 +456,50 @@ export function ItemsPage() {
         /* ── Thread View ── */
         <>
           {/* 聚合工具行 */}
-          <div className="flex items-center justify-between mb-3">
-            <p className="text-xs text-gray-400">
+          <div className="flex items-center justify-between gap-2 mb-3">
+            <p className="text-xs text-gray-400 hidden sm:block">
               讨论同一事件的内容会自动聚合；聚类算法更新后可在此重新计算
             </p>
-            <button
-              type="button"
-              onClick={() => setConfirmRecompute(true)}
-              disabled={recomputeMutation.isPending}
-              aria-busy={recomputeMutation.isPending}
-              className="btn-ghost text-xs py-1.5 px-2.5 inline-flex items-center gap-1.5 disabled:opacity-60"
-            >
-              <RefreshCw
-                className={clsx('h-3.5 w-3.5', recomputeMutation.isPending && 'animate-spin')}
-                aria-hidden="true"
-              />
-              {recomputeMutation.isPending ? '聚合中…' : '重新聚合'}
-            </button>
+            <div className="flex items-center gap-2 ml-auto">
+              {/* 排序切换 */}
+              <div className="flex items-center gap-0.5 p-0.5 bg-gray-100 rounded-md" role="group" aria-label="排序方式">
+                <button
+                  type="button"
+                  onClick={() => setThreadSort('first_seen')}
+                  aria-pressed={threadSort === 'first_seen'}
+                  className={clsx(
+                    'px-2 py-1 rounded text-xs font-medium transition-colors',
+                    threadSort === 'first_seen' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700',
+                  )}
+                >
+                  最新
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setThreadSort('hotness')}
+                  aria-pressed={threadSort === 'hotness'}
+                  className={clsx(
+                    'px-2 py-1 rounded text-xs font-medium transition-colors',
+                    threadSort === 'hotness' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700',
+                  )}
+                >
+                  最热
+                </button>
+              </div>
+              <button
+                type="button"
+                onClick={() => setConfirmRecompute(true)}
+                disabled={recomputeMutation.isPending}
+                aria-busy={recomputeMutation.isPending}
+                className="btn-ghost text-xs py-1.5 px-2.5 inline-flex items-center gap-1.5 disabled:opacity-60"
+              >
+                <RefreshCw
+                  className={clsx('h-3.5 w-3.5', recomputeMutation.isPending && 'animate-spin')}
+                  aria-hidden="true"
+                />
+                {recomputeMutation.isPending ? '聚合中…' : '重新聚合'}
+              </button>
+            </div>
           </div>
 
           {confirmRecompute && (

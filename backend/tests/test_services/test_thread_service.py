@@ -3,7 +3,7 @@ tests/test_services/test_thread_service.py
 Thread Service 单元测试
 """
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from unittest.mock import patch
@@ -115,6 +115,54 @@ class TestRecomputeAllThreads:
         # 每个条目恰好挂载一个 Thread，无孤儿条目
         assert linked == total_items
         assert orphans == 0
+
+
+class TestHotnessSort:
+    """list_all 的热度排序与 hotness 字段附加"""
+
+    def test_attaches_hotness_and_sorts_desc(self):
+        """两条目新旧悬殊：两条路径都带 hotness；热度排序新鲜者在前"""
+        task_id = task_repo.insert({
+            "name": f"hotness 任务 {uuid.uuid4().hex[:6]}",
+            "source_url": "https://example.com/",
+            "selector_list": "div",
+            "selector_title": "h2",
+            "selector_link": "a",
+            "cron_expression": "0 9 * * *",
+        })["id"]
+        token = uuid.uuid4().hex[:8]
+        now = datetime.now(timezone.utc)
+        item_repo.bulk_insert([
+            {
+                "task_id": task_id,
+                "title": f"fresh breaking news {token}",
+                "url": f"https://example.com/hotness/{token}/fresh",
+                "url_hash": f"hotness-hash-{token}-fresh",
+                "summary": "s",
+                "fetched_at": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            },
+            {
+                "task_id": task_id,
+                "title": "archived cold topic xyz",
+                "url": f"https://example.com/hotness/{token}/cold",
+                "url_hash": f"hotness-hash-{token}-cold",
+                "summary": "s",
+                # 72 小时前：超出 48h 窗口，热度归零
+                "fetched_at": (now - timedelta(hours=72)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            },
+        ])
+        thread_service.compute_threads_for_items(item_repo.list_all_chronological())
+
+        threads_default, _ = thread_repo.list_all(task_id=task_id, per_page=50)
+        by_id_default = {t["title"]: t for t in threads_default}
+        fresh_default = next(t for t in threads_default if "fresh" in t["title"])
+        cold_default = next(t for t in threads_default if "cold" in t["title"])
+        assert fresh_default["hotness"] > 0.9, "默认路径也应附加 hotness"
+        assert cold_default["hotness"] == 0.0, "48h 窗口外的条目热度归零"
+
+        threads_hot, _ = thread_repo.list_all(task_id=task_id, per_page=50, sort="hotness")
+        assert threads_hot[0]["title"] == fresh_default["title"], "热度排序新鲜者在前"
+        assert threads_hot[-1]["hotness"] == 0.0
 
     def test_rebuild_is_mutex(self):
         """已有重建进行中 → ConflictError"""

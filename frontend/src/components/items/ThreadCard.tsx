@@ -176,7 +176,17 @@ export function ThreadCard({ thread, defaultExpanded = false }: ThreadCardProps)
 
         {/* Stats */}
         <div className="text-right shrink-0">
-          <div className="text-sm font-medium text-gray-900">{thread.item_count} 条</div>
+          <div className="text-sm font-medium text-gray-900 flex items-center justify-end gap-1.5">
+            {typeof thread.hotness === 'number' && thread.hotness >= 0.05 && (
+              <span
+                className="text-orange-500"
+                title="热度：每个独立来源只计一次，随时间每 24 小时减半，48 小时无更新归零"
+              >
+                🔥 {thread.hotness.toFixed(1)}
+              </span>
+            )}
+            <span>{thread.item_count} 条</span>
+          </div>
           <div className="text-xs text-gray-400 mt-0.5">{timeSpanText}</div>
         </div>
       </button>

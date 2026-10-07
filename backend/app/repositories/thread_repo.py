@@ -90,12 +90,20 @@ class ThreadRepository:
         task_id: str | None = None,
         page: int = 1,
         per_page: int = 20,
+        sort: str = "first_seen",
     ) -> tuple[list[dict], int]:
         """
         分页列出 Threads，支持按 task_id 过滤。
-        Threads 按 first_seen_at DESC 排序（最新事件优先）。
+
+        sort:
+        - "first_seen"（默认）：按 first_seen_at DESC，SQL 分页
+        - "hotness"：按派生热度 DESC（并列时 last_seen_at 新者优先），
+          个人规模下全量取回后内存排序分页；两种路径的返回行都带 hotness 字段
         """
         offset = (page - 1) * per_page
+
+        if sort == "hotness":
+            return self._list_all_by_hotness(task_id=task_id, page=page, per_page=per_page)
 
         if task_id:
             base_from = """
@@ -149,7 +157,92 @@ class ThreadRepository:
                     params + [per_page, offset],
                 ).fetchall()
 
-        return [_row_to_dict(r) for r in rows], total
+        threads = [_row_to_dict(r) for r in rows]
+
+        # 默认路径：只为当前页计算热度并附加（避免全表聚合）
+        hotness = self.get_hotness_aggregates([t["id"] for t in threads])
+        for t in threads:
+            t["hotness"] = hotness.get(t["id"], 0.0)
+        return threads, total
+
+    def _list_all_by_hotness(
+        self,
+        task_id: str | None,
+        page: int,
+        per_page: int,
+    ) -> tuple[list[dict], int]:
+        """
+        热度排序路径：全量取回（个人规模，数百行）后内存排序分页。
+
+        与默认路径一样只保留仍有存活条目的 Thread；task_id 过滤语义一致。
+        """
+        if task_id:
+            sql = """
+                SELECT DISTINCT th.id, th.title, th.first_seen_at, th.last_seen_at,
+                       th.item_count, th.platforms
+                FROM threads th
+                JOIN thread_items ti ON th.id = ti.thread_id
+                JOIN items i ON ti.item_id = i.id
+                WHERE i.task_id = ?
+            """
+            params: list[Any] = [task_id]
+        else:
+            sql = """
+                SELECT th.id, th.title, th.first_seen_at, th.last_seen_at,
+                       th.item_count, th.platforms
+                FROM threads th
+                WHERE EXISTS (
+                    SELECT 1 FROM thread_items ti
+                    JOIN items i ON i.id = ti.item_id
+                    WHERE ti.thread_id = th.id
+                )
+            """
+            params = []
+        with get_db() as conn:
+            rows = conn.execute(sql, params).fetchall()
+
+        threads = [_row_to_dict(r) for r in rows]
+        hotness = self.get_hotness_aggregates([t["id"] for t in threads])
+        for t in threads:
+            t["hotness"] = hotness.get(t["id"], 0.0)
+        # 热度降序；并列时最近活动的 Thread 在前
+        threads.sort(key=lambda t: (t["hotness"], t["last_seen_at"]), reverse=True)
+        total = len(threads)
+        start = (page - 1) * per_page
+        return threads[start:start + per_page], total
+
+    def get_hotness_aggregates(self, thread_ids: list[str] | None = None) -> dict[str, float]:
+        """
+        聚合每个 Thread 的热度（threads/hotness.py 的口径）：
+        按平台取最新条目时间，唯一来源计数 + 24h 半衰期 + 48h 窗口。
+
+        Args:
+            thread_ids: 限定计算的 Thread 集合（None = 全部）
+
+        Returns:
+            {thread_id: hotness}；无条目的 Thread 不出现在结果中（视为 0）
+        """
+        from app.threads.hotness import hotness_map_from_rows
+
+        sql = """
+            SELECT ti.thread_id, i.task_id, MAX(i.fetched_at) AS latest
+            FROM thread_items ti
+            JOIN items i ON i.id = ti.item_id
+        """
+        params: list[Any] = []
+        if thread_ids is not None:
+            if not thread_ids:
+                return {}
+            placeholders = ",".join("?" for _ in thread_ids)
+            sql += f" WHERE ti.thread_id IN ({placeholders})"
+            params = list(thread_ids)
+        sql += " GROUP BY ti.thread_id, i.task_id"
+
+        with get_db() as conn:
+            rows = conn.execute(sql, params).fetchall()
+        return hotness_map_from_rows(
+            [(r["thread_id"], r["task_id"], r["latest"]) for r in rows]
+        )
 
     def add_item(
         self,

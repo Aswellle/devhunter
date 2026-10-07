@@ -133,9 +133,10 @@ class ThreadService:
         task_id: str | None = None,
         page: int = 1,
         per_page: int = 20,
+        sort: str = "first_seen",
     ) -> tuple[list[dict], int]:
-        """列出 Threads"""
-        return thread_repo.list_all(task_id=task_id, page=page, per_page=per_page)
+        """列出 Threads（sort: first_seen | hotness）"""
+        return thread_repo.list_all(task_id=task_id, page=page, per_page=per_page, sort=sort)
 
     def get_thread(self, thread_id: str) -> dict | None:
         """获取 Thread 详情（包含 Items 与聚合画像 stats）"""

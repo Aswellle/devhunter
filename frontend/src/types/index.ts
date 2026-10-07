@@ -135,6 +135,8 @@ export interface Thread {
   item_count: number
   platforms: string[]
   confidence?: string
+  /** 派生热度：唯一来源计数 + 24h 半衰期 + 48h 窗口（app/threads/hotness.py） */
+  hotness?: number
 }
 
 export interface ThreadWithItems extends Thread {
@@ -157,6 +159,7 @@ export interface ThreadStats {
   similarity_max: number | null
   confidence: 'high' | 'medium' | 'low' | null
   is_cross_platform: boolean
+  hotness: number
 }
 
 // ── TaskExecution 执行记录 ────────────────────────────────

@@ -18,6 +18,8 @@ from collections import Counter
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+from app.threads.hotness import compute_hotness
+
 # 与 threads/scoring.py 的 CONFIDENCE_THRESHOLDS 保持一致
 CONFIDENCE_HIGH = 0.70
 CONFIDENCE_MEDIUM = 0.45
@@ -87,11 +89,18 @@ def build_thread_stats(
 
     # 平台分布（task_name 即来源平台名，与 thread.platforms 的口径一致）
     platform_counts: Counter[str] = Counter()
+    platform_latest: dict[str, str | None] = {}
     recent_6h = 0
     recent_24h = 0
     for it in items:
-        platform_counts[str(it.get("task_name") or "unknown")] += 1
-        fetched = parse_iso_utc(it.get("fetched_at"))
+        platform_name = str(it.get("task_name") or "unknown")
+        platform_counts[platform_name] += 1
+        fetched_raw = it.get("fetched_at")
+        fetched = parse_iso_utc(fetched_raw)
+        # 各平台最新条目时间（热度口径：唯一来源计数 + 24h 半衰期）
+        prev = parse_iso_utc(platform_latest.get(platform_name))
+        if fetched and (prev is None or fetched > prev):
+            platform_latest[platform_name] = fetched_raw
         if fetched and fetched >= cutoff_24h:
             recent_24h += 1
             if fetched >= cutoff_6h:
@@ -135,4 +144,5 @@ def build_thread_stats(
         "similarity_max": similarity_max,
         "confidence": confidence_label(similarity_avg),
         "is_cross_platform": len(platform_counts) > 1,
+        "hotness": compute_hotness(platform_latest, now=now),
     }

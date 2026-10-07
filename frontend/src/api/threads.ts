@@ -5,6 +5,7 @@ export interface ThreadsQuery {
   task_id?: string
   page?: number
   per_page?: number
+  sort?: 'first_seen' | 'hotness'
 }
 
 export const threadsApi = {
