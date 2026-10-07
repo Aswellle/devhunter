@@ -172,6 +172,21 @@ export interface TaskExecution {
   executed_at: string
 }
 
+// ── RSS 机器出口 ──────────────────────────────────────────
+export interface FeedInfo {
+  task_id: string
+  task_name: string
+  url: string
+}
+
+/** GET /api/rss/feeds 响应：订阅地址清单 + 能力令牌 */
+export interface FeedOverview {
+  token: string
+  base_url: string
+  all_url: string
+  feeds: FeedInfo[]
+}
+
 // ── 阅读亲缘度（我的画像）─────────────────────────────────
 export interface AffinityEntry {
   id: string

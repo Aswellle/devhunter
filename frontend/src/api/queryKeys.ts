@@ -73,4 +73,10 @@ export const queryKeys = {
   stats: {
     all: ['stats'] as const,
   },
+
+  // ── Feeds（RSS 机器出口）─────────────────────────────────
+  feeds: {
+    all: ['feeds'] as const,
+    overview: () => ['feeds', 'overview'] as const,
+  },
 }

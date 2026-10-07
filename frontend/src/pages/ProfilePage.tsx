@@ -4,17 +4,76 @@
  * 展示用户兴趣分布，支持管理。
  */
 import { useQuery } from '@tanstack/react-query'
+import { Copy, Check } from 'lucide-react'
+import { useState } from 'react'
+import { toast } from 'react-hot-toast'
 import { userPrefsApi } from '../api/user_prefs'
+import { feedsApi } from '../api/feeds'
 import { queryKeys } from '../api/queryKeys'
 import { formatDistanceToNow } from '../utils/time'
 import { Empty } from '../components/ui/Empty'
 import { SkeletonList } from '../components/ui/Skeleton'
-import type { AffinityEntry } from '../types'
+import type { AffinityEntry, FeedInfo } from '../types'
 
 // 展示维度 → 中文标签（后端已把 task/platform 归一为 task）
 const AFFINITY_TYPE_LABELS: Record<string, string> = {
   task: '任务',
   keyword: '关键词',
+}
+
+/** 复制到剪贴板（ insecure 上下文回退 execCommand） */
+async function copyText(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text)
+    return true
+  } catch {
+    // 非 HTTPS / 非安全上下文时 clipboard API 不可用
+    const ta = document.createElement('textarea')
+    ta.value = text
+    ta.style.position = 'fixed'
+    ta.style.opacity = '0'
+    document.body.appendChild(ta)
+    ta.select()
+    const ok = document.execCommand('copy')
+    document.body.removeChild(ta)
+    return ok
+  }
+}
+
+/** 单条订阅地址行：名称 + 截断 URL + 复制按钮 */
+function FeedRow({ name, url }: { name: string; url: string }) {
+  const [copied, setCopied] = useState(false)
+
+  const handleCopy = async () => {
+    if (await copyText(url)) {
+      setCopied(true)
+      toast.success('订阅地址已复制')
+      setTimeout(() => setCopied(false), 1500)
+    } else {
+      toast.error('复制失败，请手动复制')
+    }
+  }
+
+  return (
+    <div className="flex items-center gap-3 py-2">
+      <div className="flex-1 min-w-0">
+        <div className="text-sm font-medium text-gray-800">{name}</div>
+        <div className="text-xs text-gray-400 font-mono truncate" title={url}>
+          {url}
+        </div>
+      </div>
+      <button
+        type="button"
+        onClick={handleCopy}
+        aria-label={`复制 ${name} 的订阅地址`}
+        className="btn-ghost px-2 py-1.5 shrink-0"
+      >
+        {copied
+          ? <Check className="h-4 w-4 text-success" aria-hidden="true" />
+          : <Copy className="h-4 w-4" aria-hidden="true" />}
+      </button>
+    </div>
+  )
 }
 
 export function ProfilePage() {
@@ -26,6 +85,13 @@ export function ProfilePage() {
   const { data: affinities, isLoading: affinitiesLoading, isError: affinitiesError, refetch: refetchAffinities } = useQuery({
     queryKey: queryKeys.recommendations.affinities(),
     queryFn: () => userPrefsApi.getAffinities(),
+  })
+
+  // RSS 订阅地址（辅助信息，不阻塞页面主体）
+  const { data: feedOverview, isLoading: feedsLoading } = useQuery({
+    queryKey: queryKeys.feeds.overview(),
+    queryFn: () => feedsApi.getOverview(),
+    staleTime: 60_000,
   })
 
   const isLoading = topicsLoading || affinitiesLoading
@@ -155,6 +221,30 @@ export function ProfilePage() {
               <Empty
                 title="暂无阅读偏好"
                 description="与内容互动后，系统会学习你的阅读偏好"
+              />
+            )}
+          </section>
+
+          {/* RSS 订阅 */}
+          <section>
+            <h2 className="text-lg font-semibold mb-1">RSS 订阅</h2>
+            <p className="text-xs text-gray-500 mb-3">
+              在任意 RSS 阅读器中订阅采集内容。链接包含你的私有访问令牌，请勿外传；
+              轮换服务端 SECRET_KEY 可使其全部失效。
+            </p>
+            {feedsLoading ? (
+              <SkeletonList count={1} />
+            ) : feedOverview ? (
+              <div className="card px-4 py-1 divide-y divide-gray-100">
+                <FeedRow name="全部采集" url={feedOverview.all_url} />
+                {feedOverview.feeds.map((f: FeedInfo) => (
+                  <FeedRow key={f.task_id} name={f.task_name} url={f.url} />
+                ))}
+              </div>
+            ) : (
+              <Empty
+                title="订阅地址加载失败"
+                description="请刷新页面重试"
               />
             )}
           </section>
