@@ -5,7 +5,10 @@ Thread 业务层：计算新 Items 的 Thread 归属
 V2: 使用多因素评分（lexical + entity + semantic + temporal + source）
 """
 import logging
+import threading
+import time
 
+from app.core.exceptions import ConflictError
 from app.repositories.thread_repo import thread_repo
 from app.repositories.task_repo import task_repo
 from app.utils.similarity import DEFAULT_THRESHOLD, find_similar_titles, jaccard_similarity
@@ -17,8 +20,14 @@ from app.threads.stats import build_thread_stats
 
 logger = logging.getLogger(__name__)
 
+# Thread 重建批次大小：候选池随批次刷新，批次过大窗口内候选会过期
+_RECOMPUTE_BATCH_SIZE = 200
+
 
 class ThreadService:
+
+    # 重建互斥锁：防止两次重建并发交错（SQLite 单写入者，交错会产生半重建状态）
+    _recompute_lock = threading.Lock()
 
     def compute_threads_for_items(
         self,
@@ -135,6 +144,52 @@ class ThreadService:
             return None
         items = thread_repo.get_items_in_thread(thread_id)
         return {**thread, "items": items, "stats": build_thread_stats(thread, items)}
+
+    def recompute_all_threads(self, window_hours: int = 24) -> dict:
+        """
+        重建全部 Thread：清空后按 created_at 时间正序重放所有条目的聚类。
+
+        - 使用与采集管线完全相同的算法（compute_threads_for_items），仅候选
+          活动窗口可调（window_hours，默认 24h 与采集路径一致）
+        - 按批次重放，候选随批次刷新
+        - thread_overrides 为人工纠错审计记录，保留不动（旧引用自然失效）
+
+        同步执行、进程内互斥：已有重建进行中时抛 ConflictError。
+        个人规模的条目量（数千级）应在秒级到分钟级内完成。
+
+        Returns:
+            {"items": 处理条目数, "threads": 重建后 Thread 数,
+             "duration_ms": 耗时, "window_hours": 窗口}
+        """
+        if not self._recompute_lock.acquire(blocking=False):
+            raise ConflictError("Thread 重建已在进行中，请稍后再试")
+        try:
+            from app.repositories.item_repo import item_repo
+
+            started = time.monotonic()
+            thread_repo.delete_all()
+            items = item_repo.list_all_chronological()
+
+            for i in range(0, len(items), _RECOMPUTE_BATCH_SIZE):
+                self.compute_threads_for_items(
+                    items[i:i + _RECOMPUTE_BATCH_SIZE],
+                    window_hours=window_hours,
+                )
+
+            duration_ms = int((time.monotonic() - started) * 1000)
+            result = {
+                "items": len(items),
+                "threads": thread_repo.count_all(),
+                "duration_ms": duration_ms,
+                "window_hours": window_hours,
+            }
+            logger.info(
+                "Thread recompute done: %d items -> %d threads in %dms (window=%dh)",
+                result["items"], result["threads"], result["duration_ms"], window_hours,
+            )
+            return result
+        finally:
+            self._recompute_lock.release()
 
 # 全局单例
 thread_service = ThreadService()

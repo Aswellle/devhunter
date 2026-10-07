@@ -268,6 +268,20 @@ class ThreadRepository:
         with get_db() as conn:
             return conn.execute("SELECT COUNT(*) FROM threads").fetchone()[0]
 
+    def delete_all(self) -> None:
+        """
+        清空全部 Thread 数据（仅用于重建）：
+        thread_items、threads 全删，items.thread_id 全部重置。
+        thread_overrides 是人工纠错的历史审计记录，保留不动
+        （其中的旧 thread_id 引用自然失效，按 thread_id 查询只会得到空）。
+        """
+        with get_db() as conn:
+            # 顺序重要：items.thread_id 外键引用 threads(id)，必须先重置引用
+            # 再删 thread_items / threads，否则 FOREIGN KEY constraint failed
+            conn.execute("UPDATE items SET thread_id = NULL")
+            conn.execute("DELETE FROM thread_items")
+            conn.execute("DELETE FROM threads")
+
     def delete_item_from_thread(self, item_id: str) -> None:
         """将 Item 从 Thread 中移除（用于 Item 删除时级联清理）"""
         with get_db() as conn:

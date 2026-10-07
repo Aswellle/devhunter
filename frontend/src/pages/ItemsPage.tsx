@@ -1,18 +1,20 @@
 import { useState, useMemo, useCallback, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
-import { ChevronDown, ChevronRight, CheckCheck, Check, Star, Rss, Trash2, X, Layers } from 'lucide-react'
+import { ChevronDown, ChevronRight, CheckCheck, Check, Star, Rss, Trash2, X, Layers, RefreshCw } from 'lucide-react'
 import { clsx } from 'clsx'
 import { itemsApi } from '../api/items'
 import { queryKeys } from '../api/queryKeys'
 import { tasksApi } from '../api/tasks'
 import { threadsApi } from '../api/threads'
+import { errorMessage } from '../api/client'
 import { ItemCard } from '../components/items/ItemCard'
 import { ItemsFilterBar } from '../components/items/ItemsFilterBar'
 import { ThreadCard } from '../components/items/ThreadCard'
 import { Spinner } from '../components/ui/Spinner'
 import { Empty } from '../components/ui/Empty'
 import { SkeletonList } from '../components/ui/Skeleton'
+import { ConfirmDialog } from '../components/ui/ConfirmDialog'
 import { toast } from 'react-hot-toast'
 import type { Item, ThreadWithItems } from '../types'
 
@@ -113,6 +115,22 @@ export function ItemsPage() {
         per_page: 50,
       }),
     enabled: viewMode === 'thread',
+  })
+
+  // 重新聚合 Thread：清空现有聚合后按当前算法重放全部条目
+  const [confirmRecompute, setConfirmRecompute] = useState(false)
+  const recomputeMutation = useMutation({
+    mutationFn: () => threadsApi.recompute(24),
+    onSuccess: (res) => {
+      qc.invalidateQueries({ queryKey: queryKeys.threads.all })
+      qc.invalidateQueries({ queryKey: queryKeys.items.all })
+      toast.success(`重新聚合完成：${res.items} 条内容 → ${res.threads} 个 Thread`)
+      setConfirmRecompute(false)
+    },
+    onError: (err) => {
+      toast.error(errorMessage(err, '重新聚合失败，请稍后重试'))
+      setConfirmRecompute(false)
+    },
   })
 
   // Compute category counts from dedicated counts API (stable across filter changes)
@@ -425,7 +443,39 @@ export function ItemsPage() {
       {/* Content */}
       {viewMode === 'thread' ? (
         /* ── Thread View ── */
-        isFetching && !threadsPage ? (
+        <>
+          {/* 聚合工具行 */}
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-xs text-gray-400">
+              讨论同一事件的内容会自动聚合；聚类算法更新后可在此重新计算
+            </p>
+            <button
+              type="button"
+              onClick={() => setConfirmRecompute(true)}
+              disabled={recomputeMutation.isPending}
+              aria-busy={recomputeMutation.isPending}
+              className="btn-ghost text-xs py-1.5 px-2.5 inline-flex items-center gap-1.5 disabled:opacity-60"
+            >
+              <RefreshCw
+                className={clsx('h-3.5 w-3.5', recomputeMutation.isPending && 'animate-spin')}
+                aria-hidden="true"
+              />
+              {recomputeMutation.isPending ? '聚合中…' : '重新聚合'}
+            </button>
+          </div>
+
+          {confirmRecompute && (
+            <ConfirmDialog
+              title="重新聚合全部 Thread？"
+              message="将删除现有的聚合结果，并按当前算法对全部采集内容重新计算。原始条目不受影响。内容较多时可能需要一点时间。"
+              confirmText="开始重建"
+              variant="default"
+              onConfirm={() => recomputeMutation.mutate()}
+              onCancel={() => setConfirmRecompute(false)}
+            />
+          )}
+
+          {isFetching && !threadsPage ? (
           <div className="flex justify-center py-12">
             <Spinner />
           </div>
@@ -456,6 +506,8 @@ export function ItemsPage() {
             description="采集更多内容后，系统会自动将讨论同一事件的内容聚合为 Thread"
           />
         )
+          }
+        </>
       ) : (
         /* ── Source View (original) ── */
         // U1: guard the initial fetch — without `isFetching && !data`, a

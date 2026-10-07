@@ -3,8 +3,10 @@ app/api/threads.py
 Thread API 端点：/api/items/threads
 """
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, Field
 
 from app.api.deps import require_auth
+from app.core.exceptions import ConflictError
 from app.schemas.common import PaginatedResponse
 from app.schemas.item import ItemResponse
 from app.services.thread_service import thread_service
@@ -15,6 +17,27 @@ router = APIRouter(prefix="/items/threads", tags=["threads"])
 class ThreadResponse:
     """Thread 列表项（不含 Items）"""
     pass
+
+
+class ThreadRecomputeRequest(BaseModel):
+    """Thread 重建参数"""
+    window_hours: int = Field(24, ge=1, le=720, description="候选 Thread 的活动窗口（小时）")
+
+
+@router.post("/recompute")
+def recompute_threads(body: ThreadRecomputeRequest, _: str = Depends(require_auth)):
+    """
+    重建全部 Thread：清空现有聚合后按时间正序重放所有条目的聚类。
+
+    同步执行（个人规模秒级到分钟级）；已有重建进行中返回 409。
+    """
+    try:
+        return thread_service.recompute_all_threads(window_hours=body.window_hours)
+    except ConflictError as e:
+        raise HTTPException(
+            status_code=e.status_code,
+            detail={"code": e.error_code, "message": e.message},
+        )
 
 
 @router.get("", response_model=PaginatedResponse)

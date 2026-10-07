@@ -261,6 +261,23 @@ class ItemRepository:
 
         return [_row_to_dict(r) for r in rows], total
 
+    def list_all_chronological(self) -> list[dict]:
+        """
+        全部条目按 created_at 正序（Thread 重建重放用），只取聚类所需字段。
+
+        items 表没有 source_id/published_at 列——与采集入库路径一致，
+        评分器对这些缺失键走默认回退（source 视为未知、时间用 fetched_at）。
+        """
+        with get_db() as conn:
+            rows = conn.execute(
+                """
+                SELECT id, task_id, title, url, summary, fetched_at, created_at
+                FROM items
+                ORDER BY created_at ASC, id ASC
+                """
+            ).fetchall()
+        return [dict(r) for r in rows]
+
     def get(self, item_id: str) -> dict | None:
         with get_db() as conn:
             row = conn.execute(

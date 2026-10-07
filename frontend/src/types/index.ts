@@ -172,6 +172,14 @@ export interface TaskExecution {
   executed_at: string
 }
 
+/** POST /api/items/threads/recompute 响应 */
+export interface ThreadRecomputeResult {
+  items: number
+  threads: number
+  duration_ms: number
+  window_hours: number
+}
+
 // ── RSS 机器出口 ──────────────────────────────────────────
 export interface FeedInfo {
   task_id: string
