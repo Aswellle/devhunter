@@ -386,6 +386,11 @@ export function ItemsPage() {
   // 移动端下拉刷新：两个视图的查询都重取（未启用的查询 refetch 立即返回）
   const handlePullRefresh = () => Promise.allSettled([refetch(), refetchThreads()])
 
+  // 是否所有任务都是条目型（决定线程视图空态的解释文案）
+  const allTasks = tasksPage?.items ?? []
+  const hasOnlyCatalogTasks =
+    allTasks.length > 0 && allTasks.every((t) => t.content_kind === 'catalog')
+
   return (
     <PullToRefresh onRefresh={handlePullRefresh}>
     <div className="max-w-4xl mx-auto px-4 sm:px-6 py-6">
@@ -538,6 +543,12 @@ export function ItemsPage() {
               />
             ))}
           </div>
+        ) : hasOnlyCatalogTasks ? (
+          // 全部数据源都是条目型时给出业务解释，而不是误导性的"采集更多"
+          <Empty
+            title="条目型数据源不参与热点聚合"
+            description="当前的数据源（如 GitHub Trending、视频榜单）抓取的是独立资源条目，彼此没有事件关联，因此不生成热点 Thread。讨论型数据源（如 Hacker News、V2EX）的内容会自动聚合；也可以在任务设置里把来源改为「讨论型」。"
+          />
         ) : (
           <Empty
             title="暂无热点聚合"

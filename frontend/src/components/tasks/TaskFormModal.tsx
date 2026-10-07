@@ -28,6 +28,7 @@ const EMPTY_FORM: TaskCreate = {
   selector_next_page: '',
   keywords: [],
   cron_expression: '0 * * * *',
+  content_kind: 'discussion',
 }
 
 /** 编辑回填：仅在挂载时用于初始化（见下方 initialForm） */
@@ -43,6 +44,7 @@ function toFormState(task: Task): TaskCreate {
     selector_next_page: task.selector_next_page ?? '',
     keywords: task.keywords,
     cron_expression: task.cron_expression,
+    content_kind: task.content_kind,
   }
 }
 
@@ -86,6 +88,7 @@ export function TaskFormModal({ task, onClose }: TaskFormModalProps) {
     (form.selector_summary ?? '') !== (initialForm.selector_summary ?? '') ||
     (form.selector_next_page ?? '') !== (initialForm.selector_next_page ?? '') ||
     form.cron_expression !== initialForm.cron_expression ||
+    form.content_kind !== initialForm.content_kind ||
     keywordsInput !== initialKeywords
 
   // requestClose 的身份会随 isDirty 变化，但 useModalA11y 内部用 ref 持有回调，
@@ -112,6 +115,7 @@ export function TaskFormModal({ task, onClose }: TaskFormModalProps) {
       selector_link: tpl.selector_link,
       selector_summary: tpl.selector_summary ?? '',
       cron_expression: tpl.recommended_cron,
+      content_kind: tpl.content_kind,
     }))
   }
 
@@ -304,6 +308,46 @@ export function TaskFormModal({ task, onClose }: TaskFormModalProps) {
             />
             <p className="text-xs text-gray-400 mt-1">
               标题或摘要包含任意一个关键词的条目才会被保留
+            </p>
+          </div>
+
+          {/* 内容性质 */}
+          <div>
+            <label className="label">内容性质</label>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2" role="radiogroup" aria-label="内容性质">
+              {([
+                {
+                  value: 'discussion',
+                  title: '讨论型',
+                  desc: '围绕事件/话题的讨论，跨来源聚合成热点 Thread（如 HN、V2EX、Reddit）',
+                },
+                {
+                  value: 'catalog',
+                  title: '条目型',
+                  desc: '独立资源条目（开源项目、产品、视频），不参与热点聚合（如 GitHub Trending）',
+                },
+              ] as const).map(({ value, title, desc }) => (
+                <button
+                  key={value}
+                  type="button"
+                  role="radio"
+                  aria-checked={form.content_kind === value}
+                  onClick={() => set('content_kind', value)}
+                  className={`text-left p-2.5 rounded-lg border text-xs transition-colors ${
+                    form.content_kind === value
+                      ? 'border-primary-500 bg-primary-50'
+                      : 'border-gray-200 hover:border-gray-300'
+                  }`}
+                >
+                  <div className={`font-medium ${form.content_kind === value ? 'text-primary-700' : 'text-gray-900'}`}>
+                    {title}
+                  </div>
+                  <div className="text-gray-500 mt-0.5 leading-relaxed">{desc}</div>
+                </button>
+              ))}
+            </div>
+            <p className="text-xs text-gray-400 mt-1">
+              只有讨论型数据源的内容才会出现在「热点聚合」里；选择模板时会自动带入其建议分类
             </p>
           </div>
 

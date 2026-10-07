@@ -89,6 +89,14 @@ export interface TestResult {
 }
 
 // ── Task 采集任务 ────────────────────────────────────────
+/** 内容性质：讨论型内容跨来源聚合成 Thread 才有意义 */
+export type ContentKind = 'discussion' | 'catalog'
+
+export const CONTENT_KIND_LABELS: Record<ContentKind, string> = {
+  discussion: '讨论型',
+  catalog: '条目型',
+}
+
 export interface Task {
   id: string
   name: string
@@ -102,6 +110,7 @@ export interface Task {
   keywords: string[]
   cron_expression: string
   status: 'active' | 'paused' | 'error'
+  content_kind: ContentKind
   consecutive_failures: number
   consecutive_empty: number
   last_executed_at: string | null
@@ -120,6 +129,7 @@ export interface TaskCreate {
   selector_next_page?: string | null
   keywords: string[]
   cron_expression: string
+  content_kind: ContentKind
 }
 
 export interface TaskUpdate extends Partial<TaskCreate> {
@@ -235,6 +245,8 @@ export interface SourceTemplate {
   recommended_cron: string
   category?: string
   subcategory?: string
+  /** 模板建议的内容性质：条目型模板（如 GitHub Trending）创建的任务不参与热点聚合 */
+  content_kind: ContentKind
 }
 
 // ── Auth ──────────────────────────────────────────────────

@@ -157,6 +157,12 @@ export function TaskCard({ task, onEdit, onViewHistory }: TaskCardProps) {
                 <status.Icon className="h-3 w-3 mr-1" />
                 {status.label}
               </Badge>
+              <Badge
+                color={task.content_kind === 'catalog' ? 'gray' : 'blue'}
+                className="shrink-0"
+              >
+                {task.content_kind === 'catalog' ? '条目型' : '讨论型'}
+              </Badge>
               {hasConsecWarning && (
                 <Badge color="yellow" className="shrink-0">
                   <AlertTriangle className="h-3 w-3 mr-1" />
