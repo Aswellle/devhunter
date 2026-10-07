@@ -5,6 +5,7 @@ import { queryKeys } from '../../api/queryKeys'
 import { formatDistanceToNow } from '../../utils/time'
 import { RECOMMENDED_BADGE_SCORE } from '../../utils/scores'
 import { ReasonBadges } from '../recommend/ReasonBadges'
+import { ScorePill } from '../ui/ScorePill'
 import { Spinner } from '../ui/Spinner'
 import type { RecommendedItem } from '../../types'
 
@@ -71,9 +72,9 @@ function ForYouItemCard({ item }: { item: RecommendedItem }) {
 
   return (
     <div className="group flex items-start gap-2 p-2 rounded-lg hover:bg-gray-50 transition-colors">
-      {/* 得分指示 */}
-      <div className="shrink-0 w-8 h-8 rounded-md bg-primary-50 flex flex-col items-center justify-center">
-        <span className="text-[10px] text-primary-500 font-medium">{score}%</span>
+      {/* 得分指示（紧凑胶囊） */}
+      <div className="shrink-0 mt-0.5">
+        <ScorePill score={score} compact />
       </div>
 
       {/* 内容 */}

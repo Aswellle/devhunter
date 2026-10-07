@@ -7,8 +7,8 @@ import { threadsApi } from '../api/threads'
 import { userPrefsApi } from '../api/user_prefs'
 import { queryKeys } from '../api/queryKeys'
 import { formatDistanceToNow } from '../utils/time'
-import { RECOMMENDED_BADGE_SCORE } from '../utils/scores'
 import { ReasonBadges } from '../components/recommend/ReasonBadges'
+import { ScorePill } from '../components/ui/ScorePill'
 import { Spinner } from '../components/ui/Spinner'
 import { Empty } from '../components/ui/Empty'
 import type { RecommendedItem, ThreadWithItems } from '../types'
@@ -175,55 +175,34 @@ function RecommendedItemCard({ item }: { item: RecommendedItem }) {
   const platform = item.task_name ?? '未知来源'
 
   return (
-    <div className="card p-4 flex items-start gap-3 hover:shadow-md transition-shadow">
-      {/* 得分 */}
-      <div className={clsx(
-        'shrink-0 w-12 h-12 rounded-xl flex flex-col items-center justify-center',
-        score >= RECOMMENDED_BADGE_SCORE ? 'bg-primary-50' : 'bg-gray-50',
-      )}>
-        <span className={clsx(
-          'text-lg font-bold',
-          score >= RECOMMENDED_BADGE_SCORE ? 'text-primary-600' : 'text-gray-600',
-        )}>
-          {score}
+    <div className="card p-4 hover:shadow-md transition-shadow">
+      <a
+        href={item.url}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="block text-sm font-medium text-gray-900 hover:text-primary-600 transition-colors leading-snug line-clamp-2"
+        onClick={() => {
+          userPrefsApi
+            .recordInteraction({ item_id: item.id, interaction_type: 'click' })
+            .catch(() => {})
+        }}
+      >
+        {item.title}
+      </a>
+      <ReasonBadges reasons={item.recommendation_reasons} max={3} />
+      {item.summary && (
+        <p className="text-xs text-gray-500 mt-1 line-clamp-2">{item.summary}</p>
+      )}
+      <div className="flex items-center gap-2 mt-2 flex-wrap">
+        {/* 分级胶囊：≥80 主题色即"推荐"态，不再重复文字徽标 */}
+        <ScorePill score={score} />
+        <span className={clsx('text-xs font-medium', PLATFORM_COLORS[platform] ?? 'text-gray-400')}>
+          {platform}
         </span>
-        <span className="text-[10px] text-gray-400">分</span>
-      </div>
-
-      {/* 内容 */}
-      <div className="flex-1 min-w-0">
-        <a
-          href={item.url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="block text-sm font-medium text-gray-900 hover:text-primary-600 transition-colors leading-snug line-clamp-2"
-          onClick={() => {
-            userPrefsApi
-              .recordInteraction({ item_id: item.id, interaction_type: 'click' })
-              .catch(() => {})
-          }}
-        >
-          {item.title}
-        </a>
-        <ReasonBadges reasons={item.recommendation_reasons} max={3} />
-        {item.summary && (
-          <p className="text-xs text-gray-500 mt-1 line-clamp-2">{item.summary}</p>
-        )}
-        <div className="flex items-center gap-2 mt-2">
-          <span className={clsx('text-xs font-medium', PLATFORM_COLORS[platform] ?? 'text-gray-400')}>
-            {platform}
-          </span>
-          <span className="text-xs text-gray-300">·</span>
-          <span className="text-xs text-gray-400">
-            {formatDistanceToNow(item.fetched_at)}
-          </span>
-          {score >= RECOMMENDED_BADGE_SCORE && (
-            <>
-              <span className="text-xs text-gray-300">·</span>
-              <span className="text-xs text-primary-500 font-medium">推荐</span>
-            </>
-          )}
-        </div>
+        <span className="text-xs text-gray-300">·</span>
+        <span className="text-xs text-gray-400">
+          {formatDistanceToNow(item.fetched_at)}
+        </span>
       </div>
     </div>
   )
