@@ -9,7 +9,10 @@ LLM 调用基础设施：OpenAI 兼容 Chat Completions + 付费回执纪律。
 4. 失败熔断 —— 连续失败达 llm_max_consecutive_failures 后停止调用（进程生命周期内），
    防止服务端故障时重试烧钱
 
-未配置 llm_api_key 时全链路静默关闭：chat() 返回 None，调用方优雅降级，
+配置来源：每次调用实时解析有效配置（llm.config.resolve_llm_config，界面保存值
+优先于环境变量），用户在界面改 Key/换服务商后立即生效，无需重启。
+
+未配置 api_key 时全链路静默关闭：chat() 返回 None，调用方优雅降级，
 页面不出现任何 LLM 相关 UI。
 
 线程安全：APScheduler worker 与 API 请求线程都可能调用；熔断计数用锁保护。
@@ -22,6 +25,7 @@ import time
 import httpx
 
 from app.core.config import settings
+from app.llm.config import resolve_llm_config
 from app.llm.receipt_repo import model_receipt_repo
 
 logger = logging.getLogger(__name__)
@@ -53,7 +57,7 @@ class LLMProvider:
     # ── 状态查询 ─────────────────────────────────────
 
     def is_configured(self) -> bool:
-        return bool(settings.llm_api_key)
+        return bool(resolve_llm_config().api_key)
 
     def is_available(self) -> bool:
         """配置齐全且未触发任何熔断"""
@@ -69,6 +73,20 @@ class LLMProvider:
         used = model_receipt_repo.tokens_since(_utc_day_start_iso())
         return max(0, settings.llm_daily_token_budget - used)
 
+    def status(self) -> dict:
+        """用量与熔断状态（配置页展示用）"""
+        used = model_receipt_repo.tokens_since(_utc_day_start_iso())
+        with self._failure_lock:
+            failures = self._consecutive_failures
+        return {
+            "used_today": used,
+            "budget": settings.llm_daily_token_budget,
+            "remaining": max(0, settings.llm_daily_token_budget - used),
+            "breaker_open": failures >= settings.llm_max_consecutive_failures,
+            "consecutive_failures": failures,
+            "max_consecutive_failures": settings.llm_max_consecutive_failures,
+        }
+
     # ── 测试注入口 ───────────────────────────────────
 
     def set_test_transport(self, transport: httpx.BaseTransport | None) -> None:
@@ -80,15 +98,13 @@ class LLMProvider:
     # ── 内部 ─────────────────────────────────────────
 
     def _get_client(self) -> httpx.Client:
+        """客户端与配置解耦：不带 base_url 与鉴权头——Key/服务商在界面
+        更换后无需重建连接或重启进程，鉴权按请求携带，URL 按请求拼接。"""
         if self._client is None or self._client.is_closed:
             with self._client_lock:
                 if self._client is None or self._client.is_closed:
                     self._client = httpx.Client(
-                        base_url=settings.llm_base_url.rstrip("/"),
-                        headers={
-                            "Authorization": f"Bearer {settings.llm_api_key}",
-                            "Content-Type": "application/json",
-                        },
+                        headers={"Content-Type": "application/json"},
                         timeout=httpx.Timeout(
                             connect=10.0,
                             read=settings.llm_timeout,
@@ -116,9 +132,10 @@ class LLMProvider:
         任何不可用状态（未配置/熔断/失败）都返回 None 并记录日志，
         调用方据此优雅降级——管线绝不因 LLM 不可用而失败。
         """
-        if not self.is_configured():
+        cfg = resolve_llm_config()
+        if not cfg.api_key:
             if not self._not_configured_logged:
-                logger.info("LLM not configured (llm_api_key empty), LLM features disabled")
+                logger.info("LLM not configured (no api key), LLM features disabled")
                 self._not_configured_logged = True
             return None
 
@@ -138,19 +155,20 @@ class LLMProvider:
             )
             return None
 
-        prompt_hash = _prompt_hash(settings.llm_model, system, prompt)
-        cached = model_receipt_repo.find_done_result(settings.llm_model, prompt_hash)
+        prompt_hash = _prompt_hash(cfg.model, system, prompt)
+        cached = model_receipt_repo.find_done_result(cfg.model, prompt_hash)
         if cached is not None:
             logger.debug("LLM result reused for purpose=%s", purpose)
             return cached
 
-        receipt_id = model_receipt_repo.create_pending(purpose, settings.llm_model, prompt_hash)
+        receipt_id = model_receipt_repo.create_pending(purpose, cfg.model, prompt_hash)
         started = time.monotonic()
         try:
             response = self._get_client().post(
-                "/chat/completions",
+                cfg.base_url.rstrip("/") + "/chat/completions",
+                headers={"Authorization": f"Bearer {cfg.api_key}"},
                 json={
-                    "model": settings.llm_model,
+                    "model": cfg.model,
                     "messages": [
                         {"role": "system", "content": system},
                         {"role": "user", "content": prompt},
@@ -187,6 +205,73 @@ class LLMProvider:
                 purpose, failures, settings.llm_max_consecutive_failures, e,
             )
             return None
+
+    # ── 连通性诊断 ───────────────────────────────────
+
+    def test_connection(self, api_key: str, base_url: str, model: str) -> dict:
+        """
+        配置页的"测试连接"：用给定参数发一次极小请求（max_tokens=16）。
+
+        与 chat() 的区别：
+        - 不写回执、不计入预算与失败熔断（用户诊断动作，允许在熔断后验证修复）
+        - 不静默降级——把失败原因翻译成用户可读的中文提示返回
+
+        返回 {ok, message, model, latency_ms}
+        """
+        if not api_key:
+            return {"ok": False, "message": "请先填写 API Key", "model": model or None, "latency_ms": None}
+        if not base_url:
+            return {"ok": False, "message": "请先填写接口地址", "model": model or None, "latency_ms": None}
+
+        started = time.monotonic()
+        try:
+            response = self._get_client().post(
+                base_url.rstrip("/") + "/chat/completions",
+                headers={"Authorization": f"Bearer {api_key}"},
+                json={
+                    "model": model,
+                    "messages": [{"role": "user", "content": "连接测试，请回复：OK"}],
+                    "max_tokens": 16,
+                    "temperature": 0,
+                },
+            )
+            response.raise_for_status()
+            data = response.json()
+            sample = ((data.get("choices") or [{}])[0].get("message", {}).get("content", "") or "").strip()
+            message = "连接成功"
+            if sample:
+                message += f"，模型回复：{sample[:40]}"
+            return self._test_result(True, message, model, started)
+        except httpx.TimeoutException:
+            return self._test_result(
+                False, "连接超时，请检查接口地址与网络后重试", model, started)
+        except httpx.TransportError:
+            return self._test_result(
+                False, "无法连接到接口地址，请检查 Base URL 与网络", model, started)
+        except httpx.HTTPStatusError as e:
+            code = e.response.status_code
+            if code in (401, 403):
+                message = "密钥无效或无权限，请检查 API Key"
+            elif code == 404:
+                message = "接口路径不存在，请确认 Base URL（通常需以 /v1 结尾）"
+            elif code == 429:
+                message = "触发服务端限流或额度不足"
+            elif code >= 500:
+                message = f"服务端错误（HTTP {code}），请稍后重试"
+            else:
+                message = f"请求被拒绝（HTTP {code}）：{e.response.text[:120]}"
+            return self._test_result(False, message, model, started)
+        except Exception as e:  # noqa: BLE001 —— 诊断入口必须给出可读结果而非 500
+            return self._test_result(False, f"测试失败：{e}", model, started)
+
+    @staticmethod
+    def _test_result(ok: bool, message: str, model: str, started: float) -> dict:
+        return {
+            "ok": ok,
+            "message": message,
+            "model": model or None,
+            "latency_ms": int((time.monotonic() - started) * 1000),
+        }
 
 
 # 全局单例
