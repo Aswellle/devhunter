@@ -8,6 +8,7 @@ import { userPrefsApi } from '../api/user_prefs'
 import { queryKeys } from '../api/queryKeys'
 import { formatDistanceToNow } from '../utils/time'
 import { ReasonBadges } from '../components/recommend/ReasonBadges'
+import { ClampText } from '../components/ui/ClampText'
 import { ScorePill } from '../components/ui/ScorePill'
 import { Spinner } from '../components/ui/Spinner'
 import { Empty } from '../components/ui/Empty'
@@ -190,9 +191,7 @@ function RecommendedItemCard({ item }: { item: RecommendedItem }) {
         {item.title}
       </a>
       <ReasonBadges reasons={item.recommendation_reasons} max={3} />
-      {item.summary && (
-        <p className="text-xs text-gray-500 mt-1 line-clamp-2">{item.summary}</p>
-      )}
+      <ClampText text={item.summary} className="text-xs text-gray-500 mt-1" />
       <div className="flex items-center gap-2 mt-2 flex-wrap">
         {/* 分级胶囊：≥80 主题色即"推荐"态，不再重复文字徽标 */}
         <ScorePill score={score} />

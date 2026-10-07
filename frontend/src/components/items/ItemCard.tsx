@@ -7,6 +7,7 @@ import { itemsApi } from '../../api/items'
 import { queryKeys } from '../../api/queryKeys'
 import { userPrefsApi } from '../../api/user_prefs'
 import { formatDistanceToNow } from '../../utils/time'
+import { ClampText } from '../ui/ClampText'
 
 interface ItemCardProps {
   item: Item
@@ -87,9 +88,7 @@ export function ItemCard({ item }: ItemCardProps) {
           </a>
 
           {/* 摘要 */}
-          {item.summary && (
-            <p className="mt-1 text-xs text-gray-500 line-clamp-2">{item.summary}</p>
-          )}
+          <ClampText text={item.summary} className="mt-1 text-xs text-gray-500" />
 
           {/* meta */}
           <div className="mt-2 flex items-center gap-3 text-xs text-gray-400">

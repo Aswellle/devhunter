@@ -6,6 +6,7 @@ import type { Thread, ThreadStats } from '../../types'
 import { formatDistanceToNow } from '../../utils/time'
 import { queryKeys } from '../../api/queryKeys'
 import { threadsApi } from '../../api/threads'
+import { ClampText } from '../ui/ClampText'
 
 // Platform display name mapping
 const PLATFORM_NAMES: Record<string, string> = {
@@ -201,11 +202,7 @@ export function ThreadCard({ thread, defaultExpanded = false }: ThreadCardProps)
                             <ExternalLink className="h-3 w-3 inline ml-1 opacity-50" />
                           </a>
                         </h3>
-                        {item.summary && (
-                          <p className="text-xs text-gray-500 mt-1 line-clamp-2">
-                            {item.summary}
-                          </p>
-                        )}
+                        <ClampText text={item.summary} className="text-xs text-gray-500 mt-1" />
                       </div>
                       <div className="flex items-center gap-1 shrink-0">
                         {item.is_starred && (
