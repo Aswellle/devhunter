@@ -544,10 +544,10 @@ export function ItemsPage() {
             ))}
           </div>
         ) : hasOnlyCatalogTasks ? (
-          // 全部数据源都是条目型时给出业务解释，而不是误导性的"采集更多"
+          // 全部数据源都是榜单类时给出业务解释，而不是误导性的"采集更多"
           <Empty
-            title="条目型数据源不参与热点聚合"
-            description="当前的数据源（如 GitHub Trending、视频榜单）抓取的是独立资源条目，彼此没有事件关联，因此不生成热点 Thread。讨论型数据源（如 Hacker News、V2EX）的内容会自动聚合；也可以在任务设置里把来源改为「讨论型」。"
+            title="暂无热点聚合"
+            description="热点，就是多个网站在讨论同一件事。GitHub Trending 这类榜单来源抓的是独立条目，没有讨论可聚合；接入 HN、V2EX 这类讨论型来源后，这里会自动出现热点。"
           />
         ) : (
           <Empty

@@ -319,12 +319,12 @@ export function TaskFormModal({ task, onClose }: TaskFormModalProps) {
                 {
                   value: 'discussion',
                   title: '讨论型',
-                  desc: '围绕事件/话题的讨论，跨来源聚合成热点 Thread（如 HN、V2EX、Reddit）',
+                  desc: 'HN、V2EX 这类社区讨论，可聚合成热点',
                 },
                 {
                   value: 'catalog',
                   title: '条目型',
-                  desc: '独立资源条目（开源项目、产品、视频），不参与热点聚合（如 GitHub Trending）',
+                  desc: 'GitHub Trending 这类榜单条目，不参与聚合',
                 },
               ] as const).map(({ value, title, desc }) => (
                 <button
@@ -347,7 +347,7 @@ export function TaskFormModal({ task, onClose }: TaskFormModalProps) {
               ))}
             </div>
             <p className="text-xs text-gray-400 mt-1">
-              只有讨论型数据源的内容才会出现在「热点聚合」里；选择模板时会自动带入其建议分类
+              只有讨论型来源的内容会进入「热点聚合」；选模板时会自动带入建议分类
             </p>
           </div>
 
