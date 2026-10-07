@@ -212,6 +212,9 @@ export interface FeedOverview {
 }
 
 // ── LLM 接入配置 ──────────────────────────────────────────
+/** 支持的 API 协议 */
+export type LLMProtocol = 'openai' | 'anthropic'
+
 export interface LLMUsageStatus {
   used_today: number
   budget: number
@@ -226,20 +229,22 @@ export interface LLMConfigStatus {
   configured: boolean
   /** api_key 来源：db（界面配置）/ env（环境变量）/ none（未配置） */
   source: 'db' | 'env' | 'none'
-  /** 界面已覆盖的字段（llm_api_key / llm_base_url / llm_model） */
+  /** 界面已覆盖的字段（llm_api_key / llm_base_url / llm_model / ...） */
   overrides: string[]
   base_url: string
   model: string
+  api_protocol: 'openai' | 'anthropic'
   api_key_masked: string | null
   env_key_present: boolean
   usage: LLMUsageStatus
 }
 
-/** 保存/测试请求体：缺失或 null 不改动，空字符串清除覆盖 */
+/** 保存/测试/拉取模型列表请求体：缺失或 null 不改动，空字符串清除覆盖 */
 export interface LLMConfigPayload {
   api_key?: string | null
   base_url?: string | null
   model?: string | null
+  api_protocol?: 'openai' | 'anthropic' | null
   daily_token_budget?: number | null
 }
 
@@ -247,6 +252,14 @@ export interface LLMTestResult {
   ok: boolean
   message: string
   model: string | null
+  latency_ms: number | null
+}
+
+/** POST /api/llm/models 响应：models 供用户点选 */
+export interface LLMModelsResult {
+  ok: boolean
+  message: string
+  models: string[]
   latency_ms: number | null
 }
 
@@ -279,6 +292,7 @@ export interface LLMReceipt {
 export interface LLMReceiptsOverview {
   today: LLMUsageSummary
   receipts: LLMReceipt[]
+  total: number
 }
 
 // ── 阅读亲缘度（我的画像）─────────────────────────────────

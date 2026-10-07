@@ -1,8 +1,9 @@
 /**
  * LLMSetupCard：AI 接入配置卡片。
  *
- * 像 AI 开放平台的密钥接入页一样：服务商预设一键填充 + API Key + 连通性测试，
- * 保存进后端数据库后立即生效（无需改 .env、无需重启）。
+ * 像 AI 开放平台的密钥接入页一样：服务商预设 + API Key + 拉取模型列表点选 +
+ * 连通性测试，保存进后端数据库后立即生效（无需改 .env、无需重启）。
+ * 支持 OpenAI 兼容与 Anthropic 两种 API 协议。
  * 密钥只写不读——页面仅展示后端返回的脱敏掩码。
  *
  * 结构：外层查询状态；表单以"已保存配置签名"为 key 重挂载——保存/清除后
@@ -13,15 +14,18 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   CheckCircle2,
   ChevronDown,
+  ChevronLeft,
   ChevronRight,
   Clock,
   Eye,
   EyeOff,
+  ListCollapse,
   RefreshCw,
   XCircle,
 } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from 'react-hot-toast'
+import { clsx } from 'clsx'
 import { llmApi } from '../../api/llm'
 import { errorMessage } from '../../api/client'
 import { queryKeys } from '../../api/queryKeys'
@@ -29,28 +33,35 @@ import { Badge } from '../ui/Badge'
 import { ConfirmDialog } from '../ui/ConfirmDialog'
 import { SkeletonList } from '../ui/Skeleton'
 import { formatDistanceToNow } from '../../utils/time'
-import type { LLMConfigPayload, LLMConfigStatus, LLMReceipt, LLMReceiptsOverview, LLMTestResult } from '../../types'
+import type {
+  LLMConfigPayload,
+  LLMConfigStatus,
+  LLMProtocol,
+  LLMReceipt,
+  LLMReceiptsOverview,
+  LLMTestResult,
+} from '../../types'
 
-/** OpenAI 兼容服务商预设：一键填充接口地址与常用模型 */
-const PRESETS = [
-  { label: 'LongCat', baseUrl: 'https://api.longcat.chat/openai', model: 'LongCat-2.0' },
-  { label: 'DeepSeek', baseUrl: 'https://api.deepseek.com', model: 'deepseek-chat' },
-  { label: 'Kimi', baseUrl: 'https://api.moonshot.cn/v1', model: 'moonshot-v1-8k' },
-  { label: '智谱', baseUrl: 'https://open.bigmodel.cn/api/paas/v4', model: 'glm-4-flash' },
-  { label: 'OpenAI', baseUrl: 'https://api.openai.com/v1', model: 'gpt-4o-mini' },
-  { label: 'OpenRouter', baseUrl: 'https://openrouter.ai/api/v1', model: '' },
+/** 服务商预设：一键填充协议、接口地址与常用模型（常用在前） */
+const PRESETS: Array<{ label: string; protocol: LLMProtocol; baseUrl: string; model: string }> = [
+  { label: 'DeepSeek', protocol: 'openai', baseUrl: 'https://api.deepseek.com', model: 'deepseek-chat' },
+  { label: 'Kimi', protocol: 'openai', baseUrl: 'https://api.moonshot.cn/v1', model: 'moonshot-v1-8k' },
+  { label: '智谱', protocol: 'openai', baseUrl: 'https://open.bigmodel.cn/api/paas/v4', model: 'glm-4-flash' },
+  { label: 'OpenAI', protocol: 'openai', baseUrl: 'https://api.openai.com/v1', model: 'gpt-4o-mini' },
+  { label: 'OpenRouter', protocol: 'openai', baseUrl: 'https://openrouter.ai/api/v1', model: '' },
+  { label: 'LongCat', protocol: 'openai', baseUrl: 'https://api.longcat.chat/openai', model: 'LongCat-2.0' },
 ]
 
-const OVERRIDE_LABELS: Record<string, string> = {
-  llm_api_key: '密钥',
-  llm_base_url: '接口地址',
-  llm_model: '模型',
-  llm_daily_token_budget: '预算',
-}
+const PROTOCOL_OPTIONS: Array<{ value: LLMProtocol; label: string; hint: string }> = [
+  { value: 'openai', label: 'OpenAI 兼容', hint: 'DeepSeek、Kimi、智谱、OpenAI、LongCat 等大多数服务商' },
+  { value: 'anthropic', label: 'Anthropic 兼容', hint: 'Anthropic 及提供 Claude API 格式的服务商' },
+]
 
 const PURPOSE_LABELS: Record<string, string> = {
   thread_digest: '热点综述',
 }
+
+const RECEIPTS_PAGE_SIZE = 10
 
 function formatTokens(n: number): string {
   return n.toLocaleString('en-US')
@@ -61,7 +72,7 @@ function purposeLabel(purpose: string): string {
 }
 
 function savedSignature(status: LLMConfigStatus): string {
-  return [status.base_url, status.model, status.usage.budget, ...status.overrides].join('|')
+  return [status.base_url, status.model, status.api_protocol, status.usage.budget, ...status.overrides].join('|')
 }
 
 export function LLMSetupCard() {
@@ -78,7 +89,7 @@ export function LLMSetupCard() {
     <section>
       <h2 className="text-lg font-semibold mb-1">AI 接入</h2>
       <p className="text-xs text-gray-500 mb-3">
-        配置一个 OpenAI 兼容服务的 API Key。接入后，热点会自动生成 AI 综述。
+        配置一个 AI 服务的 API Key。接入后，热点会自动生成 AI 综述。
       </p>
       {/* 已保存配置变化（保存/清除）时重挂载表单，字段回到新生效值 */}
       <LLMSetupForm key={savedSignature(status)} status={status} />
@@ -91,13 +102,18 @@ function LLMSetupForm({ status }: { status: LLMConfigStatus }) {
   const [apiKey, setApiKey] = useState('')
   const [baseUrl, setBaseUrl] = useState(status.base_url)
   const [model, setModel] = useState(status.model)
+  const [protocol, setProtocol] = useState<LLMProtocol>(status.api_protocol)
   const [budget, setBudget] = useState(String(status.usage.budget))
+  const [models, setModels] = useState<string[]>([])
   // 脏标记：保存时只提交用户实际改动过的字段（未动的发 null = 后端"不改动"）
-  const [dirty, setDirty] = useState({ api_key: false, base_url: false, model: false, budget: false })
+  const [dirty, setDirty] = useState({
+    api_key: false, base_url: false, model: false, protocol: false, budget: false,
+  })
   const [showKey, setShowKey] = useState(false)
   const [testResult, setTestResult] = useState<LLMTestResult | null>(null)
   const [confirmClear, setConfirmClear] = useState(false)
   const [showUsage, setShowUsage] = useState(false)
+  const [page, setPage] = useState(1)
 
   const invalidate = () => qc.invalidateQueries({ queryKey: queryKeys.llm.config() })
   const markDirty = (field: keyof typeof dirty) =>
@@ -107,6 +123,7 @@ function LLMSetupForm({ status }: { status: LLMConfigStatus }) {
     api_key: dirty.api_key ? apiKey.trim() : null,
     base_url: dirty.base_url ? baseUrl.trim() : null,
     model: dirty.model ? model.trim() : null,
+    api_protocol: dirty.protocol ? protocol : null,
     daily_token_budget:
       dirty.budget && budget.trim() !== '' && Number.isFinite(Number(budget.trim()))
         ? Number(budget.trim())
@@ -130,41 +147,60 @@ function LLMSetupForm({ status }: { status: LLMConfigStatus }) {
       setTestResult({ ok: false, message: errorMessage(e, '测试失败'), model: null, latency_ms: null }),
   })
 
+  const modelsMutation = useMutation({
+    mutationFn: () => llmApi.getModels(buildPayload()),
+    onSuccess: (result) => {
+      setModels(result.models)
+      if (!result.ok) {
+        toast.error(result.message)
+      } else if (result.models.length === 0) {
+        toast(result.message)
+      }
+    },
+    onError: (e: unknown) => toast.error(errorMessage(e, '获取模型列表失败')),
+  })
+
   const clearMutation = useMutation({
     mutationFn: () => llmApi.clearConfig(),
     onSuccess: () => {
       invalidate()
       setTestResult(null)
+      setModels([])
       toast.success('已清除界面配置')
     },
     onError: (e: unknown) => toast.error(errorMessage(e, '清除失败')),
   })
 
-  const handlePreset = (presetBaseUrl: string, presetModel: string) => {
-    setBaseUrl(presetBaseUrl)
+  const handlePreset = (preset: (typeof PRESETS)[number]) => {
+    setProtocol(preset.protocol)
+    if (protocol !== preset.protocol) markDirty('protocol')
+    setBaseUrl(preset.baseUrl)
     markDirty('base_url')
-    if (presetModel) {
-      setModel(presetModel)
+    if (preset.model) {
+      setModel(preset.model)
       markDirty('model')
     }
+    setModels([])
   }
 
-  // 用量明细（懒加载：展开才请求）
+  // 调用记录（懒加载：展开才请求，按页取）
   const receiptsQuery = useQuery({
-    queryKey: queryKeys.llm.receipts(),
-    queryFn: () => llmApi.getReceipts(20),
+    queryKey: queryKeys.llm.receipts(page),
+    queryFn: () => llmApi.getReceipts(RECEIPTS_PAGE_SIZE, (page - 1) * RECEIPTS_PAGE_SIZE),
     enabled: showUsage,
     staleTime: 30_000,
   })
+  const total = receiptsQuery.data?.total ?? 0
+  const totalPages = Math.max(1, Math.ceil(total / RECEIPTS_PAGE_SIZE))
 
   const { configured, source, overrides, usage } = status
   const hasKeyOverride = overrides.includes('llm_api_key')
 
   let sourceNote: string
   if (overrides.length > 0) {
-    sourceNote = `界面配置：${overrides.map((k) => OVERRIDE_LABELS[k] ?? k).join('、')}`
+    sourceNote = '使用界面保存的配置'
   } else if (source === 'env') {
-    sourceNote = '来自环境变量，在下方保存后会覆盖它'
+    sourceNote = '使用环境变量中的密钥'
   } else {
     sourceNote = '尚未配置'
   }
@@ -200,11 +236,35 @@ function LLMSetupForm({ status }: { status: LLMConfigStatus }) {
             <button
               key={p.label}
               type="button"
-              onClick={() => handlePreset(p.baseUrl, p.model)}
+              onClick={() => handlePreset(p)}
               className="btn-ghost btn-sm border border-gray-200"
               aria-label={`填入 ${p.label} 的接口地址与模型`}
             >
               {p.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* 接口协议 */}
+      <div>
+        <div className="text-xs text-gray-500 mb-1.5">接口协议</div>
+        <div className="inline-flex rounded-md border border-gray-200 p-0.5">
+          {PROTOCOL_OPTIONS.map((opt) => (
+            <button
+              key={opt.value}
+              type="button"
+              aria-pressed={protocol === opt.value}
+              title={opt.hint}
+              onClick={() => { setProtocol(opt.value); markDirty('protocol') }}
+              className={clsx(
+                'px-3 py-1 text-xs rounded-md transition-colors',
+                protocol === opt.value
+                  ? 'bg-primary-600 text-white font-medium'
+                  : 'text-gray-600 hover:bg-gray-100',
+              )}
+            >
+              {opt.label}
             </button>
           ))}
         </div>
@@ -242,7 +302,7 @@ function LLMSetupForm({ status }: { status: LLMConfigStatus }) {
 
         <div>
           <label htmlFor="llm-base-url" className="block text-xs text-gray-500 mb-1">
-            接口地址（Base URL）
+            接口地址
           </label>
           <input
             id="llm-base-url"
@@ -257,9 +317,20 @@ function LLMSetupForm({ status }: { status: LLMConfigStatus }) {
         </div>
 
         <div>
-          <label htmlFor="llm-model" className="block text-xs text-gray-500 mb-1">
-            模型名称
-          </label>
+          <div className="flex items-center justify-between mb-1">
+            <label htmlFor="llm-model" className="text-xs text-gray-500">
+              模型名称
+            </label>
+            <button
+              type="button"
+              onClick={() => modelsMutation.mutate()}
+              disabled={modelsMutation.isPending}
+              className="inline-flex items-center gap-1 text-xs text-primary-600 hover:underline disabled:opacity-50"
+            >
+              <ListCollapse className="h-3 w-3" aria-hidden="true" />
+              {modelsMutation.isPending ? '获取中…' : '获取模型列表'}
+            </button>
+          </div>
           <input
             id="llm-model"
             type="text"
@@ -270,6 +341,26 @@ function LLMSetupForm({ status }: { status: LLMConfigStatus }) {
             spellCheck={false}
             className="input font-mono"
           />
+          {models.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-1.5 max-h-32 overflow-y-auto">
+              {models.map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => { setModel(m); markDirty('model') }}
+                  aria-pressed={m === model}
+                  className={clsx(
+                    'inline-flex items-center rounded-full px-2 py-0.5 text-xs font-mono transition-colors',
+                    m === model
+                      ? 'bg-primary-600 text-white'
+                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200',
+                  )}
+                >
+                  {m}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
         <div>
@@ -341,22 +432,22 @@ function LLMSetupForm({ status }: { status: LLMConfigStatus }) {
         密钥保存在本机数据库，仅服务端调用使用。保存后立即生效，无需重启。
       </p>
 
-      {/* 最近调用 */}
+      {/* 调用记录 */}
       <div className="border-t border-gray-100 pt-3">
         <button
           type="button"
           onClick={() => setShowUsage((v) => !v)}
           aria-expanded={showUsage}
-          className="flex items-center gap-1 text-xs font-medium text-gray-600 hover:text-gray-800"
+          className="flex items-center gap-1 text-sm font-semibold text-gray-700 hover:text-gray-900"
         >
           {showUsage
-            ? <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
-            : <ChevronRight className="h-3.5 w-3.5" aria-hidden="true" />}
-          最近调用
+            ? <ChevronDown className="h-4 w-4" aria-hidden="true" />
+            : <ChevronRight className="h-4 w-4" aria-hidden="true" />}
+          调用记录
         </button>
 
         {showUsage && (
-          <div className="mt-2">
+          <div className="mt-2 space-y-2">
             {receiptsQuery.isLoading ? (
               <p className="text-xs text-gray-400">加载中…</p>
             ) : receiptsQuery.isError ? (
@@ -367,7 +458,41 @@ function LLMSetupForm({ status }: { status: LLMConfigStatus }) {
                 </button>
               </p>
             ) : receiptsQuery.data ? (
-              <UsagePanel overview={receiptsQuery.data} onRefresh={() => receiptsQuery.refetch()} />
+              <>
+                <UsageSummary summary={receiptsQuery.data.today} onRefresh={() => receiptsQuery.refetch()} />
+                {receiptsQuery.data.receipts.length === 0 ? (
+                  <p className="text-xs text-gray-400">还没有调用记录。接入后生成热点综述时会记录在这里。</p>
+                ) : (
+                  <div className="divide-y divide-gray-100">
+                    {receiptsQuery.data.receipts.map((r) => <ReceiptRow key={r.id} receipt={r} />)}
+                  </div>
+                )}
+                <div className="flex items-center gap-2 pt-1 text-xs text-gray-500">
+                  <span>第 {page} / {totalPages} 页 · 共 {formatTokens(total)} 条</span>
+                  <div className="ml-auto flex gap-1.5">
+                    <button
+                      type="button"
+                      className="btn-ghost btn-sm border border-gray-200"
+                      disabled={page <= 1 || receiptsQuery.isFetching}
+                      onClick={() => setPage((p) => Math.max(1, p - 1))}
+                      aria-label="上一页"
+                    >
+                      <ChevronLeft className="h-3 w-3" aria-hidden="true" />
+                      上一页
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-ghost btn-sm border border-gray-200"
+                      disabled={page >= totalPages || receiptsQuery.isFetching}
+                      onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                      aria-label="下一页"
+                    >
+                      下一页
+                      <ChevronRight className="h-3 w-3" aria-hidden="true" />
+                    </button>
+                  </div>
+                </div>
+              </>
             ) : null}
           </div>
         )}
@@ -390,32 +515,21 @@ function LLMSetupForm({ status }: { status: LLMConfigStatus }) {
   )
 }
 
-/** 用量明细面板：当日汇总 + 回执列表 */
-function UsagePanel({ overview, onRefresh }: { overview: LLMReceiptsOverview; onRefresh: () => void }) {
-  const { today, receipts } = overview
+/** 当日调用汇总行 */
+function UsageSummary({ summary, onRefresh }: { summary: LLMReceiptsOverview['today']; onRefresh: () => void }) {
   return (
-    <div className="space-y-2">
-      <div className="flex items-center gap-2 flex-wrap text-xs text-gray-500">
-        <span className="badge badge-gray">今日 {today.calls} 次调用</span>
-        {today.failed > 0 && <span className="badge badge-red">{today.failed} 次失败</span>}
-        <span className="badge badge-gray">{formatTokens(today.tokens)} tokens</span>
-        <button
-          type="button"
-          onClick={onRefresh}
-          className="btn-ghost btn-sm ml-auto"
-          aria-label="刷新调用记录"
-        >
-          <RefreshCw className="h-3 w-3" aria-hidden="true" />
-        </button>
-      </div>
-
-      {receipts.length === 0 ? (
-        <p className="text-xs text-gray-400">还没有调用记录。接入后生成热点综述时会记录在这里。</p>
-      ) : (
-        <div className="divide-y divide-gray-100">
-          {receipts.map((r) => <ReceiptRow key={r.id} receipt={r} />)}
-        </div>
-      )}
+    <div className="flex items-center gap-2 flex-wrap text-xs text-gray-500">
+      <span className="badge badge-gray">今日 {summary.calls} 次调用</span>
+      {summary.failed > 0 && <span className="badge badge-red">{summary.failed} 次失败</span>}
+      <span className="badge badge-gray">{formatTokens(summary.tokens)} tokens</span>
+      <button
+        type="button"
+        onClick={onRefresh}
+        className="btn-ghost btn-sm ml-auto"
+        aria-label="刷新调用记录"
+      >
+        <RefreshCw className="h-3 w-3" aria-hidden="true" />
+      </button>
     </div>
   )
 }
