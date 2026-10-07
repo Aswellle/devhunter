@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ChevronDown, ChevronRight, ExternalLink, Flame, Gauge, Globe, Star, Rss, TrendingUp } from 'lucide-react'
+import { ChevronDown, ChevronRight, ExternalLink, Flame, Gauge, Globe, Sparkles, Star, Rss, TrendingUp } from 'lucide-react'
 import { clsx } from 'clsx'
 import { useQuery } from '@tanstack/react-query'
 import type { Thread, ThreadStats } from '../../types'
@@ -206,6 +206,17 @@ export function ThreadCard({ thread, defaultExpanded = false }: ThreadCardProps)
           </div>
         ) : items.length > 0 ? (
           <div className="border-t border-gray-100">
+            {/* AI 综述：LLM 生成，诚实标注来源与误差可能 */}
+            {details?.digest && (
+              <div className="border-b border-gray-100 bg-amber-50/40 px-4 py-3">
+                <div className="flex items-center gap-1.5 text-xs font-medium text-amber-700 mb-1">
+                  <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
+                  AI 综述
+                  <span className="font-normal text-gray-400">· 由 AI 生成，可能存在误差</span>
+                </div>
+                <p className="text-sm text-gray-700 leading-relaxed">{details.digest}</p>
+              </div>
+            )}
             {details?.stats && <ThreadStatsBand stats={details.stats} />}
             <div className="divide-y divide-gray-100">
               {items.map(item => (

@@ -361,6 +361,14 @@ class ThreadRepository:
         with get_db() as conn:
             return conn.execute("SELECT COUNT(*) FROM threads").fetchone()[0]
 
+    def save_digest(self, thread_id: str, digest: str) -> None:
+        """存储 AI 综述正文与生成时间"""
+        with get_db() as conn:
+            conn.execute(
+                "UPDATE threads SET digest = ?, digest_at = ? WHERE id = ?",
+                (digest, _now_iso(), thread_id),
+            )
+
     def delete_all(self) -> None:
         """
         清空全部 Thread 数据（仅用于重建）：

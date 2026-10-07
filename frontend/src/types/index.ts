@@ -153,6 +153,9 @@ export interface ThreadWithItems extends Thread {
   items: Item[]
   /** 聚合画像：为什么聚为一个 Thread（规模/活跃度/匹配置信度） */
   stats?: ThreadStats
+  /** AI 综述：LLM 生成的中文事件摘要（LLM 未配置/单条目时为空） */
+  digest?: string | null
+  digest_at?: string | null
 }
 
 /** Thread 聚合画像，由后端从 items 推导（app/threads/stats.py） */

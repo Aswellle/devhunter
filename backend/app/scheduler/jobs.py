@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from app.core.error_messages import classify_error
 from app.core.event_bus import publish_event
 from app.core.logging import get_logger
+from app.threads import digest
 
 logger = get_logger(__name__)
 
@@ -351,6 +352,15 @@ def _run_task(
                 thread_service.compute_threads_for_items(new_records)
                 _pub(task_id, "thread_done",
                      f"Thread 聚合完成")
+                # AI 综述：为本次批次涉及的多来源 Thread 生成（LLM 不可用时静默跳过）
+                touched_thread_ids = {
+                    r.get("thread_id") for r in new_records if r.get("thread_id")
+                }
+                for tid in touched_thread_ids:
+                    try:
+                        digest.generate_digest(tid)
+                    except Exception as digest_err:  # noqa: BLE001
+                        logger.warning("Digest generation failed for %s: %s", tid, digest_err)
         except Exception as e:
             logger.warning("Thread compute failed: %s", e)
             _pub(task_id, "thread_skip", "Thread 聚合跳过")
