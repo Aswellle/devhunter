@@ -10,8 +10,17 @@ import { ForYouSection } from '../components/dashboard/ForYouSection'
 import { PreferenceModal } from '../components/dashboard/PreferenceModal'
 import { RecommendationSettings } from '../components/dashboard/RecommendationSettings'
 import { PullToRefresh } from '../components/ui/PullToRefresh'
+import { StickySectionNav } from '../components/ui/StickySectionNav'
 import { Spinner } from '../components/ui/Spinner'
 import { Empty } from '../components/ui/Empty'
+
+/** 仪表盘分区（模块级常量：引用稳定，StickySectionNav 的 effect 依赖它） */
+const DASH_SECTIONS = [
+  { id: 'dash-overview', label: '概览' },
+  { id: 'dash-foryou', label: '为你推荐' },
+  { id: 'dash-trend', label: '采集趋势' },
+  { id: 'dash-tasks', label: '任务统计' },
+]
 
 export function DashboardPage() {
   const { data, isLoading, isError, refetch } = useQuery({
@@ -45,6 +54,8 @@ export function DashboardPage() {
         <p className="text-sm text-gray-500 mt-0.5">采集系统运行状态与数据统计</p>
       </div>
 
+      <StickySectionNav sections={DASH_SECTIONS} />
+
       {/* U3: stats failing to load previously rendered every card as its
           own silent "no data" empty state, with no indication that
           anything actually went wrong (vs. a genuinely empty install). */}
@@ -61,10 +72,14 @@ export function DashboardPage() {
       ) : (
         <>
           {/* KPI 卡片 */}
-          <StatsCards />
+          <div id="dash-overview" className="scroll-mt-14">
+            <StatsCards />
+          </div>
 
           {/* 为你推荐 */}
-          <ForYouSection onOpenPreferences={() => setPreferencesOpen(true)} />
+          <div id="dash-foryou" className="scroll-mt-14">
+            <ForYouSection onOpenPreferences={() => setPreferencesOpen(true)} />
+          </div>
           {preferencesOpen && createPortal(
             <PreferenceModal isOpen={preferencesOpen} onClose={() => setPreferencesOpen(false)} />,
             document.body
@@ -75,7 +90,7 @@ export function DashboardPage() {
             document.body
           )}
           {/* 每日采集趋势（推荐设置入口收进卡片右上角，避免把卡片间距拉开） */}
-          <div className="card p-4">
+          <div id="dash-trend" className="card p-4 scroll-mt-14">
             <div className="flex items-center justify-between mb-3">
               <h2 className="text-sm font-semibold text-gray-700">近 7 日采集量趋势</h2>
               <button
@@ -98,7 +113,7 @@ export function DashboardPage() {
           </div>
 
           {/* 下方两列：活跃任务排行 + 任务状态 */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div id="dash-tasks" className="grid grid-cols-1 sm:grid-cols-2 gap-4 scroll-mt-14">
 
             {/* Top Tasks */}
             <div className="card p-4">
