@@ -15,6 +15,7 @@ import { DashboardPage } from './pages/DashboardPage'
 import { CloudPage } from './pages/CloudPage'
 import { ProfilePage } from './pages/ProfilePage'
 import { RecommendPage } from './pages/RecommendPage'
+import { MorePage } from './pages/MorePage'
 
 function AuthExpiredHandler() {
   const navigate = useNavigate()
@@ -77,6 +78,7 @@ export default function App() {
                       <Route path="/dashboard"  element={<DashboardPage />} />
                       <Route path="/recommend"  element={<RecommendPage />} />
                       <Route path="/profile" element={<ProfilePage />} />
+                      <Route path="/more"    element={<MorePage />} />
                       <Route path="*"           element={<Navigate to="/" replace />} />
                     </Routes>
                   </ErrorBoundary>

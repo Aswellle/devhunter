@@ -398,12 +398,12 @@ export function ItemsPage() {
           </div>
 
           {/* View mode toggle */}
-          <div className="flex items-center gap-1 p-1 bg-gray-100 rounded-lg">
+          <div className="flex items-center gap-1 p-1 bg-gray-100 rounded-lg shrink-0">
             <button
               onClick={() => setViewMode('source')}
               aria-pressed={viewMode === 'source'}
               className={clsx(
-                'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-all',
+                'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-all whitespace-nowrap',
                 viewMode === 'source'
                   ? 'bg-white text-gray-900 shadow-sm'
                   : 'text-gray-500 hover:text-gray-700'
@@ -416,7 +416,7 @@ export function ItemsPage() {
               onClick={() => setViewMode('thread')}
               aria-pressed={viewMode === 'thread'}
               className={clsx(
-                'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-all',
+                'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-all whitespace-nowrap',
                 viewMode === 'thread'
                   ? 'bg-white text-gray-900 shadow-sm'
                   : 'text-gray-500 hover:text-gray-700'

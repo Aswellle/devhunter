@@ -1,26 +1,18 @@
 /**
  * AppLayout.tsx
- * 修复：
- * 1. 移除桌面端侧边栏的 CSS transform（md:translate-x-0），消除零值 transform
- *    导致的意外层叠上下文。
- * 2. 桌面端侧边栏改用纯 static/relative 定位，不需要任何 z-index。
- * 3. 移动端使用独立的 fixed 覆盖层，与桌面端结构完全分离，互不干扰。
+ * 布局壳层：
+ * - 桌面端（≥md）：左侧深色固定侧边栏 + 主内容区
+ * - 移动端（<md）：顶部品牌栏 + 底部 TabBar（TabBar.tsx），
+ *   次要目的地收纳在 /more 页。原来的汉堡抽屉已被 TabBar 取代并移除，
+ *   减少一层覆盖交互；所有目的地在移动端仍两次点击内可达。
  */
-/**
- * AppLayout.tsx
- * 修复：
- * 1. 移除桌面端侧边栏的 CSS transform（md:translate-x-0），消除零值 transform
- *    导致的意外层叠上下文。
- * 2. 桌面端侧边栏改用纯 static/relative 定位，不需要任何 z-index。
- * 3. 移动端使用独立的 fixed 覆盖层，与桌面端结构完全分离，互不干扰。
- * 4. 移动端侧边栏添加焦点陷阱和 Escape 关闭，符合 WAI-A11y 抽屉模式。
- */
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import { Link, NavLink, useNavigate } from 'react-router-dom'
-import { BarChart2, Cloud, LayoutDashboard, LogOut, Menu, Rss, Sparkles, Star, User, X } from 'lucide-react'
-import { useAuthStore } from '../../stores/authStore'
+import { BarChart2, Cloud, LayoutDashboard, LogOut, Rss, Sparkles, Star, User } from 'lucide-react'
 import { clsx } from 'clsx'
+import { useAuthStore } from '../../stores/authStore'
 import { ConfirmDialog } from '../ui/ConfirmDialog'
+import { TabBar } from './TabBar'
 
 const navItems = [
   { to: '/',          label: '采集结果', icon: LayoutDashboard },
@@ -32,55 +24,46 @@ const navItems = [
   { to: '/profile',   label: '我的画像', icon: User },
 ]
 
-interface SidebarContentProps {
-  onLinkClick?: () => void
+function BrandMark() {
+  return (
+    <svg className="h-5 w-5 text-primary-400 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <title>DevHunter Logo</title>
+      <circle cx="11" cy="11" r="8"/>
+      <path d="m21 21-4.35-4.35"/>
+    </svg>
+  )
 }
 
-function SidebarContent({ onLinkClick }: SidebarContentProps) {
+/** 桌面端侧边栏内容：Logo、主导航、退出登录（独立组件——仅此布局使用）。 */
+function SidebarContent() {
   const { logout } = useAuthStore()
   const navigate   = useNavigate()
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false)
-
-  const handleLogout = () => {
-    setShowLogoutConfirm(true)
-  }
-
-  const confirmLogout = () => {
-    logout()
-    navigate('/login')
-  }
 
   return (
     <>
       {/* Logo */}
       <div className="px-5 py-4 border-b border-gray-700 shrink-0">
-        <Link to="/" className="flex items-center gap-2" onClick={onLinkClick}>
-          {/* SVG 搜索图标替代 emoji（形状与 LoginPage 品牌区一致） */}
-          <svg className="h-5 w-5 text-primary-400 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <title>DevHunter Logo</title>
-            <circle cx="11" cy="11" r="8"/>
-            <path d="m21 21-4.35-4.35"/>
-          </svg>
+        <Link to="/" className="flex items-center gap-2">
+          <BrandMark />
           <div>
             <span className="text-white font-bold text-base block leading-tight">
               DevHunter
             </span>
-
           </div>
         </Link>
       </div>
 
       {/* Nav */}
-      <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
+      <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto" aria-label="主导航">
         {navItems.map(({ to, label, icon: Icon }) => (
           <NavLink
             key={to}
             to={to}
             end={to === '/'}
-            onClick={onLinkClick}
             className={({ isActive }) =>
               clsx(
-                'flex items-center gap-2.5 px-3 py-2 rounded-md text-sm font-medium transition-colors focus-visible:ring-2 focus-visible:ring-primary-400 focus-visible:ring-inset',
+                'flex items-center gap-2.5 px-3 py-2 rounded-md text-sm font-medium transition-colors focus-visible:ring-2 focus-visible:ring-primary-400 focus-visible:ring-inset outline-none',
                 isActive
                   ? 'bg-primary-600 text-white'
                   : 'text-gray-300 hover:bg-gray-800 hover:text-white',
@@ -96,7 +79,7 @@ function SidebarContent({ onLinkClick }: SidebarContentProps) {
       {/* Logout */}
       <div className="px-3 py-4 border-t border-gray-700 shrink-0">
         <button
-          onClick={handleLogout}
+          onClick={() => setShowLogoutConfirm(true)}
           className="flex w-full items-center gap-2.5 px-3 py-2 rounded-md
                      text-sm text-gray-400 hover:bg-gray-800 hover:text-white transition-colors"
         >
@@ -105,8 +88,6 @@ function SidebarContent({ onLinkClick }: SidebarContentProps) {
         </button>
       </div>
 
-
-
       {showLogoutConfirm && (
         <ConfirmDialog
           title="退出登录"
@@ -114,7 +95,10 @@ function SidebarContent({ onLinkClick }: SidebarContentProps) {
           confirmText="退出"
           cancelText="取消"
           variant="danger"
-          onConfirm={confirmLogout}
+          onConfirm={() => {
+            logout()
+            navigate('/login')
+          }}
           onCancel={() => setShowLogoutConfirm(false)}
         />
       )}
@@ -123,53 +107,9 @@ function SidebarContent({ onLinkClick }: SidebarContentProps) {
 }
 
 export function AppLayout({ children }: { children: React.ReactNode }) {
-  const [sidebarOpen, setSidebarOpen] = useState(false)
-  const sidebarRef = useRef<HTMLDivElement>(null)
-  const triggerRef = useRef<HTMLElement | null>(null)
-
-  // 移动端侧边栏焦点陷阱 + Escape 关闭
-  const trapSidebarFocus = useCallback((e: KeyboardEvent) => {
-    if (e.key === 'Escape') {
-      e.stopPropagation()
-      setSidebarOpen(false)
-      return
-    }
-    if (e.key !== 'Tab' || !sidebarRef.current) return
-    const focusable = sidebarRef.current.querySelectorAll<HTMLElement>(
-      'button:not([disabled]), a[href], input:not([disabled]), [tabindex]:not([tabindex="-1"])'
-    )
-    if (focusable.length === 0) return
-    const first = focusable[0]
-    const last = focusable[focusable.length - 1]
-    if (e.shiftKey && document.activeElement === first) {
-      e.preventDefault()
-      last.focus()
-    } else if (!e.shiftKey && document.activeElement === last) {
-      e.preventDefault()
-      first.focus()
-    }
-  }, [])
-
-  useEffect(() => {
-    if (!sidebarOpen) return
-    triggerRef.current = document.activeElement as HTMLElement
-    const sidebar = sidebarRef.current
-    if (sidebar) {
-      const firstFocusable = sidebar.querySelector<HTMLElement>(
-        'button:not([disabled]), a[href]'
-      )
-      firstFocusable?.focus()
-    }
-    document.addEventListener('keydown', trapSidebarFocus)
-    return () => {
-      document.removeEventListener('keydown', trapSidebarFocus)
-      triggerRef.current?.focus()
-    }
-  }, [sidebarOpen, trapSidebarFocus])
-
   return (
     <div className="flex h-screen overflow-hidden">
-      {/* 键盘用户跳过 7 个导航项直达主内容（获得焦点时才可见） */}
+      {/* 键盘用户跳过导航直达主内容（获得焦点时才可见） */}
       <a
         href="#main-content"
         className="sr-only focus:not-sr-only focus:fixed focus:z-[300] focus:top-2 focus:left-2
@@ -177,9 +117,10 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
       >
         跳到主内容
       </a>
+
       {/*
        * ── 桌面端侧边栏 ──────────────────────────────────
-       * hidden md:flex  → 移动端隐藏，桌面端显示为 flex
+       * hidden md:flex → 移动端隐藏，桌面端显示为 flex
        * 无 position/z-index/transform → 不创建任何层叠上下文
        * 作为普通 flex item 参与布局，主内容 flex-1 自动占据剩余宽度
        */}
@@ -187,56 +128,24 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         <SidebarContent />
       </aside>
 
-      {/*
-       * ── 移动端侧边栏（抽屉式覆盖层）──────────────────
-       * 与桌面端完全独立，只在 mobile 下渲染。
-       * fixed inset-0 z-40 确保覆盖全屏（低于模态框 z-50/z-200）。
-       */}
-      {sidebarOpen && (
-        <div ref={sidebarRef} role="dialog" aria-modal="true" aria-label="导航菜单" className="fixed inset-0 z-40 flex md:hidden">
-          {/* 侧边栏内容 */}
-          <div className="w-64 flex flex-col bg-gray-900 shrink-0 shadow-2xl">
-            {/* 关闭按钮 */}
-            <div className="flex justify-end px-3 pt-3">
-              <button
-                className="text-gray-400 hover:text-white p-2 rounded-md min-w-[44px] min-h-[44px] flex items-center justify-center"
-                onClick={() => setSidebarOpen(false)}
-                aria-label="关闭导航菜单"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-            <SidebarContent onLinkClick={() => setSidebarOpen(false)} />
-          </div>
-          {/* 遮罩：点击关闭 */}
-          <div
-            className="flex-1 bg-black/60"
-            onClick={() => setSidebarOpen(false)}
-            aria-hidden="true"
-          />
-        </div>
-      )}
-
       {/* ── 主内容区 ─────────────────────────────────── */}
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">
-
-        {/* 移动端顶栏（z-10 确保位于面板下方，面板有自己的关闭按钮） */}
-        <header className="md:hidden flex items-center gap-3 px-4 py-3
+        {/* 移动端品牌顶栏 */}
+        <header className="md:hidden flex items-center gap-2 px-4 py-3
                             bg-gray-900 border-b border-gray-700 shrink-0 z-10">
-          <button
-            className="text-gray-300 hover:text-white p-2 rounded-md min-w-[44px] min-h-[44px] flex items-center justify-center"
-            onClick={() => setSidebarOpen(true)}
-            aria-label="打开导航菜单"
-          >
-            <Menu className="h-5 w-5" />
-          </button>
-          <span className="text-white font-bold text-sm">DevHunter</span>
+          <Link to="/" className="flex items-center gap-2" aria-label="DevHunter 首页">
+            <BrandMark />
+            <span className="text-white font-bold text-sm">DevHunter</span>
+          </Link>
         </header>
 
-        <main id="main-content" tabIndex={-1} className="flex-1 overflow-y-auto bg-gray-50">
+        {/* pb 为移动端底部 TabBar 留出空间（含 iOS 安全区） */}
+        <main id="main-content" tabIndex={-1} className="flex-1 overflow-y-auto bg-gray-50 pb-[calc(64px+env(safe-area-inset-bottom))] md:pb-0">
           {children}
         </main>
       </div>
+
+      <TabBar />
     </div>
   )
 }
