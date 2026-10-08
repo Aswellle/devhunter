@@ -61,6 +61,9 @@ export const queryKeys = {
     topics: () => ['user-prefs', 'topics'] as const,
     affinities: () => ['user-prefs', 'affinities'] as const,
     recommendationConfig: () => ['user-prefs', 'recommendation-config'] as const,
+    // 推荐质量打标（金标采样与汇总）
+    labelSample: () => ['user-prefs', 'label-sample'] as const,
+    labelSummary: () => ['user-prefs', 'label-summary'] as const,
   },
 
   // ── Sources ────────────────────────────────────────────

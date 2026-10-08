@@ -146,3 +146,40 @@ class FeedbackResponse(BaseModel):
     id: str
     feedback_type: str
     target_value: str
+
+
+# ── 推荐质量打标（金标）───────────────────────────────────
+
+class RelevanceLabelSampleItem(BaseModel):
+    """打标采样条目：带采样时的推荐得分快照"""
+    id: str
+    task_id: str | None = None
+    task_name: str | None = None
+    title: str
+    url: str
+    summary: str | None = None
+    fetched_at: str
+    recommendation_score: float
+
+
+class RelevanceLabelRequest(BaseModel):
+    """落标请求：label=True 感兴趣 / False 不感兴趣"""
+    item_id: str = Field(..., min_length=1)
+    label: bool
+    sampled_score: float | None = Field(None, ge=0.0, le=1.0)
+
+
+class RelevanceLabelResponse(BaseModel):
+    id: str
+    item_id: str
+    label: bool
+    sampled_score: float | None
+    updated_at: str
+
+
+class RelevanceLabelSummary(BaseModel):
+    """打标汇总：计数 + 排序贴合度（win_rate=None 表示正负样本不足）"""
+    total: int
+    positive: int
+    negative: int
+    win_rate: float | None = None

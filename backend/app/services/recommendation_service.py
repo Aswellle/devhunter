@@ -77,13 +77,23 @@ class RecommendationService:
         4. 对每条 Item 计算综合得分
         5. 排序返回 top N
         """
+        scored = self.score_candidates(exclude_read=exclude_read)
+        max_items = min(limit, int(_get_config("max_items")))
+        return scored[:max_items]
+
+    def score_candidates(self, exclude_read: bool = True) -> list[dict]:
+        """
+        候选生成 + 四因子打分 + 降序排序（推荐列表与打标采样共用同一条路径，
+        保证打标快照的 sampled_score 与推荐位次可比）。
+
+        返回通过最低分阈值的全部候选（按得分降序），不打 top-N 截断。
+        """
         config = {
             "topic_match_weight": _get_config("topic_match_weight"),
             "affinity_weight": _get_config("affinity_weight"),
             "recency_weight": _get_config("recency_weight"),
             "engagement_weight": _get_config("engagement_weight"),
             "min_score_threshold": _get_config("min_score_threshold"),
-            "max_items": min(limit, int(_get_config("max_items"))),
         }
 
         # 1. 获取用户主题偏好
@@ -139,14 +149,79 @@ class RecommendationService:
                 reasons = explanation_generator.generate(item, score_details, user_profile)
                 scored_items.append((score, {**item, "recommendation_reasons": reasons}))
 
-        # 6. 排序返回 top N
+        # 6. 按得分降序
         scored_items.sort(key=lambda x: x[0], reverse=True)
-        result = scored_items[: config["max_items"]]
 
         return [
             {**item, "recommendation_score": round(score, 4)}
-            for score, item in result
+            for score, item in scored_items
         ]
+
+    # ── 推荐质量打标（金标采样）─────────────────────────────
+
+    def sample_for_labeling(self, limit: int = 8) -> list[dict]:
+        """
+        为打标助手采样候选：复用推荐的同一条打分路径，在通过最低分阈值的
+        候选中按排名等距取样（头部/中部/尾部都覆盖，只盯头部会把评估变成
+        对排序头部的自查）。只返回未打标过的条目。
+
+        返回条目带 recommendation_score（采样时快照，落标时一并存储，
+        指标不随后续权重调整漂移）。
+        """
+        from app.repositories.relevance_repo import relevance_label_repo
+
+        scored = self.score_candidates(exclude_read=True)
+        if not scored:
+            return []
+        labeled = relevance_label_repo.get_labeled_item_ids()
+        pool = [item for item in scored if item["id"] not in labeled]
+        if not pool:
+            return []
+
+        step = max(1, len(pool) // limit)
+        sampled = pool[::step][:limit]
+        return [
+            {
+                "id": item["id"],
+                "task_id": item.get("task_id"),
+                "task_name": item.get("task_name"),
+                "title": item.get("title", ""),
+                "url": item.get("url", ""),
+                "summary": item.get("summary"),
+                "fetched_at": item.get("fetched_at", ""),
+                "recommendation_score": item["recommendation_score"],
+            }
+            for item in sampled
+        ]
+
+    def record_label(self, item_id: str, label: bool, sampled_score: float | None = None) -> dict:
+        """记录/改判一条金标（感兴趣 / 不感兴趣）"""
+        from app.repositories.relevance_repo import relevance_label_repo
+
+        return relevance_label_repo.upsert(
+            item_id=item_id,
+            label=label,
+            sampled_score=sampled_score,
+        )
+
+    def get_label_summary(self) -> dict:
+        """
+        打标汇总：计数 + 排序贴合度（正例得分高于负例的比例）。
+
+        win_rate 为 None 表示正负样本不足，尚无法比较。
+        """
+        from app.recommendation.eval_metrics import pairwise_win_rate
+        from app.repositories.relevance_repo import relevance_label_repo
+
+        stats = relevance_label_repo.summary()
+        scores = relevance_label_repo.list_scores()
+        positive = [s for s, label in scores if label == 1]
+        negative = [s for s, label in scores if label == 0]
+        win_rate = pairwise_win_rate(positive, negative)
+        return {
+            **stats,
+            "win_rate": round(win_rate, 4) if win_rate is not None else None,
+        }
 
     def _compute_item_score(
         self,

@@ -24,6 +24,10 @@ from app.schemas.user_prefs import (
     RecommendationConfigUpdate,
     RecommendedItemResponse,
     RecommendedTopicResponse,
+    RelevanceLabelRequest,
+    RelevanceLabelResponse,
+    RelevanceLabelSampleItem,
+    RelevanceLabelSummary,
     UserTopicCreate,
     UserTopicResponse,
     UserTopicUpdate,
@@ -209,6 +213,48 @@ def update_recommendation_config(
 
     logger.info("Recommendation config updated: mode=%s weights=%s", body.preference_mode, effective)
     return {"preference_mode": body.preference_mode, "weights": effective}
+
+
+# ── 推荐质量打标（金标）───────────────────────────────────
+
+@router.get("/recommendations/labels/sample", response_model=list[RelevanceLabelSampleItem])
+def get_label_sample(
+    limit: int = Query(8, ge=1, le=20),
+    _: str = Depends(require_auth),
+):
+    """
+    打标采样：在通过最低分阈值的候选中按排名等距取样（头/中/尾都覆盖），
+    只返回未打标过的条目，并附采样时的推荐得分快照。
+
+    打标仅用于评估推荐排序质量，不影响推荐结果与画像。
+    """
+    return recommendation_service.sample_for_labeling(limit=limit)
+
+
+@router.post("/recommendations/labels", response_model=RelevanceLabelResponse,
+             status_code=status.HTTP_201_CREATED)
+def submit_relevance_label(body: RelevanceLabelRequest, _: str = Depends(require_auth)):
+    """记录/改判一条金标（感兴趣 / 不感兴趣）；同一 item 重复提交视为改判"""
+    if not item_repo.get(body.item_id):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "ITEM_NOT_FOUND", "message": f"Item {body.item_id} not found"},
+        )
+    return recommendation_service.record_label(
+        item_id=body.item_id,
+        label=body.label,
+        sampled_score=body.sampled_score,
+    )
+
+
+@router.get("/recommendations/labels/summary", response_model=RelevanceLabelSummary)
+def get_relevance_label_summary(_: str = Depends(require_auth)):
+    """
+    打标汇总：已标数量（正/负）与排序贴合度——正例得分高于负例的比例。
+
+    win_rate 为 null 表示正负样本至少各 1 条后才可计算。
+    """
+    return recommendation_service.get_label_summary()
 
 
 # ── 负反馈 ────────────────────────────────────────────────

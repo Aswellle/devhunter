@@ -1,5 +1,5 @@
 import client from './client'
-import type { RecommendedItem, RecommendedTopic, UserTopic, UserTopicCreate, AffinityEntry } from '../types'
+import type { RecommendedItem, RecommendedTopic, UserTopic, UserTopicCreate, AffinityEntry, LabelSampleItem, LabelSummary } from '../types'
 import type { PaginatedResponse } from '../types'
 
 export const userPrefsApi = {
@@ -48,4 +48,17 @@ export const userPrefsApi = {
   // 记录负反馈
   recordFeedback: (data: { item_id: string; feedback_type: string; reason?: string }) =>
     client.post('/user-prefs/feedback', data).then((r) => r.data),
+
+  // ── 推荐质量打标（金标）──
+  // 采样待标注条目（带采样时的推荐得分快照）
+  getLabelSample: (limit = 8) =>
+    client.get<LabelSampleItem[]>('/user-prefs/recommendations/labels/sample', { params: { limit } }).then((r) => r.data),
+
+  // 提交一条标注（感兴趣 / 不感兴趣；同一 item 重复提交为改判）
+  submitLabel: (data: { item_id: string; label: boolean; sampled_score?: number }) =>
+    client.post('/user-prefs/recommendations/labels', data).then((r) => r.data),
+
+  // 打标汇总：计数 + 排序贴合度
+  getLabelSummary: () =>
+    client.get<LabelSummary>('/user-prefs/recommendations/labels/summary').then((r) => r.data),
 }

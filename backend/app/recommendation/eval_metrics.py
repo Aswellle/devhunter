@@ -59,3 +59,23 @@ def ndcg_at_k(ranked_ids: list[str], relevant_ids: set[str], k: int) -> float:
     if ideal_dcg == 0.0:
         return 0.0
     return dcg(actual_gains) / ideal_dcg
+
+
+def pairwise_win_rate(
+    positive_scores: list[float],
+    negative_scores: list[float],
+) -> float | None:
+    """
+    排序贴合度：正例得分高于负例的比例（平局计 0.5），值域 [0, 1]。
+
+    金标评估用——正负例得分来自标注时的快照，不依赖当前排序会话。
+    没有可比较的正负对时返回 None（样本不足；调用方不应显示为 0%）。
+    """
+    pairs = [(p, n) for p in positive_scores for n in negative_scores]
+    if not pairs:
+        return None
+    wins = sum(
+        1.0 if p > n else 0.5 if p == n else 0.0
+        for p, n in pairs
+    )
+    return wins / len(pairs)

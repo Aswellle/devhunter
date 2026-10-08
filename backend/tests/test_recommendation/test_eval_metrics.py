@@ -6,7 +6,7 @@ import math
 
 import pytest
 
-from app.recommendation.eval_metrics import ndcg_at_k, precision_at_k, recall_at_k
+from app.recommendation.eval_metrics import ndcg_at_k, pairwise_win_rate, precision_at_k, recall_at_k
 
 RANKED = ["a", "b", "c", "d", "e"]
 RELEVANT = {"a", "c", "x"}  # a、c 在排序里，x 不在
@@ -60,3 +60,26 @@ class TestNDCGAtK:
 
     def test_empty_relevant(self):
         assert ndcg_at_k(RANKED, set(), 3) == 0.0
+
+
+class TestPairwiseWinRate:
+    """排序贴合度：金标评估（正例得分高于负例的比例）"""
+
+    def test_perfect_separation(self):
+        assert pairwise_win_rate([0.8, 0.9], [0.1, 0.2]) == 1.0
+
+    def test_inverted(self):
+        assert pairwise_win_rate([0.1], [0.9]) == 0.0
+
+    def test_tie_counts_half(self):
+        assert pairwise_win_rate([0.5], [0.5]) == 0.5
+
+    def test_mixed(self):
+        # 2 胜 2 负
+        assert pairwise_win_rate([0.9, 0.1], [0.5, 0.5]) == 0.5
+
+    def test_insufficient_sample_returns_none(self):
+        """缺正例或缺负例都无法比较，返回 None 而非 0"""
+        assert pairwise_win_rate([], [0.5]) is None
+        assert pairwise_win_rate([0.5], []) is None
+        assert pairwise_win_rate([], []) is None
