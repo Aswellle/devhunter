@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'react-hot-toast'
-import { ChevronDown, ChevronRight, ExternalLink, Flame, Gauge, Globe, RefreshCw, Sparkles, Star, Rss, TrendingUp } from 'lucide-react'
+import { ChevronDown, ChevronRight, ExternalLink, Flame, Gauge, Globe, RefreshCw, Rss, Sparkles, Star, TrendingDown, TrendingUp } from 'lucide-react'
 import { clsx } from 'clsx'
 import { useQuery } from '@tanstack/react-query'
 import type { Thread, ThreadStats } from '../../types'
@@ -57,6 +57,30 @@ function ThreadStatusBadge({ lastSeenAt }: { lastSeenAt: string }) {
     >
       <span className={clsx('inline-block h-1.5 w-1.5 rounded-full', meta.dotCls)} aria-hidden="true" />
       {meta.label}
+    </span>
+  )
+}
+
+/**
+ * 热度趋势箭头：与 24 小时前时点比较（后端同为派生值，无快照）。
+ * |delta| < 0.1 视为持平，不渲染，避免噪声。
+ */
+function MomentumBadge({ delta, previous }: { delta?: number; previous?: number }) {
+  if (typeof delta !== 'number') return null
+  const rising = delta >= 0.1
+  const falling = delta <= -0.1
+  if (!rising && !falling) return null
+  const isNew = (previous ?? 0) < 0.05 && rising
+  return (
+    <span
+      className={clsx('inline-flex items-center', rising ? 'text-orange-600' : 'text-gray-400')}
+      title={
+        isNew
+          ? '24 小时内新出现的热点'
+          : `较 24 小时前${rising ? '上升' : '回落'} ${Math.abs(delta).toFixed(1)}`
+      }
+    >
+      {rising ? <TrendingUp className="h-3 w-3" aria-hidden="true" /> : <TrendingDown className="h-3 w-3" aria-hidden="true" />}
     </span>
   )
 }
@@ -197,12 +221,15 @@ export function ThreadCard({ thread, defaultExpanded = false }: ThreadCardProps)
         <div className="text-right shrink-0">
           <div className="text-sm font-medium text-gray-900 flex items-center justify-end gap-1.5">
             {typeof thread.hotness === 'number' && thread.hotness >= 0.05 && (
-              <span
-                className="text-orange-500"
-                title="热度：每个独立来源只计一次，随时间每 24 小时减半，48 小时无更新归零"
-              >
-                🔥 {thread.hotness.toFixed(1)}
-              </span>
+              <>
+                <span
+                  className="text-orange-500"
+                  title="热度：每个独立来源只计一次，随时间每 24 小时减半，48 小时无更新归零"
+                >
+                  🔥 {thread.hotness.toFixed(1)}
+                </span>
+                <MomentumBadge delta={thread.hotness_delta} previous={thread.hotness_previous} />
+              </>
             )}
             <span>{thread.item_count} 条</span>
           </div>

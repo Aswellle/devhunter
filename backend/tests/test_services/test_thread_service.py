@@ -159,10 +159,17 @@ class TestHotnessSort:
         cold_default = next(t for t in threads_default if "cold" in t["title"])
         assert fresh_default["hotness"] > 0.9, "默认路径也应附加 hotness"
         assert cold_default["hotness"] == 0.0, "48h 窗口外的条目热度归零"
+        # 趋势字段随两条路径一起附加：新鲜 Thread 24h 前尚无热度（delta=hotness 全为升），
+        # 冷 Thread 无新报道、存量热量只会衰减（delta 非正）
+        assert fresh_default["hotness_previous"] == 0.0
+        assert fresh_default["hotness_delta"] == fresh_default["hotness"]
+        assert 0.0 <= cold_default["hotness_previous"] <= 0.25
+        assert cold_default["hotness_delta"] <= 0
 
         threads_hot, _ = thread_repo.list_all(task_id=task_id, per_page=50, sort="hotness")
         assert threads_hot[0]["title"] == fresh_default["title"], "热度排序新鲜者在前"
         assert threads_hot[-1]["hotness"] == 0.0
+        assert threads_hot[0]["hotness_delta"] == threads_hot[0]["hotness"]
 
     def test_rebuild_is_mutex(self):
         """已有重建进行中 → ConflictError"""

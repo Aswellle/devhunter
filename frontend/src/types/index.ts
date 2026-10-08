@@ -50,6 +50,27 @@ export interface RecommendationReason {
   label: string
 }
 
+// ── 推荐质量打标（金标）──────────────────────────────────
+export interface LabelSampleItem {
+  id: string
+  task_id: string | null
+  task_name: string | null
+  title: string
+  url: string
+  summary: string | null
+  fetched_at: string
+  /** 采样时的推荐得分快照；落标时回传后端一并存储 */
+  recommendation_score: number
+}
+
+export interface LabelSummary {
+  total: number
+  positive: number
+  negative: number
+  /** 排序贴合度：正例得分高于负例的比例；正负样本不足时为 null */
+  win_rate: number | null
+}
+
 // ── Source Discovery ──────────────────────────────────────
 export interface DiscoveryResult {
   url: string
@@ -147,6 +168,9 @@ export interface Thread {
   confidence?: string
   /** 派生热度：唯一来源计数 + 24h 半衰期 + 48h 窗口（app/threads/hotness.py） */
   hotness?: number
+  /** 热度趋势：24h 前时点的热度与差值（同为派生值，与 hotness 一起返回） */
+  hotness_previous?: number
+  hotness_delta?: number
 }
 
 export interface ThreadWithItems extends Thread {

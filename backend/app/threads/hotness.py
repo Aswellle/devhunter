@@ -82,3 +82,40 @@ def hotness_map_from_rows(
         ):
             grouped[tid][key] = latest
     return {tid: compute_hotness(platforms, now=now) for tid, platforms in grouped.items()}
+
+
+def momentum_map_from_rows(
+    rows: list[Any],
+    window_hours: int = 24,
+    now: datetime | None = None,
+) -> dict[str, dict[str, float]]:
+    """
+    从 (thread_id, platform_key, latest, latest_at_cutoff) 行集计算热度趋势。
+
+    latest_at_cutoff 是该平台在 (now - window_hours) 之前最新条目的时间。
+    两个时点套用同一热度公式，差值即趋势：
+    - 正值：窗口内进了新报道，热度上升
+    - 负值：无新报道、存量热度自然衰减
+    - Thread 晚于 cutoff 出现时 previous 记 0，delta = hotness（新热点）
+    """
+    now = now or datetime.now(timezone.utc)
+    cutoff = now - timedelta(hours=window_hours)
+
+    present_rows = [(row[0], row[1], row[2]) for row in rows]
+    past_rows = [
+        (row[0], row[1], row[3]) for row in rows if row[3] is not None
+    ]
+    hotness_map = hotness_map_from_rows(present_rows, now=now)
+    previous_map = hotness_map_from_rows(past_rows, now=cutoff)
+
+    result: dict[str, dict[str, float]] = {}
+    for thread_id in {str(row[0]) for row in rows}:
+        tid = str(thread_id)
+        hotness = hotness_map.get(tid, 0.0)
+        previous = previous_map.get(tid, 0.0)
+        result[tid] = {
+            "hotness": hotness,
+            "previous": previous,
+            "delta": round(hotness - previous, 4),
+        }
+    return result

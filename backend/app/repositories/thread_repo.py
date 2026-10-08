@@ -159,10 +159,8 @@ class ThreadRepository:
 
         threads = [_row_to_dict(r) for r in rows]
 
-        # 默认路径：只为当前页计算热度并附加（避免全表聚合）
-        hotness = self.get_hotness_aggregates([t["id"] for t in threads])
-        for t in threads:
-            t["hotness"] = hotness.get(t["id"], 0.0)
+        # 默认路径：只为当前页计算热度/趋势并附加（避免全表聚合）
+        self._attach_momentum(threads)
         return threads, total
 
     def _list_all_by_hotness(
@@ -202,14 +200,21 @@ class ThreadRepository:
             rows = conn.execute(sql, params).fetchall()
 
         threads = [_row_to_dict(r) for r in rows]
-        hotness = self.get_hotness_aggregates([t["id"] for t in threads])
-        for t in threads:
-            t["hotness"] = hotness.get(t["id"], 0.0)
+        self._attach_momentum(threads)
         # 热度降序；并列时最近活动的 Thread 在前
         threads.sort(key=lambda t: (t["hotness"], t["last_seen_at"]), reverse=True)
         total = len(threads)
         start = (page - 1) * per_page
         return threads[start:start + per_page], total
+
+    def _attach_momentum(self, threads: list[dict[str, Any]]) -> None:
+        """为 Thread 行附加 hotness / hotness_previous / hotness_delta 三个派生字段"""
+        momentum = self.get_momentum_aggregates([t["id"] for t in threads])
+        for t in threads:
+            m = momentum.get(t["id"], {"hotness": 0.0, "previous": 0.0, "delta": 0.0})
+            t["hotness"] = m["hotness"]
+            t["hotness_previous"] = m["previous"]
+            t["hotness_delta"] = m["delta"]
 
     def get_hotness_aggregates(self, thread_ids: list[str] | None = None) -> dict[str, float]:
         """
@@ -222,26 +227,53 @@ class ThreadRepository:
         Returns:
             {thread_id: hotness}；无条目的 Thread 不出现在结果中（视为 0）
         """
-        from app.threads.hotness import hotness_map_from_rows
+        momentum = self.get_momentum_aggregates(thread_ids)
+        return {thread_id: m["hotness"] for thread_id, m in momentum.items()}
+
+    def get_momentum_aggregates(
+        self,
+        thread_ids: list[str] | None = None,
+        window_hours: int = 24,
+    ) -> dict[str, dict[str, float]]:
+        """
+        聚合每个 Thread 的热度与趋势：当前热度 + window_hours 前时点的热度 + 差值。
+
+        与热度同源（按平台取最新条目时间），只是额外多取一个历史时点的
+        平台最新条目——趋势仍是纯派生值，不落库。
+
+        Returns:
+            {thread_id: {"hotness": h, "previous": p, "delta": d}}
+        """
+        from app.threads.hotness import momentum_map_from_rows
+
+        cutoff = (
+            datetime.now(timezone.utc) - timedelta(hours=window_hours)
+        ).strftime("%Y-%m-%dT%H:%M:%SZ")
 
         sql = """
-            SELECT ti.thread_id, i.task_id, MAX(i.fetched_at) AS latest
+            SELECT ti.thread_id, i.task_id,
+                   MAX(i.fetched_at) AS latest,
+                   MAX(CASE WHEN i.fetched_at <= ? THEN i.fetched_at END) AS latest_at_cutoff
             FROM thread_items ti
             JOIN items i ON i.id = ti.item_id
         """
-        params: list[Any] = []
+        params: list[Any] = [cutoff]
         if thread_ids is not None:
             if not thread_ids:
                 return {}
             placeholders = ",".join("?" for _ in thread_ids)
             sql += f" WHERE ti.thread_id IN ({placeholders})"
-            params = list(thread_ids)
+            params.extend(thread_ids)
         sql += " GROUP BY ti.thread_id, i.task_id"
 
         with get_db() as conn:
             rows = conn.execute(sql, params).fetchall()
-        return hotness_map_from_rows(
-            [(r["thread_id"], r["task_id"], r["latest"]) for r in rows]
+        return momentum_map_from_rows(
+            [
+                (r["thread_id"], r["task_id"], r["latest"], r["latest_at_cutoff"])
+                for r in rows
+            ],
+            window_hours=window_hours,
         )
 
     def add_item(
