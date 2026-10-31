@@ -13,8 +13,18 @@ from app.services.thread_service import thread_service
 from app.threads import clustering as clustering_module
 from app.threads.clustering import ThreadClusteringResult, thread_clusterer
 from app.threads.merge import thread_merger
+from app.threads.relations import canonical_pair
 from app.threads.scoring import ThreadScore
 from app.threads.split import thread_splitter
+
+
+class TestCanonicalPair:
+    """规范序约定：与 CHECK (thread_a < thread_b) 的 BINARY 排序一致"""
+
+    def test_orders_lexicographically(self):
+        assert canonical_pair("b", "a") == ("a", "b")
+        assert canonical_pair("a", "b") == ("a", "b")
+        assert canonical_pair("x", "x") == ("x", "x")
 
 
 def _make_task() -> str:
@@ -138,10 +148,10 @@ class TestMergeRepointsRelations:
         assert merged is not None
 
         # (A,B) 与 (A,T) 重定向为 (B,T)；(B,T) 已有关联（0.3），
-        # INSERT OR IGNORE 保留先写入的，重定向的重复项被忽略
+        # 冲突时相似度取更强一侧：MAX(0.3, 0.4) = 0.4
         rel_b = {r["id"]: r for r in thread_repo.get_related_threads(tb)}
         assert set(rel_b) == {tt}
-        assert rel_b[tt]["similarity"] == 0.3
+        assert rel_b[tt]["similarity"] == 0.4
         # A 已删除，其关联随级联消失
         assert thread_repo.get_related_threads(ta) == []
 

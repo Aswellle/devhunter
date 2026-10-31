@@ -458,7 +458,9 @@ class ThreadRepository:
         if source == "auto" and self.is_pair_rejected(thread_a, thread_b):
             logger.debug("Relation skipped (user rejected): %s / %s", thread_a, thread_b)
             return False
-        a, b = sorted((thread_a, thread_b))
+        from app.threads.relations import canonical_pair
+
+        a, b = canonical_pair(thread_a, thread_b)
         try:
             with get_db() as conn:
                 cursor = conn.execute(

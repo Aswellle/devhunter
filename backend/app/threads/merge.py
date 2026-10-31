@@ -75,7 +75,10 @@ class ThreadMerger:
             )
 
             # 4. 关联重定向：指向 source 的"同一故事线"关联全部改指 target。
-            # 与 target 的关联随 source 删除级联消失；其余按规范序幂等写入
+            # 与 target 的关联随 source 删除级联消失；其余按规范序 upsert——
+            # 相似度保留更强一侧（重定向带来的是合并后的最新观察）
+            from app.threads.relations import canonical_pair
+
             source_relations = conn.execute(
                 "SELECT thread_a, thread_b, similarity, source FROM thread_relations "
                 "WHERE thread_a = ? OR thread_b = ?",
@@ -89,10 +92,12 @@ class ThreadMerger:
                 )
                 if other == target_thread_id:
                     continue
-                a, b = sorted((target_thread_id, other))
+                a, b = canonical_pair(target_thread_id, other)
                 conn.execute(
-                    "INSERT OR IGNORE INTO thread_relations (thread_a, thread_b, similarity, source) "
-                    "VALUES (?, ?, ?, ?)",
+                    "INSERT INTO thread_relations (thread_a, thread_b, similarity, source) "
+                    "VALUES (?, ?, ?, ?) "
+                    "ON CONFLICT (thread_a, thread_b) DO UPDATE SET "
+                    "similarity = MAX(similarity, excluded.similarity)",
                     (a, b, rel["similarity"], rel["source"])
                 )
             conn.execute(

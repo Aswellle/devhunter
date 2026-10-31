@@ -105,7 +105,9 @@ class ThreadSplitter:
             self._rebuild_thread_stats(conn, thread_id)
 
             # 5. 拆分出的新 Thread 与源 Thread 显式关联为同一故事线
-            a, b = sorted((thread_id, new_thread_id))
+            from app.threads.relations import canonical_pair
+
+            a, b = canonical_pair(thread_id, new_thread_id)
             conn.execute(
                 "INSERT OR IGNORE INTO thread_relations (thread_a, thread_b, similarity, source) "
                 "VALUES (?, ?, ?, 'split')",
