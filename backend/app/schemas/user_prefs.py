@@ -163,10 +163,13 @@ class RelevanceLabelSampleItem(BaseModel):
 
 
 class RelevanceLabelRequest(BaseModel):
-    """落标请求：label=True 感兴趣 / False 不感兴趣"""
+    """落标请求：label=True 感兴趣 / False 不感兴趣。
+
+    分数快照由服务端在采样时记录并落标时取用——
+    客户端不提交、服务端也不采信任何分数。
+    """
     item_id: str = Field(..., min_length=1)
     label: bool
-    sampled_score: float | None = Field(None, ge=0.0, le=1.0)
 
 
 class RelevanceLabelResponse(BaseModel):

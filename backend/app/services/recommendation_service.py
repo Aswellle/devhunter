@@ -180,6 +180,10 @@ class RecommendationService:
 
         step = max(1, len(pool) // limit)
         sampled = pool[::step][:limit]
+        # 采样分数落服务端快照：落标时以此为准，客户端回传值不采信
+        relevance_label_repo.record_samples(
+            [(item["id"], item["recommendation_score"]) for item in sampled]
+        )
         return [
             {
                 "id": item["id"],
@@ -194,14 +198,21 @@ class RecommendationService:
             for item in sampled
         ]
 
-    def record_label(self, item_id: str, label: bool, sampled_score: float | None = None) -> dict:
-        """记录/改判一条金标（感兴趣 / 不感兴趣）"""
+    def record_label(self, item_id: str, label: bool) -> dict:
+        """
+        记录/改判一条金标（感兴趣 / 不感兴趣）。
+
+        分数快照取自服务端的采样记录（take_sample_score 取走即删）；
+        从未被采样过的条目得分为 NULL，计入总数但不参与贴合度计算；
+        无新采样的改判沿用已存分数（仓储层 COALESCE）。
+        """
         from app.repositories.relevance_repo import relevance_label_repo
 
+        snapshot = relevance_label_repo.take_sample_score(item_id)
         return relevance_label_repo.upsert(
             item_id=item_id,
             label=label,
-            sampled_score=sampled_score,
+            sampled_score=snapshot,
         )
 
     def get_label_summary(self) -> dict:

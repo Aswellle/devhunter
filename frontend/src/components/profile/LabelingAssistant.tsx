@@ -94,7 +94,7 @@ export function LabelingAssistant() {
   })
 
   const labelMutation = useMutation({
-    mutationFn: (payload: { item_id: string; label: boolean; sampled_score: number }) =>
+    mutationFn: (payload: { item_id: string; label: boolean }) =>
       userPrefsApi.submitLabel(payload),
     onSuccess: (_, payload) => {
       setLabeledHere((prev) => new Set(prev).add(payload.item_id))
@@ -104,11 +104,7 @@ export function LabelingAssistant() {
   })
 
   const handleLabel = (item: LabelSampleItem, label: boolean) => {
-    labelMutation.mutate({
-      item_id: item.id,
-      label,
-      sampled_score: item.recommendation_score,
-    })
+    labelMutation.mutate({ item_id: item.id, label })
   }
 
   const handleRefresh = () => {

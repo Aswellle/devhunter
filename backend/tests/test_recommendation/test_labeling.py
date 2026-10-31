@@ -124,28 +124,66 @@ class TestSampleAPI:
 
 
 class TestSubmitLabelAPI:
-    """POST /api/user-prefs/recommendations/labels"""
+    """POST /api/user-prefs/recommendations/labels
 
-    def test_submit_then_relabel_updates_in_place(self):
+    分数快照只在采样时由服务端记录（label_samples），落标时自动取用；
+    客户端不提交分数，改判不会覆盖已存快照。
+    """
+
+    def test_submit_then_relabel_keeps_original_snapshot(self):
         (item_id,) = _insert_items(1)
+        relevance_label_repo.record_samples([(item_id, 0.7)])
 
         first = client.post(
             "/api/user-prefs/recommendations/labels",
-            json={"item_id": item_id, "label": True, "sampled_score": 0.7},
+            json={"item_id": item_id, "label": True},
             headers=_auth_headers(),
         )
         assert first.status_code == 201
         assert first.json()["label"] is True
+        assert first.json()["sampled_score"] == 0.7, "落标取用服务端采样快照"
 
-        # 改判：同一 item 仍只有一条记录，且值为新判断
+        # 改判（无新采样）：判断更新，快照沿用原值不漂移
         second = client.post(
             "/api/user-prefs/recommendations/labels",
-            json={"item_id": item_id, "label": False, "sampled_score": 0.7},
+            json={"item_id": item_id, "label": False},
             headers=_auth_headers(),
         )
         assert second.status_code == 201
-        stored = relevance_label_repo.upsert(item_id, label=False, sampled_score=0.7)
-        assert stored["label"] is False
+        assert second.json()["label"] is False
+        assert second.json()["sampled_score"] == 0.7
+
+    def test_label_without_sample_records_null_score(self):
+        (item_id,) = _insert_items(1)
+
+        response = client.post(
+            "/api/user-prefs/recommendations/labels",
+            json={"item_id": item_id, "label": True},
+            headers=_auth_headers(),
+        )
+
+        assert response.status_code == 201
+        assert response.json()["sampled_score"] is None
+        from app.core.database import get_db
+        with get_db() as conn:
+            row = conn.execute(
+                "SELECT sampled_score FROM relevance_labels WHERE item_id = ?",
+                (item_id,),
+            ).fetchone()
+        assert row["sampled_score"] is None, "未采样条目得分留空，不参与贴合度比较"
+
+    def test_resampling_refreshes_snapshot_before_labeling(self):
+        (item_id,) = _insert_items(1)
+        relevance_label_repo.record_samples([(item_id, 0.9)])
+        relevance_label_repo.record_samples([(item_id, 0.4)])
+
+        response = client.post(
+            "/api/user-prefs/recommendations/labels",
+            json={"item_id": item_id, "label": False},
+            headers=_auth_headers(),
+        )
+
+        assert response.json()["sampled_score"] == 0.4, "重复采样覆盖为最新"
 
     def test_unknown_item_is_rejected(self):
         response = client.post(
@@ -155,13 +193,15 @@ class TestSubmitLabelAPI:
         )
         assert response.status_code == 404
 
-    def test_out_of_range_score_is_rejected(self):
+    def test_extra_fields_are_ignored(self):
+        (item_id,) = _insert_items(1)
         response = client.post(
             "/api/user-prefs/recommendations/labels",
-            json={"item_id": "x", "label": True, "sampled_score": 1.5},
+            json={"item_id": item_id, "label": True, "sampled_score": 1.5},
             headers=_auth_headers(),
         )
-        assert response.status_code == 422
+        assert response.status_code == 201
+        assert response.json()["sampled_score"] is None, "客户端分数一律不采信"
 
     def test_requires_auth(self):
         assert client.post(

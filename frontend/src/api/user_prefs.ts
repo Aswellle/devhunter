@@ -54,8 +54,9 @@ export const userPrefsApi = {
   getLabelSample: (limit = 8) =>
     client.get<LabelSampleItem[]>('/user-prefs/recommendations/labels/sample', { params: { limit } }).then((r) => r.data),
 
-  // 提交一条标注（感兴趣 / 不感兴趣；同一 item 重复提交为改判）
-  submitLabel: (data: { item_id: string; label: boolean; sampled_score?: number }) =>
+  // 提交一条标注（感兴趣 / 不感兴趣；同一 item 重复提交为改判）。
+  // 分数快照由服务端在采样时记录，客户端不回传
+  submitLabel: (data: { item_id: string; label: boolean }) =>
     client.post('/user-prefs/recommendations/labels', data).then((r) => r.data),
 
   // 打标汇总：计数 + 排序贴合度

@@ -234,7 +234,10 @@ def get_label_sample(
 @router.post("/recommendations/labels", response_model=RelevanceLabelResponse,
              status_code=status.HTTP_201_CREATED)
 def submit_relevance_label(body: RelevanceLabelRequest, _: str = Depends(require_auth)):
-    """记录/改判一条金标（感兴趣 / 不感兴趣）；同一 item 重复提交视为改判"""
+    """记录/改判一条金标（感兴趣 / 不感兴趣）；同一 item 重复提交视为改判。
+
+    分数快照在采样时已由服务端记录，落标时自动取用。
+    """
     if not item_repo.get(body.item_id):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -243,7 +246,6 @@ def submit_relevance_label(body: RelevanceLabelRequest, _: str = Depends(require
     return recommendation_service.record_label(
         item_id=body.item_id,
         label=body.label,
-        sampled_score=body.sampled_score,
     )
 
 

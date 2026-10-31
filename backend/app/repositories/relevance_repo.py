@@ -22,7 +22,12 @@ def _now_iso() -> str:
 class RelevanceLabelRepository:
 
     def upsert(self, item_id: str, label: bool, sampled_score: float | None) -> dict[str, Any]:
-        """记录/改判一条标注，返回落库后的完整行"""
+        """
+        记录/改判一条标注，返回落库后的完整行。
+
+        sampled_score 为 None 时不覆盖已存快照（COALESCE）——
+        无新采样的改判沿用原分数，不会把条目从贴合度指标中清出。
+        """
         now = _now_iso()
         with get_db() as conn:
             conn.execute(
@@ -31,7 +36,7 @@ class RelevanceLabelRepository:
                 VALUES (?, ?, ?, ?, ?, ?)
                 ON CONFLICT (item_id) DO UPDATE SET
                     label = excluded.label,
-                    sampled_score = excluded.sampled_score,
+                    sampled_score = COALESCE(excluded.sampled_score, relevance_labels.sampled_score),
                     updated_at = excluded.updated_at
                 """,
                 (str(uuid.uuid4()), item_id, 1 if label else 0, sampled_score, now, now),
@@ -43,6 +48,35 @@ class RelevanceLabelRepository:
         result = dict(row)
         result["label"] = bool(result["label"])
         return result
+
+    def record_samples(self, samples: list[tuple[str, float]]) -> None:
+        """记录待标注采样快照（item_id, score）；同一条目重复采样覆盖为最新"""
+        if not samples:
+            return
+        now = _now_iso()
+        with get_db() as conn:
+            conn.executemany(
+                """
+                INSERT INTO label_samples (item_id, sampled_score, sampled_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT (item_id) DO UPDATE SET
+                    sampled_score = excluded.sampled_score,
+                    sampled_at = excluded.sampled_at
+                """,
+                [(item_id, score, now) for item_id, score in samples],
+            )
+
+    def take_sample_score(self, item_id: str) -> float | None:
+        """取出并清除该条目的待标注快照；从未被采样过返回 None"""
+        with get_db() as conn:
+            row = conn.execute(
+                "SELECT sampled_score FROM label_samples WHERE item_id = ?",
+                (item_id,),
+            ).fetchone()
+            if row is None:
+                return None
+            conn.execute("DELETE FROM label_samples WHERE item_id = ?", (item_id,))
+        return float(row["sampled_score"])
 
     def get_labeled_item_ids(self) -> set[str]:
         """全部已打标的 item_id（采样时排除）"""
