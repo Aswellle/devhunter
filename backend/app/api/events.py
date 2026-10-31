@@ -46,13 +46,16 @@ async def stream_task_events(
         max_ticks = int(_MAX_STREAM_MINUTES * 60 / _HEARTBEAT_INTERVAL)
         ticks = 0
 
-        # E1: 如果有 Last-Event-ID，先从 DB 补发断线期间的事件
+        # E1: 如果有 Last-Event-ID，先从 DB 补发断线期间的事件。
+        # 按任务维度补发（list_by_task_after）：事件持久化历史上
+        # execution_id 落的是 task_id，按执行维度查询永远为空；
+        # 重连客户端要的是"该任务我错过的一切"，跨执行补发正合语义
         if last_event_id:
             try:
                 missed_events = await loop.run_in_executor(
                     None,
-                    lambda: execution_event_repo.list_by_execution(
-                        _latest_execution_id(task_id), after_id=last_event_id
+                    lambda: execution_event_repo.list_by_task_after(
+                        task_id, after_id=last_event_id
                     ),
                 )
                 for evt in missed_events:
@@ -64,10 +67,8 @@ async def stream_task_events(
                         "timestamp": evt.get("created_at", ""),
                     }
                     yield _sse(payload)
-                    # 如果补发的事件中包含终态事件，直接结束
-                    if evt.get("event_type") in ("success", "failure", "warning"):
-                        event_bus.unsubscribe(task_id, q)
-                        return
+                    # 不因补发流里出现终态事件而提前结束：
+                    # 游标可能落后于上一次执行，其后还有新一轮的事件
             except Exception:
                 pass  # 补发失败不影响实时流
 
@@ -115,13 +116,6 @@ async def stream_task_events(
 def _get_event_id(event) -> str:
     """从 event_bus 的 ExecutionEvent 获取持久化 ID（存储在 data 中）。"""
     return event.data.get("event_id", "")
-
-
-def _latest_execution_id(task_id: str) -> str:
-    """获取任务最近一次执行的 ID（用于断线补发查询）。"""
-    from app.repositories.execution_repo import execution_repo
-    latest = execution_repo.get_latest_by_task(task_id)
-    return latest["id"] if latest else ""
 
 
 def _sse(data: dict) -> str:

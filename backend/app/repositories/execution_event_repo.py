@@ -96,6 +96,32 @@ class ExecutionEventRepository:
             ).fetchall()
             return [_row_to_dict(r) for r in rows]
 
+    def list_by_task_after(
+        self,
+        task_id: str,
+        after_id: str | None = None,
+        limit: int = 500,
+    ) -> list[dict[str, Any]]:
+        """
+        断线补发：任务维度取游标之后的事件，按时间正序。
+
+        按 task_id 而非 execution_id 查询——事件持久化历史上（engine 事件
+        不携带 execution_id，回退落 task_id），执行维度查询永远匹配不到；
+        而重连客户端要的本来就是"这个任务我错过的一切"。
+        游标无效（如占位 0）时子查询为 NULL，安静地返回空——等价于
+        无游标从头订阅，不补发历史。
+        """
+        query = "SELECT * FROM execution_events WHERE task_id = ?"
+        params: list[Any] = [task_id]
+        if after_id:
+            query += " AND created_at > (SELECT created_at FROM execution_events WHERE id = ?)"
+            params.append(after_id)
+        query += " ORDER BY created_at ASC, seq ASC LIMIT ?"
+        params.append(limit)
+        with get_db() as conn:
+            rows = conn.execute(query, params).fetchall()
+        return [_row_to_dict(r) for r in rows]
+
     def get_latest(self, execution_id: str) -> dict[str, Any] | None:
         """获取执行的最新事件"""
         with get_db() as conn:
