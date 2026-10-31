@@ -17,7 +17,10 @@ logger = logging.getLogger(__name__)
 
 # T2: 当前算法版本
 ALGORITHM_VERSION = "v2"
-DEFAULT_THRESHOLD = 0.45
+# 注意：thread_service 实际传入的聚类阈值来自 utils.similarity.DEFAULT_THRESHOLD
+# （0.35，经实测校准）。本常量仅作 cluster() 的参数兜底，命名加 Join 前缀
+# 与之区分——两个同名不同值的 DEFAULT_THRESHOLD 曾让排查走了弯路
+DEFAULT_JOIN_THRESHOLD = 0.45
 
 # 同一故事线区间占合并阈值的比例：评分落在 [RATIO*threshold, threshold)
 # 的候选是"相似但未达合并标准"——同一故事线的不同子事件。照常创建
@@ -64,7 +67,7 @@ class ThreadClusterer:
         self,
         new_item: dict[str, Any],
         candidate_threads: list[dict[str, Any]],
-        threshold: float = DEFAULT_THRESHOLD,
+        threshold: float = DEFAULT_JOIN_THRESHOLD,
     ) -> ThreadClusteringResult:
         """
         为新 Item 找到最佳匹配的 Thread。
