@@ -20,7 +20,7 @@ permissions:
 
 jobs:
   backend-tests:
-    name: 后端全量测试
+    name: Backend Tests
     runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:
@@ -34,18 +34,18 @@ jobs:
           python-version: "3.11"
           cache: pip
 
-      - name: 安装依赖
+      - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           # 测试栈在 pyproject 的 dev extras 里，requirements.txt 不含
           pip install "pytest>=8.1" "pytest-asyncio>=0.23" "pytest-cov>=5.0"
 
-      - name: pytest 全量测试
+      - name: Run full pytest suite with coverage
         run: python -m pytest --cov=app --cov-report=term-missing
 
   backend-e2e:
-    name: 后端 E2E 冒烟
+    name: Backend E2E Smoke
     runs-on: ubuntu-latest
     timeout-minutes: 10
     defaults:
@@ -59,17 +59,17 @@ jobs:
           python-version: "3.11"
           cache: pip
 
-      - name: 安装依赖
+      - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
       # 自包含脚本：自带临时 DB 与测试环境变量，失败时 exit 1
-      - name: E2E 全流程
+      - name: Run E2E smoke
         run: python e2e_test.py
 
   frontend-quality:
-    name: 前端质量检查
+    name: Frontend Quality
     runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:
@@ -84,24 +84,24 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
-      - name: 安装依赖
+      - name: Install dependencies
         run: npm ci
 
       - name: ESLint
         run: npm run lint
 
       # tsc -b && vite build：类型错误与构建失败都会在这里挡下
-      - name: 生产构建
+      - name: Production build
         run: npm run build
 
   gate:
-    name: CI 门禁
+    name: CI Gate
     needs: [backend-tests, backend-e2e, frontend-quality]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: 汇总判定
+      - name: Evaluate gate results
         run: |
           echo "backend-tests = ${{ needs.backend-tests.result }}"
           echo "backend-e2e   = ${{ needs.backend-e2e.result }}"
@@ -109,7 +109,7 @@ jobs:
           if [ "${{ needs.backend-tests.result }}" != "success" ] \
              || [ "${{ needs.backend-e2e.result }}" != "success" ] \
              || [ "${{ needs.frontend-quality.result }}" != "success" ]; then
-            echo "::error::CI 门禁未通过"
+            echo "::error::CI gate failed"
             exit 1
           fi
-          echo "全部检查通过"
+          echo "All checks passed"
