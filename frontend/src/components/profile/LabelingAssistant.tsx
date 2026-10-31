@@ -4,6 +4,9 @@
  * 对采样条目逐条判断"感兴趣 / 不感兴趣"，用于评估推荐排序质量
  * （排序贴合度 = 正例得分高于负例的比例）。打标只用于评估，
  * 不影响推荐结果与画像。
+ *
+ * 队列中刻意不展示模型对候选项的打分：标注者先于模型判断，
+ * 贴合度才反映排序质量而非"与模型的一致度"。
  */
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -14,17 +17,6 @@ import { userPrefsApi } from '../../api/user_prefs'
 import { queryKeys } from '../../api/queryKeys'
 import { errorMessage } from '../../api/client'
 import { ClampText } from '../ui/ClampText'
-
-function ScoreChip({ score }: { score: number }) {
-  return (
-    <span
-      className="shrink-0 px-1.5 py-0.5 rounded text-xs font-medium bg-primary-50 text-primary-700"
-      title="采样时的推荐得分（快照，落标后用于计算贴合度）"
-    >
-      {score.toFixed(2)}
-    </span>
-  )
-}
 
 function LabelRow({
   item,
@@ -38,10 +30,7 @@ function LabelRow({
   return (
     <div className="flex items-start gap-3 py-3">
       <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2 mb-0.5">
-          <span className="text-xs text-gray-400 shrink-0">{item.task_name ?? '未知来源'}</span>
-          <ScoreChip score={item.recommendation_score} />
-        </div>
+        <div className="text-xs text-gray-400 mb-0.5">{item.task_name ?? '未知来源'}</div>
         <a
           href={item.url}
           target="_blank"
