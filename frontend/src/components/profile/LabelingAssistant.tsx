@@ -97,8 +97,9 @@ export function LabelingAssistant() {
   }
 
   const handleRefresh = () => {
-    setLabeledHere(new Set())
-    refetch()
+    // 先等新一批数据落定再清本地已标集合——立即清空会让旧缓存里的
+    // 已标条目在刷新间隙闪现回队列（重复提交无害，观感差）
+    refetch().then(() => setLabeledHere(new Set()))
   }
 
   const remaining = (sample ?? []).filter((it) => !labeledHere.has(it.id))
