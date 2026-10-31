@@ -589,18 +589,27 @@ class ThreadRepository:
             conn.execute("DELETE FROM thread_relations")
             conn.execute("DELETE FROM threads")
 
-    def delete_item_from_thread(self, item_id: str) -> None:
-        """将 Item 从 Thread 中移除（用于 Item 删除时级联清理）"""
+    def delete_item_from_thread(self, item_id: str, conn: sqlite3.Connection | None = None) -> None:
+        """将 Item 从 Thread 中移除（用于 Item 删除时级联清理）；
+        传入 conn 时加入调用方事务，不自行提交"""
+        if conn is not None:
+            conn.execute(
+                "DELETE FROM thread_items WHERE item_id = ?",
+                (item_id,),
+            )
+            return
         with get_db() as conn:
             conn.execute(
                 "DELETE FROM thread_items WHERE item_id = ?",
                 (item_id,),
             )
 
-    def rebuild_thread_stats(self, thread_id: str) -> None:
-        """重新计算 Thread 的 item_count、platforms、title（Item 被删除后调用）"""
-        with get_db() as conn:
-            rows = conn.execute(
+    def rebuild_thread_stats(self, thread_id: str, conn: sqlite3.Connection | None = None) -> None:
+        """重新计算 Thread 的 item_count、platforms、title（Item 被删除后调用）；
+        传入 conn 时加入调用方事务，不自行提交"""
+
+        def _run(c: sqlite3.Connection) -> None:
+            rows = c.execute(
                 """
                 SELECT i.title, t.name AS task_name
                 FROM thread_items ti
@@ -612,8 +621,21 @@ class ThreadRepository:
             ).fetchall()
 
             if not rows:
-                # Thread 已空，删除
-                conn.execute("DELETE FROM threads WHERE id = ?", (thread_id,))
+                # Thread 已空，删除。删除前清理两类悬空引用，否则
+                # FOREIGN KEY constraint failed（二者都无级联）：
+                # - items.thread_id 镜像：正常情况下成员消失时镜像随条目
+                #   一起消失，但删除流程"先摘成员、后删条目"的中间态里
+                #   待删条目自己还指着本 Thread；历史崩溃也可能留下残渣
+                # - thread_overrides.target_thread_id（017 建列时无 CASCADE）
+                c.execute(
+                    "UPDATE items SET thread_id = NULL WHERE thread_id = ?",
+                    (thread_id,),
+                )
+                c.execute(
+                    "UPDATE thread_overrides SET target_thread_id = NULL WHERE target_thread_id = ?",
+                    (thread_id,),
+                )
+                c.execute("DELETE FROM threads WHERE id = ?", (thread_id,))
                 return
 
             platforms = list({r["task_name"] for r in rows if r["task_name"]})
@@ -621,7 +643,7 @@ class ThreadRepository:
             longest_title = max(titles, key=len) if titles else ""
             now = _now_iso()
 
-            conn.execute(
+            c.execute(
                 """
                 UPDATE threads
                 SET item_count = ?, platforms = ?, title = ?
@@ -629,6 +651,12 @@ class ThreadRepository:
                 """,
                 (len(rows), json.dumps(platforms, ensure_ascii=False), longest_title, thread_id),
             )
+
+        if conn is not None:
+            _run(conn)
+            return
+        with get_db() as c:
+            _run(c)
 
     # ── T3: 人工纠错 ────────────────────────────────────────────
 

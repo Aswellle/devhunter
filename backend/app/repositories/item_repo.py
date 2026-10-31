@@ -328,8 +328,11 @@ class ItemRepository:
             )
         return cursor.rowcount
 
-    def delete(self, item_id: str) -> bool:
-        """删除单条目，返回是否删除成功"""
+    def delete(self, item_id: str, conn: sqlite3.Connection | None = None) -> bool:
+        """删除单条目，返回是否删除成功；传入 conn 时加入调用方事务"""
+        if conn is not None:
+            cursor = conn.execute("DELETE FROM items WHERE id = ?", (item_id,))
+            return cursor.rowcount > 0
         with get_db() as conn:
             cursor = conn.execute("DELETE FROM items WHERE id = ?", (item_id,))
         return cursor.rowcount > 0

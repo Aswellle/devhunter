@@ -58,11 +58,17 @@ class ItemService:
         item = item_repo.get(item_id)
         if not item:
             raise ItemNotFoundError(f"Item {item_id} not found")
+        from app.core.database import transaction
         from app.repositories.thread_repo import thread_repo
-        thread_repo.delete_item_from_thread(item_id)
-        if item.get("thread_id"):
-            thread_repo.rebuild_thread_stats(item["thread_id"])
-        return item_repo.delete(item_id)
+        # 三步必须原子：thread_items 摘除、空 Thread 回收（内含悬空镜像
+        # 清理）、条目本体删除——任一步单独提交后崩溃都会留下不一致状态，
+        # 且"先摘成员、后删条目"的中间态里条目的 thread_id 镜像还在，
+        # 非 atomic 的回收会撞外键约束（历史上正是这里 500）
+        with transaction() as conn:
+            thread_repo.delete_item_from_thread(item_id, conn=conn)
+            if item.get("thread_id"):
+                thread_repo.rebuild_thread_stats(item["thread_id"], conn=conn)
+            return item_repo.delete(item_id, conn=conn)
 
     def batch_delete(self, ids: list[str]) -> int:
         from app.repositories.thread_repo import thread_repo
