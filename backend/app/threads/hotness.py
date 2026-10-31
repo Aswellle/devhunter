@@ -69,8 +69,9 @@ def hotness_map_from_rows(
     """
     从 (thread_id, platform_key, latest_iso) 行集构建 {thread_id: hotness}。
 
-    thread_repo.get_hotness_aggregates 的 SQL 结果直接喂给本函数；
-    若同一 (thread, platform) 出现多行（不应发生，防御处理），保留最新一条。
+    输入行来自 thread_repo.get_momentum_aggregates 的 SQL（任取其中
+    latest 列即可）；若同一 (thread, platform) 出现多行（不应发生，
+    防御处理），保留最新一条。
     """
     grouped: dict[str, dict[str, str | None]] = {}
     for thread_id, platform_key, latest in rows:

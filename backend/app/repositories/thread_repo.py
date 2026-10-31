@@ -238,20 +238,6 @@ class ThreadRepository:
             t["related_count"] = s["count"]
             t["related_top"] = s["top"]
 
-    def get_hotness_aggregates(self, thread_ids: list[str] | None = None) -> dict[str, float]:
-        """
-        聚合每个 Thread 的热度（threads/hotness.py 的口径）：
-        按平台取最新条目时间，唯一来源计数 + 24h 半衰期 + 48h 窗口。
-
-        Args:
-            thread_ids: 限定计算的 Thread 集合（None = 全部）
-
-        Returns:
-            {thread_id: hotness}；无条目的 Thread 不出现在结果中（视为 0）
-        """
-        momentum = self.get_momentum_aggregates(thread_ids)
-        return {thread_id: m["hotness"] for thread_id, m in momentum.items()}
-
     def get_momentum_aggregates(
         self,
         thread_ids: list[str] | None = None,
