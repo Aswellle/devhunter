@@ -190,6 +190,16 @@ class TestInteractionVocabulary:
         rows = client.get("/api/user-prefs/affinities", headers=_auth_headers()).json()
         assert any(r["affinity_type"] == "task" and r["affinity_score"] > 0 for r in rows)
 
+    def test_unknown_item_returns_404_not_500(self):
+        """不存在的条目 → 404（此前直接撞外键约束 500）"""
+        response = client.post(
+            "/api/user-prefs/interactions",
+            json={"item_id": "no-such-item", "interaction_type": "view"},
+            headers=_auth_headers(),
+        )
+        assert response.status_code == 404
+        assert response.json()["error"]["code"] == "ITEM_NOT_FOUND"
+
     def test_engagement_counters_capture_view_and_click(self):
         item_id = _insert_item(_task_id())
         for interaction_type in ("view", "click"):

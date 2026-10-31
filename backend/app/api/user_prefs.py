@@ -103,6 +103,11 @@ def get_recommended_topics(
 @router.post("/interactions", response_model=InteractionResponse)
 def record_interaction(body: InteractionRecord, _: str = Depends(require_auth)):
     """记录用户交互行为（view/click/dwell/star/share）"""
+    if not item_repo.get(body.item_id):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "ITEM_NOT_FOUND", "message": f"Item {body.item_id} not found"},
+        )
     return recommendation_service.record_interaction(
         item_id=body.item_id,
         interaction_type=body.interaction_type,
