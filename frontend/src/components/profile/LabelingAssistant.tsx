@@ -16,6 +16,7 @@ import type { LabelSampleItem } from '../../types'
 import { userPrefsApi } from '../../api/user_prefs'
 import { queryKeys } from '../../api/queryKeys'
 import { errorMessage } from '../../api/client'
+import { isSafeExternalUrl } from '../../utils/url'
 import { ClampText } from '../ui/ClampText'
 
 function LabelRow({
@@ -31,14 +32,19 @@ function LabelRow({
     <div className="flex items-start gap-3 py-3">
       <div className="flex-1 min-w-0">
         <div className="text-xs text-gray-400 mb-0.5">{item.task_name ?? '未知来源'}</div>
-        <a
-          href={item.url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-sm font-medium text-gray-800 hover:text-primary-600 transition-colors"
-        >
-          {item.title}
-        </a>
+        {/* 爬取来源的 URL 不受信：非 http(s) 协议降级为纯文本，防 javascript: 注入 */}
+        {isSafeExternalUrl(item.url) ? (
+          <a
+            href={item.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-sm font-medium text-gray-800 hover:text-primary-600 transition-colors"
+          >
+            {item.title}
+          </a>
+        ) : (
+          <span className="text-sm font-medium text-gray-800">{item.title}</span>
+        )}
         <ClampText text={item.summary ?? undefined} className="text-xs text-gray-500 mt-0.5" />
       </div>
       <div className="flex items-center gap-1.5 shrink-0">
