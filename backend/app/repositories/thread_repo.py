@@ -13,6 +13,18 @@ from app.core.database import get_db
 
 logger = logging.getLogger(__name__)
 
+# 派生聚合（热度趋势/关联摘要）按 thread_id 构造 IN 列表。SQLite 的
+# 变量数上限 32766，关联摘要每 id 占 2 个参数——热度和排序路径会对
+# 全量 Thread 聚合，超限即 500。分块到远低于上限的尺寸，把天花板
+# 变成线性斜坡
+_IN_CLAUSE_CHUNK = 500
+
+
+def _chunked(ids: list[Any], size: int | None = None):
+    size = size or _IN_CLAUSE_CHUNK
+    for i in range(0, len(ids), size):
+        yield ids[i:i + size]
+
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -260,24 +272,36 @@ class ThreadRepository:
             datetime.now(timezone.utc) - timedelta(hours=window_hours)
         ).strftime("%Y-%m-%dT%H:%M:%SZ")
 
-        sql = """
-            SELECT ti.thread_id, i.task_id,
-                   MAX(i.fetched_at) AS latest,
-                   MAX(CASE WHEN i.fetched_at <= ? THEN i.fetched_at END) AS latest_at_cutoff
-            FROM thread_items ti
-            JOIN items i ON i.id = ti.item_id
-        """
-        params: list[Any] = [cutoff]
-        if thread_ids is not None:
-            if not thread_ids:
-                return {}
-            placeholders = ",".join("?" for _ in thread_ids)
-            sql += f" WHERE ti.thread_id IN ({placeholders})"
-            params.extend(thread_ids)
-        sql += " GROUP BY ti.thread_id, i.task_id"
-
+        rows = []
         with get_db() as conn:
-            rows = conn.execute(sql, params).fetchall()
+            if thread_ids is None:
+                # 全量聚合：无 IN 列表，不受变量数上限约束
+                rows = conn.execute(
+                    """
+                    SELECT ti.thread_id, i.task_id,
+                           MAX(i.fetched_at) AS latest,
+                           MAX(CASE WHEN i.fetched_at <= ? THEN i.fetched_at END) AS latest_at_cutoff
+                    FROM thread_items ti
+                    JOIN items i ON i.id = ti.item_id
+                    GROUP BY ti.thread_id, i.task_id
+                    """,
+                    (cutoff,),
+                ).fetchall()
+            else:
+                if not thread_ids:
+                    return {}
+                for chunk in _chunked(list(thread_ids)):
+                    placeholders = ",".join("?" for _ in chunk)
+                    sql = f"""
+                        SELECT ti.thread_id, i.task_id,
+                               MAX(i.fetched_at) AS latest,
+                               MAX(CASE WHEN i.fetched_at <= ? THEN i.fetched_at END) AS latest_at_cutoff
+                        FROM thread_items ti
+                        JOIN items i ON i.id = ti.item_id
+                        WHERE ti.thread_id IN ({placeholders})
+                        GROUP BY ti.thread_id, i.task_id
+                    """
+                    rows.extend(conn.execute(sql, [cutoff, *chunk]).fetchall())
         return momentum_map_from_rows(
             [
                 (r["thread_id"], r["task_id"], r["latest"], r["latest_at_cutoff"])
@@ -503,20 +527,29 @@ class ThreadRepository:
         if not thread_ids:
             return {}
         id_set = set(thread_ids)
-        placeholders = ",".join("?" for _ in thread_ids)
+        rows = []
         with get_db() as conn:
-            rows = conn.execute(
-                f"""
-                SELECT thread_a, thread_b, similarity
-                FROM thread_relations
-                WHERE thread_a IN ({placeholders}) OR thread_b IN ({placeholders})
-                """,
-                thread_ids + thread_ids,
-            ).fetchall()
+            for chunk in _chunked(list(thread_ids)):
+                placeholders = ",".join("?" for _ in chunk)
+                rows.extend(conn.execute(
+                    f"""
+                    SELECT thread_a, thread_b, similarity
+                    FROM thread_relations
+                    WHERE thread_a IN ({placeholders}) OR thread_b IN ({placeholders})
+                    """,
+                    chunk + chunk,
+                ).fetchall())
 
             counts: dict[str, int] = {}
             top_pair: dict[str, tuple[float, str]] = {}
+            # 两端都在请求集内但分属不同块时，同一行会被两个块各取一次，
+            # 按主键对去重（thread_a, thread_b 即 PK）
+            seen_pairs: set[tuple[str, str]] = set()
             for row in rows:
+                pair_key = (row["thread_a"], row["thread_b"])
+                if pair_key in seen_pairs:
+                    continue
+                seen_pairs.add(pair_key)
                 a, b, sim = row["thread_a"], row["thread_b"], row["similarity"]
                 for side, other in ((a, b), (b, a)):
                     if side not in id_set:

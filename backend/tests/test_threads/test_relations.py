@@ -388,3 +388,26 @@ class TestRelationsSummary:
 
     def test_empty_ids(self):
         assert thread_repo.get_relations_summary([]) == {}
+
+    def test_chunked_aggregation_matches_single_query(self, monkeypatch):
+        """IN 列表分块（远低于 SQLite 变量上限的防御）结果与单查询一致"""
+        task_id = _make_task()
+        id_a, id_b, id_c = _make_items(task_id, 3)
+        ta = thread_repo.create("Thread A", id_a, "hn")
+        tb = thread_repo.create("Thread B", id_b, "v2ex")
+        tc = thread_repo.create("Thread C", id_c, "jd")
+        thread_repo.record_relation(ta, tb, 0.35)
+        thread_repo.record_relation(ta, tc, 0.41)
+
+        baseline = thread_repo.get_relations_summary([ta, tb, tc])
+
+        import app.repositories.thread_repo as repo_module
+        monkeypatch.setattr(repo_module, "_IN_CLAUSE_CHUNK", 1)
+
+        chunked = thread_repo.get_relations_summary([ta, tb, tc])
+        assert chunked == baseline
+        assert chunked[ta] == {"count": 2, "top": {"id": tc, "title": "Thread C"}}
+
+        momentum_baseline = thread_repo.get_momentum_aggregates([ta, tb, tc])
+        monkeypatch.setattr(repo_module, "_IN_CLAUSE_CHUNK", 2)
+        assert thread_repo.get_momentum_aggregates([ta, tb, tc]) == momentum_baseline
