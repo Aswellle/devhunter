@@ -413,6 +413,28 @@ class ThreadRepository:
 
     # ── 同一故事线关联 ─────────────────────────────────────────
 
+    def is_pair_rejected(self, thread_a: str, thread_b: str) -> bool:
+        """
+        该 Thread 对是否被用户明确拒绝过关联（unlink 记录为 reject_merge）。
+
+        注：重建会重新生成全部 Thread id，跨重建的拒绝记录无法按 id 对上——
+        与重建"整体重置"的语义一致；本守卫覆盖的是同一批 Thread 存续期内
+        的重复自动关联（同一对 Thread 随新条目涌入会反复触发 near-miss）。
+        """
+        x, y = sorted((thread_a, thread_b))
+        with get_db() as conn:
+            row = conn.execute(
+                """
+                SELECT 1 FROM thread_overrides
+                WHERE override_type = 'reject_merge'
+                  AND ((thread_id = ? AND target_thread_id = ?)
+                    OR (thread_id = ? AND target_thread_id = ?))
+                LIMIT 1
+                """,
+                (x, y, y, x),
+            ).fetchone()
+        return row is not None
+
     def record_relation(
         self,
         thread_a: str,
@@ -425,11 +447,16 @@ class ThreadRepository:
 
         对按字典序规范存储（CHECK 约束）；同对重复记录保留首次。
         自关联/任一 Thread 不存在时静默跳过（外键约束）。
+        用户明确拆除过的对（reject_merge）不再自动重建——只拦截
+        模型推断的 auto 关联；split 关联是结构性事实，不受影响。
 
         Returns:
             是否实际写入
         """
         if thread_a == thread_b:
+            return False
+        if source == "auto" and self.is_pair_rejected(thread_a, thread_b):
+            logger.debug("Relation skipped (user rejected): %s / %s", thread_a, thread_b)
             return False
         a, b = sorted((thread_a, thread_b))
         try:

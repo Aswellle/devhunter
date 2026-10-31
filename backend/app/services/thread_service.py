@@ -177,8 +177,22 @@ class ThreadService:
         }
 
     def unlink_related_thread(self, thread_id: str, related_thread_id: str) -> bool:
-        """解除一条"同一故事线"关联（用户拆除误关联）。Returns: 关联是否存在"""
-        return thread_repo.delete_relation(thread_id, related_thread_id)
+        """
+        解除一条"同一故事线"关联（用户拆除误关联）。
+
+        拆除动作记录为 reject_merge 仲裁：同一对 Thread 存续期内
+        不会再被自动关联（record_relation 消费该记录）。
+        Returns: 关联是否存在
+        """
+        deleted = thread_repo.delete_relation(thread_id, related_thread_id)
+        if deleted:
+            thread_repo.record_override(
+                thread_id,
+                "reject_merge",
+                target_thread_id=related_thread_id,
+                reason="unlink_relation",
+            )
+        return deleted
 
     def generate_thread_digest(self, thread_id: str, force: bool = False) -> dict:
         """

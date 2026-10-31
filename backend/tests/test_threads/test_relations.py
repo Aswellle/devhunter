@@ -310,6 +310,53 @@ class TestRecomputeClearsRelations:
         assert _relation_rows() == []
 
 
+class TestRejectedPairs:
+    """用户拆除的关联不再被自动重建（unlink → reject_merge 仲裁）"""
+
+    def test_unlink_records_rejection_and_blocks_auto_relation(self):
+        task_id = _make_task()
+        id_a, id_b = _make_items(task_id, 2)
+        ta = thread_repo.create("Thread A", id_a, "hn")
+        tb = thread_repo.create("Thread B", id_b, "v2ex")
+        thread_repo.record_relation(ta, tb, 0.4)
+
+        assert thread_service.unlink_related_thread(ta, tb) is True
+
+        # 方向无关：同一对 Thread 的自动关联被拦下
+        assert thread_repo.record_relation(ta, tb, 0.9) is False
+        assert thread_repo.record_relation(tb, ta, 0.9) is False
+        assert thread_repo.get_related_threads(ta) == []
+        # 仲裁记录可查
+        assert thread_repo.is_pair_rejected(ta, tb) is True
+
+    def test_split_source_relation_bypasses_rejection(self):
+        """split 关联是结构性事实，不受 reject_merge 拦截"""
+        task_id = _make_task()
+        id_a, id_b = _make_items(task_id, 2)
+        ta = thread_repo.create("Thread A", id_a, "hn")
+        tb = thread_repo.create("Thread B", id_b, "v2ex")
+        thread_repo.record_override(ta, "reject_merge", target_thread_id=tb, reason="unlink_relation")
+
+        assert thread_repo.record_relation(ta, tb, 0.5, source="split") is True
+
+    def test_service_unlink_writes_override_row(self):
+        task_id = _make_task()
+        id_a, id_b = _make_items(task_id, 2)
+        ta = thread_repo.create("Thread A", id_a, "hn")
+        tb = thread_repo.create("Thread B", id_b, "v2ex")
+        thread_repo.record_relation(ta, tb, 0.4)
+
+        thread_service.unlink_related_thread(tb, ta)
+
+        overrides = thread_repo.get_overrides_for_thread(tb)
+        assert any(
+            o["override_type"] == "reject_merge"
+            and o["reason"] == "unlink_relation"
+            and {o["thread_id"], o["target_thread_id"]} == {ta, tb}
+            for o in overrides
+        )
+
+
 class TestRelationsSummary:
     """列表批量关联摘要"""
 
