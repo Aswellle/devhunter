@@ -1,0 +1,115 @@
+# CI 门禁：每一次推送与每一个 PR 都在 GitHub 上跑全量验证。
+#
+# 三道并行检查 + 一个汇总门禁：
+#   backend-tests     pytest 全量单测/集成/API 测试（417+，含覆盖率报告）
+#   backend-e2e       独立 E2E 冒烟（TestClient 全流程：Auth/Task/Items/Executions/错误处理）
+#   frontend-quality  ESLint + TypeScript 编译 + Vite 生产构建
+#   gate              汇总：以上任一失败则本推送不合格（可设为分支保护必过项）
+name: CI
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  backend-tests:
+    name: 后端全量测试
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: 安装依赖
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          # 测试栈在 pyproject 的 dev extras 里，requirements.txt 不含
+          pip install "pytest>=8.1" "pytest-asyncio>=0.23" "pytest-cov>=5.0"
+
+      - name: pytest 全量测试
+        run: python -m pytest --cov=app --cov-report=term-missing
+
+  backend-e2e:
+    name: 后端 E2E 冒烟
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: 安装依赖
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      # 自包含脚本：自带临时 DB 与测试环境变量，失败时 exit 1
+      - name: E2E 全流程
+        run: python e2e_test.py
+
+  frontend-quality:
+    name: 前端质量检查
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: 安装依赖
+        run: npm ci
+
+      - name: ESLint
+        run: npm run lint
+
+      # tsc -b && vite build：类型错误与构建失败都会在这里挡下
+      - name: 生产构建
+        run: npm run build
+
+  gate:
+    name: CI 门禁
+    needs: [backend-tests, backend-e2e, frontend-quality]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: 汇总判定
+        run: |
+          echo "backend-tests = ${{ needs.backend-tests.result }}"
+          echo "backend-e2e   = ${{ needs.backend-e2e.result }}"
+          echo "frontend      = ${{ needs.frontend-quality.result }}"
+          if [ "${{ needs.backend-tests.result }}" != "success" ] \
+             || [ "${{ needs.backend-e2e.result }}" != "success" ] \
+             || [ "${{ needs.frontend-quality.result }}" != "success" ]; then
+            echo "::error::CI 门禁未通过"
+            exit 1
+          fi
+          echo "全部检查通过"
