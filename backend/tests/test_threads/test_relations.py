@@ -245,6 +245,19 @@ class TestNearMissClustering:
         assert result.action == "create"
         assert result.related_thread_id is None
 
+    def test_near_miss_band_scales_with_threshold(self):
+        """区间随合并阈值等比缩放：低阈值调用方的 near-miss 不会静默失效"""
+        item = {"title": "related storyline title", "source_id": "hn"}
+        # threshold=0.25 → 区间 [0.1675, 0.25)：0.20 是 near-miss
+        with patch.object(clustering_module, "thread_scorer", self._StubScorer(0.20)):
+            result = thread_clusterer.cluster(item, self._candidates(), threshold=0.25)
+        assert result.related_thread_id == "thread_1"
+
+        # threshold=0.60 → 区间 [0.402, 0.60)：0.38 低于下限，普通创建
+        with patch.object(clustering_module, "thread_scorer", self._StubScorer(0.38)):
+            result = thread_clusterer.cluster(item, self._candidates(), threshold=0.60)
+        assert result.related_thread_id is None
+
 
 class TestNearMissServiceIntegration:
     """服务层接线：near-miss 创建新 Thread 并落一条关联"""

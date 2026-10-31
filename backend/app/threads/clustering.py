@@ -19,10 +19,12 @@ logger = logging.getLogger(__name__)
 ALGORITHM_VERSION = "v2"
 DEFAULT_THRESHOLD = 0.45
 
-# 同一故事线阈值：评分落在 [STORYLINE_THRESHOLD, threshold) 的候选
-# 是"相似但未达合并标准"——同一故事线的不同子事件。照常创建新 Thread，
-# 同时把与最佳候选的关联记录到 thread_relations，作为展示层分层。
-STORYLINE_THRESHOLD = 0.30
+# 同一故事线区间占合并阈值的比例：评分落在 [RATIO*threshold, threshold)
+# 的候选是"相似但未达合并标准"——同一故事线的不同子事件。照常创建
+# 新 Thread，同时把与最佳候选的关联记录到 thread_relations，作为展示层
+# 分层。取比例而非独立常数，保证任何 threshold 下 near-miss 区间都非空
+# （独立常数在 threshold 更低的调用方会静默失效）；默认 0.67*0.45 ≈ 0.30
+STORYLINE_RATIO = 0.67
 
 # T1: 候选召回最大数量（精确评分前的预过滤）
 MAX_CANDIDATES_FOR_SCORING = 20
@@ -110,10 +112,8 @@ class ThreadClusterer:
 
         # 同一故事线 near-miss：未达合并阈值但评分明显高于噪声，
         # 照常创建新 Thread，由调用方记录与最佳候选的关联
-        if (
-            best_score and best_thread
-            and best_score.total_score >= STORYLINE_THRESHOLD
-        ):
+        storyline_floor = threshold * STORYLINE_RATIO
+        if best_score and best_thread and best_score.total_score >= storyline_floor:
             return ThreadClusteringResult(
                 action="create",
                 score=best_score,
