@@ -69,6 +69,14 @@ def llms_txt() -> Response:
     )
 
 
+@router.get("/health")
+def api_health() -> dict:
+    """/api/health：健康检查（无需认证）。必须在 include_router 之前注册的
+    路由才不会被 MCP 挂载点拦截——本文件的路由经 api_router 注册，
+    先于 main.py 的 app.mount("/api", mcp) 匹配。"""
+    return {"status": "ok"}
+
+
 # ── RSS 出口 ─────────────────────────────────────────────
 # 注意：/rss/feeds 必须注册在 /rss/{task_id} 之前，否则 "feeds" 会被路径参数吞掉
 

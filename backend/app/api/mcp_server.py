@@ -168,6 +168,10 @@ class MachineTokenMiddleware:
     MCP 子应用的认证包装：?token= 或 Authorization: Bearer 必须匹配机器令牌。
 
     MCP 客户端无法走 httpOnly cookie；令牌与 RSS 出口共用（GET /api/rss/feeds 获取）。
+
+    挂载点在 "/api"（而非 "/api/mcp"），因此所有未被常规路由命中的 /api 请求
+    （拼错路径、错误方法）都会落到这里。这类请求与 MCP 无关，返回中性的
+    404 而非"去拿机器令牌"的 401——后者会把人引向完全无关的排查方向。
     """
 
     def __init__(self, app: Callable) -> None:
@@ -175,6 +179,23 @@ class MachineTokenMiddleware:
 
     async def __call__(self, scope: dict, receive: Callable, send: Callable) -> None:
         if scope["type"] == "http":
+            # Starlette 版本差异：Mount 剥离前缀后 path 可能是 "/mcp"（已剥）
+            # 也可能保留完整 "/api/mcp"。两种形态都归一到剥离后的路径再判断
+            inner_path = scope.get("path", "")
+            if inner_path.startswith("/api/"):
+                inner_path = inner_path[len("/api"):]
+            if not inner_path.startswith("/mcp"):
+                response = JSONResponse(
+                    status_code=404,
+                    content={
+                        "error": {
+                            "code": "NOT_FOUND",
+                            "message": "Unknown API endpoint",
+                        }
+                    },
+                )
+                await response(scope, receive, send)
+                return
             params = dict(parse_qsl(scope.get("query_string", b"").decode("utf-8")))
             auth_header = ""
             for key, value in scope.get("headers", []):

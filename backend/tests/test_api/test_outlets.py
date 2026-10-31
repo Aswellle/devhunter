@@ -164,3 +164,27 @@ class TestFeedsEndpoint:
         feed = next(f for f in data["feeds"] if f["task_id"] == task_id)
         assert f"/api/rss/{task_id}?token=" in feed["url"]
         assert feed["task_name"]
+
+
+class TestApiHealth:
+    """GET /api/health：文档承诺的公开健康检查端点"""
+
+    def test_public_no_auth_required(self):
+        """/api/health 无需认证——曾被 MCP 挂载点拦截成 401"""
+        response = client.get("/api/health")
+        assert response.status_code == 200
+        assert response.json()["status"] == "ok"
+
+    def test_unmatched_api_path_is_neutral_404(self):
+        """未被路由命中的 /api 路径返回 404，而非误导性的机器令牌 401"""
+        response = client.get("/api/definitely-not-a-route")
+        assert response.status_code == 404
+        assert response.json()["error"]["code"] == "NOT_FOUND"
+
+    def test_mcp_still_requires_machine_token(self):
+        """/api/mcp 本体仍受机器令牌保护"""
+        response = client.post(
+            "/api/mcp",
+            json={"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
+        )
+        assert response.status_code == 401
