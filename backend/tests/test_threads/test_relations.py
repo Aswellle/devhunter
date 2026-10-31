@@ -176,6 +176,26 @@ class TestSplitRecordsRelation:
         assert rel[0]["source"] == "split"
         assert rel[0]["similarity"] == 0.42, "关联强度 = 拆出条目对源 Thread 的平均相似度"
 
+    def test_split_syncs_items_thread_id(self):
+        """items.thread_id 是 thread 成员关系的外键镜像，拆分必须跟随"""
+        task_id = _make_task()
+        id_a, id_b = _make_items(task_id, 2)
+        ta = thread_repo.create("Thread A", id_a, "hn")
+        thread_repo.add_item(ta, id_b, similarity=0.4, title="t2", platform="v2ex")
+
+        new_thread = thread_splitter.split(ta, [id_b])
+        assert new_thread is not None
+
+        with get_db() as conn:
+            moved = conn.execute(
+                "SELECT thread_id FROM items WHERE id = ?", (id_b,)
+            ).fetchone()["thread_id"]
+            stayed = conn.execute(
+                "SELECT thread_id FROM items WHERE id = ?", (id_a,)
+            ).fetchone()["thread_id"]
+        assert moved == new_thread["id"], "拆出条目指向新 Thread"
+        assert stayed == ta, "留存条目仍指向源 Thread"
+
 
 class TestNearMissClustering:
     """聚类 near-miss：阈值之下的明显相关候选带出关联信号"""

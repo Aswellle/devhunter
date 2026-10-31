@@ -93,6 +93,14 @@ class ThreadSplitter:
                     (new_thread_id, item_id)
                 )
 
+            # 3.5 同步 items.thread_id 到新 Thread——该列是 thread 成员关系
+            # 的外键镜像（merge 已修复同类问题）；不同步的话，后续对
+            # 新 Thread 的 merge 会把旧 Thread 的条目错误重指
+            conn.execute(
+                f"UPDATE items SET thread_id = ? WHERE id IN ({ph})",
+                (new_thread_id, *item_ids)
+            )
+
             # 4. 更新源 Thread 统计
             self._rebuild_thread_stats(conn, thread_id)
 
