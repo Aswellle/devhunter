@@ -41,6 +41,8 @@ def _friendly_http_error(status_code: int, body_text: str) -> str:
     """HTTP 状态码 → 用户可读的中文提示（配置页诊断用）"""
     if status_code in (401, 403):
         return "密钥无效或无权限，请检查 API Key"
+    if status_code == 402:
+        return "账户余额或套餐额度不足，请到供应商开放平台充值或升级套餐"
     if status_code == 404:
         return "接口路径不存在，请确认接口地址与协议是否匹配"
     if status_code == 429:
