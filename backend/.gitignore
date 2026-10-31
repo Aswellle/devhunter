@@ -27,7 +27,6 @@ data/
 .pytest_cache/
 .coverage
 htmlcov/
-e2e_test.py
 
 # IDE
 .idea/
