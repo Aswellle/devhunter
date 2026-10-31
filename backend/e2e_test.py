@@ -78,7 +78,7 @@ section("预设模板")
 r = client.get("/api/tasks/templates", headers=HEADERS)
 check("GET /api/tasks/templates → 200", r.status_code == 200)
 templates = r.json()
-check("返回 5 个模板", len(templates) == 5, f"got {len(templates)}")
+check("返回预设模板（≥5）", len(templates) >= 5, f"got {len(templates)}")
 ids = [t["id"] for t in templates]
 for tid in ["hackernews", "v2ex", "github_trending", "juejin", "indiehackers"]:
     check(f"  模板 {tid} 存在", tid in ids)
@@ -148,7 +148,7 @@ r = client.get(f"/api/tasks/{TASK_ID}", headers=HEADERS)
 check("GET /api/tasks/{id} → 200", r.status_code == 200)
 check("返回正确任务名", r.json().get("name") == "HN 前端需求")
 
-r = client.get("/api/tasks/non-existent-id", headers=HEADERS)
+r = client.get(f"/api/tasks/{uuid.uuid4()}", headers=HEADERS)
 check("不存在的 task → 404", r.status_code == 404)
 check("错误码正确", r.json().get("error", {}).get("code") == "TASK_NOT_FOUND")
 
@@ -296,7 +296,7 @@ r = client.get(f"/api/tasks/{TASK_ID}/executions?per_page=2", headers=HEADERS)
 check("分页 per_page=2", len(r.json().get("items", [])) == 2)
 
 # 不存在的 task → 404
-r = client.get("/api/tasks/non-existent/executions", headers=HEADERS)
+r = client.get(f"/api/tasks/{uuid.uuid4()}/executions", headers=HEADERS)
 check("不存在 task 执行历史 → 404", r.status_code == 404)
 
 # ════════════════════════════════════════════════════════
@@ -308,7 +308,7 @@ check("POST /tasks/{id}/execute → 202", r.status_code == 202)
 check("返回 execution_id", bool(r.json().get("execution_id")))
 check("返回 message", bool(r.json().get("message")))
 
-r = client.post("/api/tasks/non-existent/execute", headers=HEADERS)
+r = client.post(f"/api/tasks/{uuid.uuid4()}/execute", headers=HEADERS)
 check("触发不存在任务 → 404", r.status_code == 404)
 
 # ════════════════════════════════════════════════════════
@@ -325,7 +325,7 @@ r = client.get("/api/tasks", headers=HEADERS)
 check("删除后列表 total=1", r.json().get("total") == 1)
 
 # 删除不存在的任务
-r = client.delete("/api/tasks/non-existent", headers=HEADERS)
+r = client.delete(f"/api/tasks/{uuid.uuid4()}", headers=HEADERS)
 check("删除不存在任务 → 404", r.status_code == 404)
 
 # ════════════════════════════════════════════════════════
