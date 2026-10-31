@@ -1,6 +1,5 @@
 import client from './client'
 import type { PaginatedResponse, Thread, ThreadWithItems, ThreadRecomputeResult, ThreadDigestResult } from '../types'
-
 export interface ThreadsQuery {
   task_id?: string
   page?: number
@@ -26,4 +25,8 @@ export const threadsApi = {
     client
       .post<ThreadDigestResult>(`/items/threads/${threadId}/digest`, { force })
       .then((r) => r.data),
+
+  /** 解除一条"同一故事线"关联（拆除误关联） */
+  unlinkRelation: (threadId: string, relatedThreadId: string) =>
+    client.delete(`/items/threads/${threadId}/relations/${relatedThreadId}`),
 }

@@ -19,6 +19,11 @@ logger = logging.getLogger(__name__)
 ALGORITHM_VERSION = "v2"
 DEFAULT_THRESHOLD = 0.45
 
+# 同一故事线阈值：评分落在 [STORYLINE_THRESHOLD, threshold) 的候选
+# 是"相似但未达合并标准"——同一故事线的不同子事件。照常创建新 Thread，
+# 同时把与最佳候选的关联记录到 thread_relations，作为展示层分层。
+STORYLINE_THRESHOLD = 0.30
+
 # T1: 候选召回最大数量（精确评分前的预过滤）
 MAX_CANDIDATES_FOR_SCORING = 20
 
@@ -31,11 +36,14 @@ class ThreadClusteringResult:
         thread_id: str | None = None,
         score: ThreadScore | None = None,
         match_reason: str = "",
+        related_thread_id: str | None = None,
     ):
         self.action = action
         self.thread_id = thread_id
         self.score = score
         self.match_reason = match_reason
+        # action=create 且该字段非空时，表示与该 Thread 同属一条故事线
+        self.related_thread_id = related_thread_id
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -43,6 +51,7 @@ class ThreadClusteringResult:
             "thread_id": self.thread_id,
             "score": self.score.to_dict() if self.score else None,
             "match_reason": self.match_reason,
+            "related_thread_id": self.related_thread_id,
         }
 
 
@@ -97,6 +106,19 @@ class ThreadClusterer:
                 thread_id=best_thread.get("id"),
                 score=best_score,
                 match_reason=f"score={best_score.total_score:.2f},confidence={best_score.confidence}",
+            )
+
+        # 同一故事线 near-miss：未达合并阈值但评分明显高于噪声，
+        # 照常创建新 Thread，由调用方记录与最佳候选的关联
+        if (
+            best_score and best_thread
+            and best_score.total_score >= STORYLINE_THRESHOLD
+        ):
+            return ThreadClusteringResult(
+                action="create",
+                score=best_score,
+                match_reason=f"storyline_near_miss,score={best_score.total_score:.2f}",
+                related_thread_id=best_thread.get("id"),
             )
 
         return ThreadClusteringResult(action="create")

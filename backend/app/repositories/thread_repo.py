@@ -161,6 +161,7 @@ class ThreadRepository:
 
         # 默认路径：只为当前页计算热度/趋势并附加（避免全表聚合）
         self._attach_momentum(threads)
+        self._attach_relations(threads)
         return threads, total
 
     def _list_all_by_hotness(
@@ -201,6 +202,7 @@ class ThreadRepository:
 
         threads = [_row_to_dict(r) for r in rows]
         self._attach_momentum(threads)
+        self._attach_relations(threads)
         # 热度降序；并列时最近活动的 Thread 在前
         threads.sort(key=lambda t: (t["hotness"], t["last_seen_at"]), reverse=True)
         total = len(threads)
@@ -215,6 +217,14 @@ class ThreadRepository:
             t["hotness"] = m["hotness"]
             t["hotness_previous"] = m["previous"]
             t["hotness_delta"] = m["delta"]
+
+    def _attach_relations(self, threads: list[dict[str, Any]]) -> None:
+        """为 Thread 行附加 related_count / related_top（同一故事线关联摘要）"""
+        summary = self.get_relations_summary([t["id"] for t in threads])
+        for t in threads:
+            s = summary.get(t["id"], {"count": 0, "top": None})
+            t["related_count"] = s["count"]
+            t["related_top"] = s["top"]
 
     def get_hotness_aggregates(self, thread_ids: list[str] | None = None) -> dict[str, float]:
         """
@@ -401,6 +411,119 @@ class ThreadRepository:
                 (digest, _now_iso(), thread_id),
             )
 
+    # ── 同一故事线关联 ─────────────────────────────────────────
+
+    def record_relation(
+        self,
+        thread_a: str,
+        thread_b: str,
+        similarity: float,
+        source: str = "auto",
+    ) -> bool:
+        """
+        记录两个 Thread 的"同一故事线"关联（幂等）。
+
+        对按字典序规范存储（CHECK 约束）；同对重复记录保留首次。
+        自关联/任一 Thread 不存在时静默跳过（外键约束）。
+
+        Returns:
+            是否实际写入
+        """
+        if thread_a == thread_b:
+            return False
+        a, b = sorted((thread_a, thread_b))
+        try:
+            with get_db() as conn:
+                cursor = conn.execute(
+                    """
+                    INSERT OR IGNORE INTO thread_relations (thread_a, thread_b, similarity, source)
+                    VALUES (?, ?, ?, ?)
+                    """,
+                    (a, b, similarity, source),
+                )
+            return cursor.rowcount > 0
+        except sqlite3.IntegrityError:
+            # 引用的 Thread 已被并发删除——关联本身已无意义
+            logger.debug("Relation skipped (thread missing): %s / %s", thread_a, thread_b)
+            return False
+
+    def get_related_threads(self, thread_id: str) -> list[dict[str, Any]]:
+        """获取某 Thread 的全部关联 Thread（按相似度降序），带对方 Thread 元数据"""
+        with get_db() as conn:
+            rows = conn.execute(
+                """
+                SELECT th.id, th.title, th.first_seen_at, th.last_seen_at,
+                       th.item_count, th.platforms,
+                       r.similarity, r.source
+                FROM thread_relations r
+                JOIN threads th
+                  ON th.id = CASE WHEN r.thread_a = ? THEN r.thread_b ELSE r.thread_a END
+                WHERE r.thread_a = ? OR r.thread_b = ?
+                ORDER BY r.similarity DESC
+                """,
+                (thread_id, thread_id, thread_id),
+            ).fetchall()
+        return [_row_to_dict(r) for r in rows]
+
+    def get_relations_summary(self, thread_ids: list[str]) -> dict[str, dict[str, Any]]:
+        """
+        批量关联摘要：{thread_id: {"count": n, "top": {id,title}|None}}。
+
+        列表页"同故事线"标记用；top 取相似度最高的关联方。
+        """
+        if not thread_ids:
+            return {}
+        id_set = set(thread_ids)
+        placeholders = ",".join("?" for _ in thread_ids)
+        with get_db() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT thread_a, thread_b, similarity
+                FROM thread_relations
+                WHERE thread_a IN ({placeholders}) OR thread_b IN ({placeholders})
+                """,
+                thread_ids + thread_ids,
+            ).fetchall()
+
+            counts: dict[str, int] = {}
+            top_pair: dict[str, tuple[float, str]] = {}
+            for row in rows:
+                a, b, sim = row["thread_a"], row["thread_b"], row["similarity"]
+                for side, other in ((a, b), (b, a)):
+                    if side not in id_set:
+                        continue
+                    counts[side] = counts.get(side, 0) + 1
+                    if side not in top_pair or sim > top_pair[side][0]:
+                        top_pair[side] = (sim, other)
+
+            top_meta: dict[str, dict[str, Any]] = {}
+            top_ids = {other for _, other in top_pair.values()}
+            if top_ids:
+                ph = ",".join("?" for _ in top_ids)
+                for r in conn.execute(
+                    f"SELECT id, title FROM threads WHERE id IN ({ph})",
+                    list(top_ids),
+                ).fetchall():
+                    top_meta[r["id"]] = {"id": r["id"], "title": r["title"]}
+
+        return {
+            tid: {
+                "count": counts.get(tid, 0),
+                "top": top_meta.get(top_pair[tid][1]) if tid in top_pair else None,
+            }
+            for tid in thread_ids
+        }
+
+    def delete_relation(self, thread_a: str, thread_b: str) -> bool:
+        """删除一条关联（用户拆除错误关联）。Returns: 是否确有删除"""
+        a, b = sorted((thread_a, thread_b))
+        with get_db() as conn:
+            cursor = conn.execute(
+                "DELETE FROM thread_relations WHERE thread_a = ? AND thread_b = ?",
+                (a, b),
+            )
+        return cursor.rowcount > 0
+
     def delete_all(self) -> None:
         """
         清空全部 Thread 数据（仅用于重建）：
@@ -413,6 +536,9 @@ class ThreadRepository:
             # 再删 thread_items / threads，否则 FOREIGN KEY constraint failed
             conn.execute("UPDATE items SET thread_id = NULL")
             conn.execute("DELETE FROM thread_items")
+            # 关联会随 threads 删除级联清空，但重建重放会重新生成，
+            # 先显式清掉避免依赖级联顺序
+            conn.execute("DELETE FROM thread_relations")
             conn.execute("DELETE FROM threads")
 
     def delete_item_from_thread(self, item_id: str) -> None:

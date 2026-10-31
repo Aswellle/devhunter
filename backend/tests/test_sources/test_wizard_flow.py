@@ -9,6 +9,7 @@ create/clone 端点把 Pydantic 模型当 dict 用（body.get）直接 500。
 """
 import httpx
 import pytest
+import socket
 from fastapi.testclient import TestClient
 
 from app.crawler import engine as engine_module
@@ -57,6 +58,16 @@ def fake_http(monkeypatch):
     fake = httpx.Client(transport=httpx.MockTransport(handler))
     monkeypatch.setattr(engine_module, "get_http_client", lambda: fake)
     monkeypatch.setattr("app.sources.discovery.get_http_client", lambda: fake)
+    # DNS 一并 stub：本文件所有 HTTP 都是 mock，真实解析本不该发生。
+    # 依赖真实 DNS 的"域名无法解析"用例在代理 fake-IP 环境（任意域名
+    # 都被解析成 198.18.0.0/15 假地址）下会静默失效
+    def _stub_dns(host, *args, **kwargs):
+        host = str(host).lower().rstrip(".")
+        if host == "example.com" or host.endswith(".example.com"):
+            return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 0))]
+        raise socket.gaierror(11001, "Host not found (test stub)")
+
+    monkeypatch.setattr(socket, "getaddrinfo", _stub_dns)
     yield fake
     fake.close()
 

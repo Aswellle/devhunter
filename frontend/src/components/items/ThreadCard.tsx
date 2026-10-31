@@ -1,10 +1,10 @@
 import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'react-hot-toast'
-import { ChevronDown, ChevronRight, ExternalLink, Flame, Gauge, Globe, RefreshCw, Rss, Sparkles, Star, TrendingDown, TrendingUp } from 'lucide-react'
+import { ChevronDown, ChevronRight, ExternalLink, Flame, Gauge, GitBranch, Globe, Link2, RefreshCw, Rss, Sparkles, Star, TrendingDown, TrendingUp, X } from 'lucide-react'
 import { clsx } from 'clsx'
 import { useQuery } from '@tanstack/react-query'
-import type { Thread, ThreadStats } from '../../types'
+import type { Thread, ThreadRelation, ThreadStats } from '../../types'
 import { formatDistanceToNow } from '../../utils/time'
 import { queryKeys } from '../../api/queryKeys'
 import { threadsApi } from '../../api/threads'
@@ -139,6 +139,57 @@ function ThreadStatsBand({ stats }: { stats: ThreadStats }) {
   )
 }
 
+/**
+ * 同一故事线关联层：相似但未被聚合为同一事件的 Thread。
+ * 关联只是展示层分层——事件归属不变；误关联可拆除。
+ */
+function RelatedThreadsBand({ threadId, relations }: { threadId: string; relations: ThreadRelation[] }) {
+  const qc = useQueryClient()
+  const unlinkMutation = useMutation({
+    mutationFn: (relatedId: string) => threadsApi.unlinkRelation(threadId, relatedId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.threads.all })
+      toast.success('已解除关联')
+    },
+    onError: (e: unknown) => toast.error(errorMessage(e, '解除关联失败')),
+  })
+
+  return (
+    <div className="border-t border-gray-100 bg-sky-50/40 px-4 py-3">
+      <div className="flex items-center gap-1.5 text-xs font-medium text-sky-700 mb-1.5">
+        <GitBranch className="h-3.5 w-3.5" aria-hidden="true" />
+        同一故事线 · {relations.length} 个关联事件
+        <span className="font-normal text-gray-400">相似但未被聚合为同一事件</span>
+      </div>
+      <div className="space-y-1.5">
+        {relations.map((rel) => (
+          <div key={rel.id} className="flex items-center gap-2 text-xs">
+            <Link2 className="h-3 w-3 shrink-0 text-gray-400" aria-hidden="true" />
+            <span className="flex-1 min-w-0 truncate text-gray-700" title={rel.title}>
+              {rel.title}
+            </span>
+            <span
+              className="shrink-0 text-gray-400"
+              title={rel.source === 'split' ? '人工拆分出的关联' : '聚类时评分接近合并阈值但未达标的关联'}
+            >
+              {rel.item_count} 条 · 相似度 {Math.round(rel.similarity * 100)}%
+            </span>
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); unlinkMutation.mutate(rel.id) }}
+              disabled={unlinkMutation.isPending}
+              className="shrink-0 p-1 rounded text-gray-400 hover:text-red-500 hover:bg-white/70 transition-colors"
+              aria-label={`解除与「${rel.title}」的关联`}
+            >
+              <X className="h-3 w-3" aria-hidden="true" />
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 export function ThreadCard({ thread, defaultExpanded = false }: ThreadCardProps) {
   const [expanded, setExpanded] = useState(defaultExpanded)
   const qc = useQueryClient()
@@ -231,6 +282,15 @@ export function ThreadCard({ thread, defaultExpanded = false }: ThreadCardProps)
                 <MomentumBadge delta={thread.hotness_delta} previous={thread.hotness_previous} />
               </>
             )}
+            {(thread.related_count ?? 0) > 0 && (
+              <span
+                className="inline-flex items-center gap-0.5 text-sky-600"
+                title={`与「${thread.related_top?.title ?? '其他事件'}」等 ${thread.related_count} 个事件同属一条故事线（相似但未被聚合为同一事件）`}
+              >
+                <GitBranch className="h-3 w-3" aria-hidden="true" />
+                <span className="text-xs font-medium">{thread.related_count}</span>
+              </span>
+            )}
             <span>{thread.item_count} 条</span>
           </div>
           <div className="text-xs text-gray-400 mt-0.5">{timeSpanText}</div>
@@ -291,6 +351,9 @@ export function ThreadCard({ thread, defaultExpanded = false }: ThreadCardProps)
               </div>
             )}
             {details?.stats && <ThreadStatsBand stats={details.stats} />}
+            {details?.related_threads && details.related_threads.length > 0 && (
+              <RelatedThreadsBand threadId={thread.id} relations={details.related_threads} />
+            )}
             <div className="divide-y divide-gray-100">
               {items.map(item => (
                 <div key={item.id} className="flex items-start gap-0">

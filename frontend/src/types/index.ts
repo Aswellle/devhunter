@@ -171,6 +171,24 @@ export interface Thread {
   /** 热度趋势：24h 前时点的热度与差值（同为派生值，与 hotness 一起返回） */
   hotness_previous?: number
   hotness_delta?: number
+  /** 同一故事线：相似但未被聚合为同一事件的关联 Thread 数 */
+  related_count?: number
+  /** 关联中相似度最高的一条（标题用于悬停提示） */
+  related_top?: { id: string; title: string } | null
+}
+
+/** "同一故事线"关联层条目（Thread 详情返回） */
+export interface ThreadRelation {
+  id: string
+  title: string
+  first_seen_at: string
+  last_seen_at: string
+  item_count: number
+  platforms: string[]
+  /** 与当前 Thread 的关联强度（聚类评分 / 拆分条目的平均相似度） */
+  similarity: number
+  /** auto = 聚类 near-miss；split = 人工拆分 */
+  source: string
 }
 
 export interface ThreadWithItems extends Thread {
@@ -180,6 +198,8 @@ export interface ThreadWithItems extends Thread {
   /** AI 综述：LLM 生成的中文事件摘要（LLM 未配置/单条目时为空） */
   digest?: string | null
   digest_at?: string | null
+  /** 同一故事线关联层：相似但未被聚合为同一事件的 Thread */
+  related_threads?: ThreadRelation[]
 }
 
 /** Thread 聚合画像，由后端从 items 推导（app/threads/stats.py） */

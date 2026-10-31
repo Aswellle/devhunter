@@ -73,12 +73,26 @@ def list_threads(
 @router.get("/{thread_id}")
 def get_thread(thread_id: str, _: str = Depends(require_auth)):
     """
-    获取 Thread 详情，包含其所有 Items。
+    获取 Thread 详情，包含其所有 Items、聚合画像与"同一故事线"关联层。
     """
     thread = thread_service.get_thread(thread_id)
     if not thread:
         raise HTTPException(status_code=404, detail={"code": "NOT_FOUND", "message": "Thread not found"})
     return thread
+
+
+@router.delete("/{thread_id}/relations/{related_thread_id}", status_code=204)
+def unlink_related_thread(
+    thread_id: str,
+    related_thread_id: str,
+    _: str = Depends(require_auth),
+):
+    """解除一条"同一故事线"关联（拆除误关联）"""
+    if not thread_service.unlink_related_thread(thread_id, related_thread_id):
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "RELATION_NOT_FOUND", "message": "关联不存在"},
+        )
 
 
 class ThreadDigestRequest(BaseModel):

@@ -54,10 +54,11 @@ class ThreadSplitter:
             now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
             # 获取第一个 item 的信息
-            first_item = conn.execute(
+            first_row = conn.execute(
                 "SELECT * FROM items WHERE id = ?",
                 (item_ids[0],)
             ).fetchone()
+            first_item = dict(first_row) if first_row else None
 
             title = new_thread_title or (first_item["title"] if first_item else "Split Thread")
             platform = first_item.get("source_name", "") if first_item else ""
@@ -71,6 +72,15 @@ class ThreadSplitter:
             )
 
             # 3. 移动 items 到新 Thread
+            # 拆出条目对源 Thread 的平均匹配相似度 = 两条故事线的关联强度
+            ph = ",".join("?" for _ in item_ids)
+            avg_sim_row = conn.execute(
+                f"SELECT AVG(similarity) AS avg_sim FROM thread_items "
+                f"WHERE thread_id = ? AND item_id IN ({ph})",
+                (thread_id, *item_ids)
+            ).fetchone()
+            avg_similarity = avg_sim_row["avg_sim"] if avg_sim_row and avg_sim_row["avg_sim"] is not None else 0.5
+
             for item_id in item_ids:
                 # 从源 Thread 移除
                 conn.execute(
@@ -85,6 +95,14 @@ class ThreadSplitter:
 
             # 4. 更新源 Thread 统计
             self._rebuild_thread_stats(conn, thread_id)
+
+            # 5. 拆分出的新 Thread 与源 Thread 显式关联为同一故事线
+            a, b = sorted((thread_id, new_thread_id))
+            conn.execute(
+                "INSERT OR IGNORE INTO thread_relations (thread_a, thread_b, similarity, source) "
+                "VALUES (?, ?, ?, 'split')",
+                (a, b, avg_similarity)
+            )
 
         logger.info("Split thread %s: %d items moved to new thread %s", thread_id, len(item_ids), new_thread_id)
         return self.get_thread(new_thread_id)

@@ -99,7 +99,15 @@ class ThreadService:
                 )
             else:
                 # 创建新 Thread
-                thread_repo.create(title=title, item_id=item_id, platform=platform, algorithm_version="v2", similarity_threshold=threshold, match_reason="no_match")
+                new_thread_id = thread_repo.create(title=title, item_id=item_id, platform=platform, algorithm_version="v2", similarity_threshold=threshold, match_reason="no_match")
+                # 同一故事线 near-miss：与最佳候选显式关联（展示层分层，不改变归属）
+                if result.related_thread_id:
+                    thread_repo.record_relation(
+                        new_thread_id,
+                        result.related_thread_id,
+                        similarity=result.score.total_score if result.score else 0.0,
+                        source="auto",
+                    )
 
         logger.info(
             "Thread compute: %d items clustered, %d matched to existing threads, %d created new, %d catalog-skipped",
@@ -156,12 +164,21 @@ class ThreadService:
         return thread_repo.list_all(task_id=task_id, page=page, per_page=per_page, sort=sort)
 
     def get_thread(self, thread_id: str) -> dict | None:
-        """获取 Thread 详情（包含 Items 与聚合画像 stats）"""
+        """获取 Thread 详情（包含 Items、聚合画像 stats 与同一故事线关联层）"""
         thread = thread_repo.get(thread_id)
         if not thread:
             return None
         items = thread_repo.get_items_in_thread(thread_id)
-        return {**thread, "items": items, "stats": build_thread_stats(thread, items)}
+        return {
+            **thread,
+            "items": items,
+            "stats": build_thread_stats(thread, items),
+            "related_threads": thread_repo.get_related_threads(thread_id),
+        }
+
+    def unlink_related_thread(self, thread_id: str, related_thread_id: str) -> bool:
+        """解除一条"同一故事线"关联（用户拆除误关联）。Returns: 关联是否存在"""
+        return thread_repo.delete_relation(thread_id, related_thread_id)
 
     def generate_thread_digest(self, thread_id: str, force: bool = False) -> dict:
         """

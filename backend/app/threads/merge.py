@@ -64,7 +64,43 @@ class ThreadMerger:
                 (source_thread_id,)
             )
 
-            # 4. 删除源 Thread
+            # 3.5 同步 items.thread_id 到目标 Thread。
+            # items.thread_id 外键引用 threads(id)：不同步的话，第 5 步删除
+            # 源 Thread 会直接 FOREIGN KEY constraint failed（旧实现从未
+            # 被真实 DB 路径触发过，该缺陷由关联重定向测试首次暴露）
+            conn.execute(
+                "UPDATE items SET thread_id = ? "
+                "WHERE thread_id = ?",
+                (target_thread_id, source_thread_id)
+            )
+
+            # 4. 关联重定向：指向 source 的"同一故事线"关联全部改指 target。
+            # 与 target 的关联随 source 删除级联消失；其余按规范序幂等写入
+            source_relations = conn.execute(
+                "SELECT thread_a, thread_b, similarity, source FROM thread_relations "
+                "WHERE thread_a = ? OR thread_b = ?",
+                (source_thread_id, source_thread_id)
+            ).fetchall()
+            for rel in source_relations:
+                other = (
+                    rel["thread_b"]
+                    if rel["thread_a"] == source_thread_id
+                    else rel["thread_a"]
+                )
+                if other == target_thread_id:
+                    continue
+                a, b = sorted((target_thread_id, other))
+                conn.execute(
+                    "INSERT OR IGNORE INTO thread_relations (thread_a, thread_b, similarity, source) "
+                    "VALUES (?, ?, ?, ?)",
+                    (a, b, rel["similarity"], rel["source"])
+                )
+            conn.execute(
+                "DELETE FROM thread_relations WHERE thread_a = ? OR thread_b = ?",
+                (source_thread_id, source_thread_id)
+            )
+
+            # 5. 删除源 Thread
             conn.execute(
                 "DELETE FROM threads WHERE id = ?",
                 (source_thread_id,)
