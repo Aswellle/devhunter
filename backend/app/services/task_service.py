@@ -33,8 +33,7 @@ class TaskService:
         current_count = task_repo.count_all()
         if current_count >= MAX_TASKS_LIMIT:
             raise TaskLimitExceededError(
-                f"Task limit reached ({current_count}/{MAX_TASKS_LIMIT}). "
-                f"Delete unused tasks before creating new ones."
+                f"任务数量已达上限（{current_count}/{MAX_TASKS_LIMIT}），请先删除不再使用的任务"
             )
 
         # 应用预设模板填充字段

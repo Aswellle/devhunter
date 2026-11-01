@@ -57,17 +57,8 @@ def get_templates(_: str = Depends(require_auth)):
 def create_task(body: TaskCreate, _: str = Depends(require_auth)):
     """创建新采集任务"""
     try:
-        # 限制最大任务数量，防止资源耗尽
-        MAX_TASKS = 100
-        current_count = task_service.count_all()
-        if current_count >= MAX_TASKS:
-            raise HTTPException(
-                status_code=400,
-                detail={
-                    "code": "TASK_LIMIT_EXCEEDED",
-                    "message": f"Maximum number of tasks ({MAX_TASKS}) reached. Please delete unused tasks first.",
-                },
-            )
+        # 任务数量上限由 service 层统一裁决（TaskLimitExceededError → 409），
+        # API 层不再复制一份口径不同的检查
         task = task_service.create(body.model_dump())
         return task
     except DevHunterError as e:
