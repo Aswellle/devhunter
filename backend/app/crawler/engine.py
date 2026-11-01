@@ -541,7 +541,7 @@ def _fetch_page_with_retry(
                 location = response.headers.get("location")
                 if not location:
                     break
-                next_url = str(httpx.URL(location, base=response.url))
+                next_url = str(response.url.join(location))
                 ssrf_safe, ssrf_msg, _ = resolve_and_validate_url(next_url)
                 if not ssrf_safe:
                     return _FetchOutcome(

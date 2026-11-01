@@ -4,6 +4,7 @@ test_json_post.py — json-post 抓取模式测试。
 覆盖：
 - POST 请求体来自 mode_extra["post_body"]（回归：曾引用未定义变量导致模式整体坏死）
 - json-post 5xx 终态不重试（S6）
+- 重定向跳转重新 POST 时携带同一请求体
 """
 import httpx
 
@@ -22,7 +23,8 @@ class _FakeResp:
         self.encoding = "utf-8"
         self.is_redirect = redirect_to is not None
         self.headers = {"location": redirect_to} if redirect_to else {}
-        self.url = "http://example.com/api"
+        # httpx.Response.url 是 httpx.URL（engine 用它做重定向 join）
+        self.url = httpx.URL("http://example.com/api")
 
     def raise_for_status(self):
         if self.status_code >= 400:
@@ -82,3 +84,41 @@ def test_json_post_5xx_is_terminal_no_retry():
     assert outcome.error is not None
     assert "POST 5xx not retried" in outcome.error
     assert len(client.calls) == 1
+
+
+def test_json_post_redirect_reposts_same_body(monkeypatch):
+    """手动跟随重定向时，下一跳以同一请求体 POST 到解析后的目标。"""
+    # 重定向目标会经过 SSRF 校验（含 DNS 解析）；单测中直接放行
+    monkeypatch.setattr(
+        engine, "resolve_and_validate_url", lambda _url: (True, "", None)
+    )
+    client = _RecordingClient([
+        _FakeResp(301, redirect_to="http://example.com/api?page=2"),
+        _FakeResp(200, json_body={"ok": True}),
+    ])
+    outcome = _fetch_page_with_retry(
+        client, "http://example.com/api", "json-post",
+        {"post_body": {"page": 2}}, {}, timeout=5.0, on_progress=None,
+    )
+    assert outcome.error is None
+    assert [c[0] for c in client.calls] == ["POST", "POST"]
+    assert client.calls[1][1] == "http://example.com/api?page=2"
+    assert client.calls[1][2] == {"page": 2}
+
+
+def test_redirect_target_resolved_via_url_join(monkeypatch):
+    """回归：重定向目标用 URL join 解析（旧实现用了不存在的 base 参数，
+    任何重定向都会抛 TypeError 并按网络错误重试）。"""
+    monkeypatch.setattr(
+        engine, "resolve_and_validate_url", lambda _url: (True, "", None)
+    )
+    client = _RecordingClient([
+        _FakeResp(301, redirect_to="/api/v2"),
+        _FakeResp(200, json_body={"ok": True}),
+    ])
+    outcome = _fetch_page_with_retry(
+        client, "http://example.com/api", "json",
+        {}, {}, timeout=5.0, on_progress=None,
+    )
+    assert outcome.error is None
+    assert client.calls[1][:2] == ("GET", "http://example.com/api/v2")
