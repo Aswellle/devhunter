@@ -5,14 +5,16 @@
  *   下半部分：原始事件日志 + 新增条目预览
  */
 import { Activity, ChevronDown, ChevronUp, ExternalLink, RefreshCw, X } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { clsx } from 'clsx'
+import { useQueryClient } from '@tanstack/react-query'
 import {
   useTaskEventStream,
   type StepState,
   type StepStatus,
   type StreamStatus,
 } from '../../hooks/useTaskEventStream'
+import { queryKeys } from '../../api/queryKeys'
 import { Spinner } from '../ui/Spinner'
 
 interface Props {
@@ -267,7 +269,20 @@ export function TaskExecutionStream({ taskId, taskName, onClose }: Props) {
   const { events, steps, status, preview, finalData, reset, bottomRef } =
     useTaskEventStream({ taskId, active: true })
 
+  const queryClient = useQueryClient()
   const [showLog, setShowLog] = useState(true)
+
+  // 执行终态后刷新服务端缓存：SSE 只更新本面板的本地状态，items/threads/
+  // stats/tasks 的 Query 缓存不失效的话，列表与仪表盘会在 staleTime 窗口内
+  // 继续展示旧数据（面板说"新增 23 条"，列表里却看不到）
+  useEffect(() => {
+    if (status === 'done' || status === 'failed') {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.items.all })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.threads.all })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.stats.all })
+      void queryClient.invalidateQueries({ queryKey: queryKeys.tasks.all })
+    }
+  }, [status, queryClient])
 
   const isSuccess = events.some((e) => e.type === 'success')
   const isFailure = events.some((e) => e.type === 'failure')
