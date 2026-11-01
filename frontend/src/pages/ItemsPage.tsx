@@ -72,6 +72,19 @@ export function ItemsPage() {
     setSearchParams(params, { replace: true })
   }, [filters, viewMode, threadSort, setSearchParams])
 
+  // Thread 列表不支持搜索/已读/收藏（只作用于条目接口）；切到 Thread 视图时
+  // 一并清掉这三类失效筛选，避免"控件隐藏了但筛选还在暗中生效"的错觉
+  const handleViewModeChange = useCallback((mode: ViewMode) => {
+    setViewMode(mode)
+    if (mode === 'thread') {
+      setFilters((f) =>
+        f.search || f.starred !== undefined || f.is_read !== undefined
+          ? { ...f, search: '', starred: undefined, is_read: undefined }
+          : f,
+      )
+    }
+  }, [])
+
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   // U9: replaces window.confirm() for batch delete — a blocking native
@@ -452,7 +465,7 @@ export function ItemsPage() {
           {/* View mode toggle */}
           <div className="flex items-center gap-1 p-1 bg-gray-100 rounded-lg shrink-0">
             <button
-              onClick={() => setViewMode('source')}
+              onClick={() => handleViewModeChange('source')}
               aria-pressed={viewMode === 'source'}
               className={clsx(
                 'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-all whitespace-nowrap',
@@ -465,7 +478,7 @@ export function ItemsPage() {
               数据源
             </button>
             <button
-              onClick={() => setViewMode('thread')}
+              onClick={() => handleViewModeChange('thread')}
               aria-pressed={viewMode === 'thread'}
               className={clsx(
                 'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-all whitespace-nowrap',
@@ -489,6 +502,7 @@ export function ItemsPage() {
           tasks={tasksPage?.items ?? []}
           categoryCounts={categoryCounts}
           totalCount={countsData?.total ?? data?.total}
+          showItemFilters={viewMode === 'source'}
         />
       </div>
 

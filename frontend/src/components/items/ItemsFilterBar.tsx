@@ -20,6 +20,9 @@ interface ItemsFilterBarProps {
   categoryCounts?: Record<string, { total: number; unread: number }>
   /** Total item count (from API response) for the "全部" pill badge */
   totalCount?: number
+  /** Thread 视图传 false：搜索/已读/收藏只作用于条目接口，对 Thread
+      列表静默失效，不如隐藏（数据源选择仍然有效） */
+  showItemFilters?: boolean
 }
 
 // ── Helper: Convert tasks to category options ─────────────────────────────────
@@ -49,7 +52,7 @@ const SEARCH_DEBOUNCE_MS = 300
 
 // ── ItemsFilterBar：搜索 + 任务/已读状态 FilterBar + 收藏开关 ─────────────────
 
-export function ItemsFilterBar({ filters, onChange, tasks, categoryCounts, totalCount }: ItemsFilterBarProps) {
+export function ItemsFilterBar({ filters, onChange, tasks, categoryCounts, totalCount, showItemFilters = true }: ItemsFilterBarProps) {
   const categories = tasksToCategories(tasks, categoryCounts)
 
   // 搜索输入使用本地 state，防抖后提交到 filters（驱动 URL 同步与查询）
@@ -88,7 +91,8 @@ export function ItemsFilterBar({ filters, onChange, tasks, categoryCounts, total
 
   return (
     <div className="space-y-3">
-      {/* Search row */}
+      {/* Search row — Thread 视图隐藏（搜索只作用于条目接口） */}
+      {showItemFilters && (
       <div className="relative flex-1 min-w-48">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400 pointer-events-none" />
         <input
@@ -109,11 +113,12 @@ export function ItemsFilterBar({ filters, onChange, tasks, categoryCounts, total
           </button>
         )}
       </div>
+      )}
 
-      {/* Two-row FilterBar */}
+      {/* Two-row FilterBar：数据源选择对两种视图都有效 */}
       <FilterBar
         categories={categories}
-        readStatuses={DEFAULT_READ_STATUSES}
+        readStatuses={showItemFilters ? DEFAULT_READ_STATUSES : []}
         selectedCategoryId={filters.task_id}
         selectedReadStatus={filters.is_read}
         onFilterChange={handleFilterChange}
@@ -124,7 +129,7 @@ export function ItemsFilterBar({ filters, onChange, tasks, categoryCounts, total
       {/* Compact extra controls — the starred toggle only makes sense once
           there is data to star, so it is hidden on an empty result set. */}
       <div className="flex items-center justify-between gap-3">
-        {(totalCount ?? 0) > 0 ? (
+        {showItemFilters && (totalCount ?? 0) > 0 ? (
           <label className="flex items-center gap-1.5 cursor-pointer select-none text-sm text-gray-600">
             <input
               type="checkbox"
