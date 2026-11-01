@@ -6,6 +6,7 @@ import { tasksApi } from '../../api/tasks'
 import { queryKeys } from '../../api/queryKeys'
 import { errorMessage } from '../../api/client'
 import { useModalA11y } from '../../hooks/useModalA11y'
+import { SchedulePicker } from './SchedulePicker'
 import type { DiscoveryResult, PreviewResult } from '../../types'
 
 interface SourceWizardProps {
@@ -325,17 +326,10 @@ export function SourceWizard({ onClose, onCreated }: SourceWizardProps) {
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   更新频率
                 </label>
-                <select
-                  value={cronExpression}
-                  onChange={(e) => setCronExpression(e.target.value)}
-                  className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                >
-                  <option value="*/30 * * * *">每 30 分钟</option>
-                  <option value="0 * * * *">每小时</option>
-                  <option value="0 */6 * * *">每 6 小时</option>
-                  <option value="0 9 * * *">每天</option>
-                  <option value="0 9 * * 1">每周</option>
-                </select>
+                {/* 与 TaskFormModal 同一控件：本地时间编辑、保存为 UTC Cron，
+                    取代裸 select（旧"每周"预设 0 9 * * 1 按 APScheduler
+                    day_of_week 0=周一 的约定实际落在周二） */}
+                <SchedulePicker value={cronExpression} onChange={setCronExpression} />
               </div>
 
               <div className="flex gap-2">
