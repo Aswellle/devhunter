@@ -4,8 +4,9 @@
  * 展示用户兴趣分布，支持管理。
  */
 import { useQuery } from '@tanstack/react-query'
-import { Copy, Check } from 'lucide-react'
+import { Copy, Check, Settings } from 'lucide-react'
 import { useState } from 'react'
+import { createPortal } from 'react-dom'
 import { toast } from 'react-hot-toast'
 import { userPrefsApi } from '../api/user_prefs'
 import { feedsApi } from '../api/feeds'
@@ -15,6 +16,7 @@ import { Empty } from '../components/ui/Empty'
 import { SkeletonList } from '../components/ui/Skeleton'
 import { LLMSetupCard } from '../components/profile/LLMSetupCard'
 import { LabelingAssistant } from '../components/profile/LabelingAssistant'
+import { PreferenceModal } from '../components/dashboard/PreferenceModal'
 import type { AffinityEntry, FeedInfo } from '../types'
 
 // 展示维度 → 中文标签（后端已把 task/platform 归一为 task）
@@ -79,6 +81,7 @@ function FeedRow({ name, url }: { name: string; url: string }) {
 }
 
 export function ProfilePage() {
+  const [prefsOpen, setPrefsOpen] = useState(false)
   const { data: topics, isLoading: topicsLoading, isError: topicsError, refetch: refetchTopics } = useQuery({
     queryKey: queryKeys.userPrefs.topics(),
     queryFn: () => userPrefsApi.listTopics(),
@@ -128,7 +131,16 @@ export function ProfilePage() {
         <div className="space-y-6">
           {/* 主题偏好 */}
           <section>
-            <h2 className="text-lg font-semibold mb-3">兴趣主题</h2>
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-lg font-semibold">兴趣主题</h2>
+              <button
+                onClick={() => setPrefsOpen(true)}
+                className="btn-ghost text-sm flex items-center gap-1"
+              >
+                <Settings className="h-4 w-4" aria-hidden="true" />
+                管理
+              </button>
+            </div>
             {topics?.length ? (
               <div className="space-y-2">
                 {topics.map((topic) => (
@@ -257,6 +269,11 @@ export function ProfilePage() {
           {/* AI 接入 */}
           <LLMSetupCard />
         </div>
+      )}
+
+      {prefsOpen && createPortal(
+        <PreferenceModal isOpen onClose={() => setPrefsOpen(false)} />,
+        document.body,
       )}
     </div>
   )
