@@ -5,7 +5,6 @@ tests/conftest.py
 import os
 import sys
 import tempfile
-import sqlite3
 from pathlib import Path
 
 import pytest
@@ -14,30 +13,21 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 
-def _run_migrations(db_path: str):
-    """运行所有 migration 文件"""
-    migrations_dir = Path(__file__).parent.parent / "migrations"
-    conn = sqlite3.connect(db_path)
-    try:
-        for sql_file in sorted(migrations_dir.glob("*.sql")):
-            sql = sql_file.read_text(encoding="utf-8")
-            try:
-                conn.executescript(sql)
-            except sqlite3.OperationalError as e:
-                # 忽略 "duplicate column name" 等错误
-                if "duplicate column name" not in str(e):
-                    raise
-        conn.commit()
-    finally:
-        conn.close()
-
-
 @pytest.fixture(scope="session")
 def test_db_path():
-    """创建临时测试数据库"""
+    """创建临时测试数据库。
+
+    迁移必须经生产入口 init_database() 应用：测试里手写 executescript
+    走的是另一套执行器（无逐语句拆分、无 ADD COLUMN 幂等预检、无
+    user_version 游标），对"第二次启动重放"这类缺陷天然免疫，生产上
+    才暴露。"""
+    from app.core import config
+    from app.core.database import init_database
+
     fd, path = tempfile.mkstemp(suffix=".db", prefix="devhunter_test_")
     os.close(fd)
-    _run_migrations(path)
+    config.settings.db_path = path
+    init_database()
     yield path
     os.unlink(path)
 
