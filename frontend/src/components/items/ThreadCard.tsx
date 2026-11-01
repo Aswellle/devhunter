@@ -9,6 +9,8 @@ import { formatDistanceToNow } from '../../utils/time'
 import { isSafeExternalUrl } from '../../utils/url'
 import { queryKeys } from '../../api/queryKeys'
 import { threadsApi } from '../../api/threads'
+import { itemsApi } from '../../api/items'
+import { userPrefsApi } from '../../api/user_prefs'
 import { errorMessage } from '../../api/client'
 import { ClampText } from '../ui/ClampText'
 import { deriveThreadStatus, THREAD_STATUS_META } from '../../utils/threadStatus'
@@ -195,6 +197,32 @@ export function ThreadCard({ thread, defaultExpanded = false }: ThreadCardProps)
   const [expanded, setExpanded] = useState(defaultExpanded)
   const qc = useQueryClient()
 
+  // Thread 内条目的阅读闭环：点标题标已读并记录交互，星标可切换。
+  // 此前 Thread 渠道的阅读完全绕过未读工作流与推荐画像信号
+  const markThreadItemRead = (itemId: string) => {
+    itemsApi.patch(itemId, { is_read: true }).catch(() => {})
+    userPrefsApi
+      .recordInteraction({ item_id: itemId, interaction_type: 'view' })
+      .catch(() => {})
+    qc.invalidateQueries({ queryKey: queryKeys.items.all })
+  }
+  const starMutation = useMutation({
+    mutationFn: ({ itemId, starred }: { itemId: string; starred: boolean }) =>
+      itemsApi.patch(itemId, { is_starred: starred }),
+    onSuccess: (_, { itemId, starred }) => {
+      userPrefsApi
+        .recordInteraction({ item_id: itemId, interaction_type: starred ? 'star' : 'click' })
+        .catch(() => {})
+      qc.invalidateQueries({ queryKey: queryKeys.items.all })
+      qc.invalidateQueries({ queryKey: queryKeys.items.starredAll })
+      qc.invalidateQueries({ queryKey: queryKeys.recommendations.all })
+      toast.success(starred ? '已收藏' : '已取消收藏')
+    },
+    onError: () => {
+      toast.error('操作失败，请重试')
+    },
+  })
+
   // Fetch thread details (with items) only when expanded
   const { data: details, isError: detailsError, refetch: refetchDetails } = useQuery({
     queryKey: queryKeys.threads.detail(thread.id),
@@ -374,7 +402,13 @@ export function ThreadCard({ thread, defaultExpanded = false }: ThreadCardProps)
                             target={isSafeExternalUrl(item.url) ? '_blank' : undefined}
                             rel="noopener noreferrer"
                             className="hover:text-primary-600 transition-colors"
-                            onClick={(e) => e.stopPropagation()}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              userPrefsApi
+                                .recordInteraction({ item_id: item.id, interaction_type: 'click' })
+                                .catch(() => {})
+                              if (!item.is_read) markThreadItemRead(item.id)
+                            }}
                           >
                             {item.title}
                             <ExternalLink className="h-3 w-3 inline ml-1 opacity-50" />
@@ -383,9 +417,24 @@ export function ThreadCard({ thread, defaultExpanded = false }: ThreadCardProps)
                         <ClampText text={item.summary} className="text-xs text-gray-500 mt-1" />
                       </div>
                       <div className="flex items-center gap-1 shrink-0">
-                        {item.is_starred && (
-                          <Star className="h-4 w-4 text-yellow-400 fill-yellow-400" />
-                        )}
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            starMutation.mutate({ itemId: item.id, starred: !item.is_starred })
+                          }}
+                          disabled={starMutation.isPending}
+                          aria-pressed={item.is_starred}
+                          aria-label={item.is_starred ? '取消收藏' : '收藏'}
+                          className="p-1 rounded hover:bg-gray-100 transition-colors"
+                        >
+                          <Star
+                            className={clsx(
+                              'h-4 w-4',
+                              item.is_starred ? 'text-yellow-400 fill-yellow-400' : 'text-gray-300',
+                            )}
+                          />
+                        </button>
                         <span className="text-xs text-gray-400">
                           {formatDistanceToNow(item.fetched_at)}
                         </span>
