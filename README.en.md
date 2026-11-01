@@ -33,47 +33,68 @@ RSS readers don't solve it (many platforms have no feed, and there's no dedup or
 
 It's not another scraping framework — it's a **complete, batteries-included system**: scheduling, live execution monitoring, clustering, recommendations, search and RSS feeds are all wired up.
 
+---
+
+## 📸 Screenshots
+
+<table>
+  <tr>
+    <td width="50%" align="center">
+      <img src=".github/assets/items-source.png" alt="Item list: search, filters, grouped by source" width="100%" /><br/>
+      <sub><b>📥 Items</b> · search / filters / grouped by source</sub>
+    </td>
+    <td width="50%" align="center">
+      <img src=".github/assets/threads.png" alt="Hot threads: detail, hotness momentum, storyline relations" width="100%" /><br/>
+      <sub><b>🧵 Hot threads</b> · thread detail / hotness / storyline relations</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" align="center">
+      <img src=".github/assets/wizard.png" alt="Wizard: automatic structure discovery" width="100%" /><br/>
+      <sub><b>🧙 Wizard</b> · auto-discovery, zero selector knowledge</sub>
+    </td>
+    <td width="50%" align="center">
+      <img src=".github/assets/execution.png" alt="Live execution stream over SSE" width="100%" /><br/>
+      <sub><b>⚡ Execution stream</b> · every step over SSE + raw log</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" align="center">
+      <img src=".github/assets/market.png" alt="Template marketplace" width="100%" /><br/>
+      <sub><b>🏪 Marketplace</b> · 25 presets, one click each</sub>
+    </td>
+    <td width="50%" align="center">
+      <br/><br/>
+      <b>🌐 Plus 25 preset templates ready to go</b><br/>
+      <sub>Hacker News · GitHub Trending · V2EX · Juejin<br/>sspai · Bilibili · Zhihu · Product Hunt · Reddit …</sub><br/><br/>
+      <a href="#quick-start"><b>Get started →</b></a><br/><br/>
+    </td>
+  </tr>
+</table>
+
+---
+
 ## Highlights
 
 ### 📥 Multi-source crawling, configured once
 
 25 preset templates for one-click onboarding (Hacker News, GitHub Trending, V2EX, Juejin, sspai, Product Hunt, Reddit…), plus fully custom sites. 5-field cron scheduling, manual trigger, automatic retries, multiple fetch modes (HTML selector / JSON API / RSS), automatic pagination — crawling is no longer your problem.
 
-<p align="center">
-  <img src=".github/assets/items-source.png" alt="Item list: search, filters, grouped by source" width="880" />
-</p>
-
 ### 🧵 Cross-platform thread aggregation
 
 Multi-factor scoring (lexical + entity + semantic + temporal + source) merges coverage of the same event into one thread — the HN discussion, the GitHub repo and the blog write-up in a single view. Every thread carries live hotness (24h half-life), lifecycle status, an AI digest, and explicit links to near-miss "same storyline" events you can unlink with one click.
-
-<p align="center">
-  <img src=".github/assets/threads.png" alt="Hot threads: detail, hotness momentum, storyline relations" width="880" />
-</p>
 
 ### 🧙 Three-step wizard, zero selector knowledge
 
 Enter a URL → auto-discover the content structure (including JSON paths) → preview and save. If you can paste a URL, you can configure a crawl.
 
-<p align="center">
-  <img src=".github/assets/wizard.png" alt="Wizard: automatic structure discovery" width="640" />
-</p>
-
 ### ⚡ Live execution stream
 
 Trigger a task and SSE streams every step — fetch → parse → filter → dedup → save — with HTTP status, timings, parsed counts and dedup results. Automatic reconnection and persisted events for replay.
 
-<p align="center">
-  <img src=".github/assets/execution.png" alt="Live execution stream over SSE" width="880" />
-</p>
-
 ### 🏪 Template marketplace
 
 Share your tuned crawl configs as templates and enable community templates with one click. Already-enabled templates are marked automatically so you can't create duplicates.
-
-<p align="center">
-  <img src=".github/assets/market.png" alt="Template marketplace" width="640" />
-</p>
 
 ### 🎯 Explainable recommendations that improve with use
 
@@ -305,30 +326,13 @@ Before exposing to the public internet, add access control and HTTPS at the reve
 
 If DevHunter saves you the daily site-scrolling, please give it a ⭐️ — it keeps the project moving and helps other self-hosters find it.
 
-<div align="center">
-<a href="https://star-history.com/#Aswellle/devhunter&Date">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=Aswellle/devhunter&type=Date&theme=dark" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=Aswellle/devhunter&type=Date" />
-   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=Aswellle/devhunter&type=Date" width="480" />
- </picture>
-</a>
-</div>
-
 ---
 
 ## Legal & Disclaimer
 
-DevHunter is an **information aggregation tool** intended for lawful purposes: tracking public tech trends, aggregating public RSS/Atom feeds and public APIs, and personal knowledge management. By using it you agree to:
+DevHunter is an **information aggregation tool** intended for lawful aggregation and personal knowledge management. Respect the terms of service and `robots.txt` of any site you crawl, keep request rates reasonable, and never use it for large-scale unauthorized scraping.
 
-1. **Obey the law**: never use the project to violate applicable laws, regulations or third-party rights
-2. **Respect terms of service**: honor target sites' ToS and robots.txt directives
-3. **Control request rates**: configure reasonable crawl frequencies to avoid load on target sites
-4. **Protect IP and privacy**: never scrape, store or distribute copyrighted content you don't have rights to, or personal sensitive data
-
-Large-scale unauthorized scraping, DDoS, competitive intelligence harvesting, privacy violations and any illegal use are strictly prohibited. Target sites may change their structure at any time; aggressive crawling may get your IP banned.
-
-**The project is provided "as is", without warranty of any kind.** For commercial use, consult a legal professional and prefer official APIs where available.
+👉 **For the full obligations, prohibited uses, risk notes and limitation of liability, [read LEGAL.md](LEGAL.md)** — it is versioned with the project and worth a full read before you deploy.
 
 ---
 

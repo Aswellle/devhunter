@@ -33,47 +33,68 @@ RSS 阅读器解决不了（很多平台没有 Feed，也没有去重和搜索�
 
 它不是又一个爬虫框架，而是**开箱即用的完整系统**：调度、执行监控、聚类、推荐、搜索、订阅，全都装好了。
 
+---
+
+## 📸 界面一览
+
+<table>
+  <tr>
+    <td width="50%" align="center">
+      <img src=".github/assets/items-source.png" alt="采集结果列表：搜索、多维筛选、按数据源分组" width="100%" /><br/>
+      <sub><b>📥 采集结果</b> · 搜索 / 多维筛选 / 按源分组</sub>
+    </td>
+    <td width="50%" align="center">
+      <img src=".github/assets/threads.png" alt="热点聚合：Thread 详情、热度动量、同一故事线关联" width="100%" /><br/>
+      <sub><b>🧵 热点聚合</b> · Thread 详情 / 热度动量 / 故事线关联</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" align="center">
+      <img src=".github/assets/wizard.png" alt="三步向导：自动发现网站内容结构" width="100%" /><br/>
+      <sub><b>🧙 三步向导</b> · 自动发现结构，零 Selector 知识</sub>
+    </td>
+    <td width="50%" align="center">
+      <img src=".github/assets/execution.png" alt="实时执行流：SSE 推送每个执行步骤" width="100%" /><br/>
+      <sub><b>⚡ 实时执行流</b> · SSE 全链路步骤 + 原始日志</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" align="center">
+      <img src=".github/assets/market.png" alt="模板市场：按类别浏览并一键启用" width="100%" /><br/>
+      <sub><b>🏪 模板市场</b> · 25 个预设模板一键接入</sub>
+    </td>
+    <td width="50%" align="center">
+      <br/><br/>
+      <b>🌐 还有 25 个预设模板等你接入</b><br/>
+      <sub>Hacker News · GitHub Trending · V2EX · 掘金<br/>少数派 · B 站 · 知乎 · Product Hunt · Reddit ……</sub><br/><br/>
+      <a href="#快速启动"><b>立即开始 →</b></a><br/><br/>
+    </td>
+  </tr>
+</table>
+
+---
+
 ## 功能亮点
 
 ### 📥 多源采集，一次配置长期运行
 
 25 个预设模板一键接入（Hacker News、GitHub Trending、V2EX、掘金、少数派、Product Hunt、Reddit……），也支持任意自定义网站。5 段 Cron 定时调度、手动一键触发、失败自动重试、多模式抓取（HTML Selector / JSON API / RSS）、自动翻页——抓取这件事你不用再管。
 
-<p align="center">
-  <img src=".github/assets/items-source.png" alt="采集结果列表：搜索、多维筛选、按数据源分组" width="880" />
-</p>
-
 ### 🧵 跨平台事件聚合（Threads）
 
 多因素评分（词法 + 实体 + 语义 + 时间 + 来源）把"同一件事的多篇报道"自动归并为一个 Thread：HN 的讨论、GitHub 的仓库、博客的解读，一次看全貌。每个 Thread 带实时热度（24h 半衰期）、生命周期状态、AI 综述，评分接近但未合并的"同一故事线"事件也会显式关联展示，可一键解除误关联。
-
-<p align="center">
-  <img src=".github/assets/threads.png" alt="热点聚合：Thread 详情、热度动量、同一故事线关联" width="880" />
-</p>
 
 ### 🧙 三步向导，零 Selector 知识
 
 填一个网址 → 自动发现内容结构（含 JSON 路径与字段探测）→ 预览确认保存。不需要读文档学 CSS Selector，会贴 URL 就会配置采集。
 
-<p align="center">
-  <img src=".github/assets/wizard.png" alt="三步向导：自动发现网站内容结构" width="640" />
-</p>
-
 ### ⚡ 实时执行流
 
 手动触发后，SSE 实时推送抓取 → 解析 → 过滤 → 去重 → 入库的每一步：HTTP 状态、耗时、解析条数、去重结果一目了然。断线自动重连，事件持久化可回放。
 
-<p align="center">
-  <img src=".github/assets/execution.png" alt="实时执行流：SSE 推送每个执行步骤" width="880" />
-</p>
-
 ### 🏪 模板市场
 
 把调好的采集配置分享成模板，也可以一键启用社区模板。已启用的模板自动标记，不会重复创建。
-
-<p align="center">
-  <img src=".github/assets/market.png" alt="模板市场：按类别浏览并一键启用" width="640" />
-</p>
 
 ### 🎯 越用越准的推荐（可解释）
 
@@ -305,30 +326,13 @@ DevHunter 采用**单用户认证**模型，适合自托管 / 内网 / 反向代
 
 如果 DevHunter 帮你省下了每天刷网站的时间，欢迎给一个 ⭐️ Star——这是项目持续迭代最大的动力，也让更多自托管爱好者发现它。
 
-<div align="center">
-<a href="https://star-history.com/#Aswellle/devhunter&Date">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=Aswellle/devhunter&type=Date&theme=dark" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=Aswellle/devhunter&type=Date" />
-   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=Aswellle/devhunter&type=Date" width="480" />
- </picture>
-</a>
-</div>
-
 ---
 
 ## 法律合规与免责声明
 
-DevHunter 是一个**信息聚合工具**，设计用于跟踪公开技术动态、聚合公开 RSS/Atom Feed 与公开 API 数据、个人知识管理等合法目的。使用本项目即表示您承诺：
+DevHunter 是一个**信息聚合工具**，仅供合法的信息聚合与个人知识管理用途。抓取前请遵守目标网站的服务条款与 `robots.txt` 指令，控制请求频率，勿用于任何未经授权的大规模抓取。
 
-1. **遵守法律法规**：不得利用本项目违反任何适用法律、法规或第三方权利
-2. **尊重服务条款**：遵守目标网站的服务条款（ToS）与 robots.txt 指令
-3. **控制请求频率**：合理设置抓取频率，避免对目标站点造成不当负载
-4. **保护知识产权与隐私**：不得抓取、存储或传播受版权保护的未授权内容或个人敏感数据
-
-严禁将本项目用于未经授权的大规模数据抓取、DDoS 攻击、商业竞争情报、隐私侵犯或任何非法活动。目标网站可能随时更改其结构或访问策略导致抓取失败；大规模抓取可能导致您的 IP 被封禁。
-
-**本项目按"原样"提供，作者不承担任何直接或间接责任。** 商业用途请咨询法律专业人士，优先考虑目标站点提供的官方 API。
+👉 **完整的使用者义务、禁止用途、风险提示与责任限制条款，请[点击查看《法律合规与免责声明》](LEGAL.md)全文**——该文档随项目一同维护，使用前建议完整阅读一次。
 
 ---
 
