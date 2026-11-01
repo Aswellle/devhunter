@@ -17,6 +17,7 @@ import {
 import { queryKeys } from '../../api/queryKeys'
 import { isSafeExternalUrl } from '../../utils/url'
 import { Spinner } from '../ui/Spinner'
+import { useModalA11y } from '../../hooks/useModalA11y'
 
 interface Props {
   taskId: string
@@ -274,6 +275,8 @@ export function TaskExecutionStream({ taskId, taskName, onClose }: Props) {
 
   const queryClient = useQueryClient()
   const [showLog, setShowLog] = useState(true)
+  // 抽屉与模态同一 a11y 标准：Escape 关闭 + Tab 焦点陷阱 + 背景对读屏屏蔽
+  const panelRef = useModalA11y(onClose)
 
   // 执行终态后刷新服务端缓存：SSE 只更新本面板的本地状态，items/threads/
   // stats/tasks 的 Query 缓存不失效的话，列表与仪表盘会在 staleTime 窗口内
@@ -313,6 +316,7 @@ export function TaskExecutionStream({ taskId, taskName, onClose }: Props) {
         aria-hidden="true"
       />
       <div
+        ref={panelRef}
         role="dialog"
         aria-modal="true"
         aria-label={`${taskName} 实时执行流`}

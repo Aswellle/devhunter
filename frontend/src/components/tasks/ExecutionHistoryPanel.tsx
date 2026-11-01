@@ -10,7 +10,8 @@
 import { AlertTriangle, CheckCircle, CircleSlash, Clock, X, XCircle } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
+import { useModalA11y } from '../../hooks/useModalA11y'
 import { tasksApi } from '../../api/tasks'
 import { queryKeys } from '../../api/queryKeys'
 import type { Task, TaskExecution } from '../../types'
@@ -83,14 +84,8 @@ export function ExecutionHistoryPanel({ task, onClose }: ExecutionHistoryPanelPr
     refetchInterval: (query) => (query.state.data?.items?.[0]?.status === 'running' ? 5000 : 30000),
   })
 
-  // Escape 关闭面板
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
+  // Escape 关闭 + 焦点陷阱 + 背景对读屏屏蔽（与其余模态/抽屉同一标准）
+  const panelRef = useModalA11y(onClose)
 
   return (
     <>
@@ -101,7 +96,9 @@ export function ExecutionHistoryPanel({ task, onClose }: ExecutionHistoryPanelPr
         aria-hidden="true"
       />
       <div
+        ref={panelRef}
         role="dialog"
+        aria-modal="true"
         aria-label={`${task.name} 执行历史`}
         className="fixed right-0 top-0 bottom-0 z-50 w-full max-w-md
                     bg-surface shadow-2xl border-l border-subtle flex flex-col"
