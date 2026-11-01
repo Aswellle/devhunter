@@ -4,7 +4,7 @@
  * 按类别分组展示预设模板，支持一键启用。
  * 模态框使用固定宽高，避免切换类别时视口摇晃。
  */
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'react-hot-toast'
 import { Zap, ExternalLink, Check, Code, Lightbulb, Users, BookOpen, Palette, ClipboardList } from 'lucide-react'
@@ -12,6 +12,7 @@ import { tasksApi } from '../../api/tasks'
 import { queryKeys } from '../../api/queryKeys'
 import { errorMessage } from '../../api/client'
 import { Spinner } from '../../components/ui/Spinner'
+import { Empty } from '../../components/ui/Empty'
 import { useModalA11y } from '../../hooks/useModalA11y'
 import type { SourceTemplate } from '../../types'
 
@@ -37,12 +38,25 @@ export function TemplateMarket({ onClose, onCreated }: TemplateMarketProps) {
   // 焦点陷阱 + Escape 关闭 + 背景可见性（组件随模态打开条件挂载，无需 isOpen 参数）
   const modalRef = useModalA11y(onClose)
 
-  const { data: templates, isLoading } = useQuery({
+  const { data: templates, isLoading, isError, refetch } = useQuery({
     queryKey: queryKeys.tasks.templates(),
     queryFn: tasksApi.templates,
   })
 
+  // 已建任务按 template_id 反查：否则重开市场后"已启用"徽章消失，
+  // 再点启用会建出重复任务
+  const { data: tasksPage } = useQuery({
+    queryKey: queryKeys.tasks.all,
+    queryFn: () => tasksApi.list({ per_page: 100 }),
+  })
   const templateList: SourceTemplate[] = templates || []
+  const enabledTemplateIds = useMemo(() => {
+    const ids = new Set(enabledTemplates)
+    for (const t of tasksPage?.items ?? []) {
+      if (t.template_id) ids.add(t.template_id)
+    }
+    return ids
+  }, [enabledTemplates, tasksPage])
 
   const enableMutation = useMutation({
     mutationFn: (tpl: SourceTemplate) =>
@@ -144,6 +158,18 @@ export function TemplateMarket({ onClose, onCreated }: TemplateMarketProps) {
             <div className="flex justify-center py-10">
               <Spinner className="h-8 w-8" />
             </div>
+          ) : isError ? (
+            <Empty
+              title="模板加载失败"
+              description="模板列表请求出错，请检查网络后重试"
+              action={
+                <button onClick={() => refetch()} className="btn-primary">
+                  重试
+                </button>
+              }
+            />
+          ) : templateList.length === 0 ? (
+            <Empty title="暂无模板" description="模板库为空，可以稍后再来看看" />
           ) : (
             <div className="space-y-6">
               {Object.entries(groupedTemplates).map(([category, items]) => (
@@ -153,7 +179,10 @@ export function TemplateMarket({ onClose, onCreated }: TemplateMarketProps) {
                   </h3>
                   <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                     {items.map((template: SourceTemplate) => {
-                      const isEnabled = enabledTemplates.has(template.id)
+                      const isEnabled = enabledTemplateIds.has(template.id)
+                      // pending 只作用于被点击的那张卡，不是全部按钮一起转圈
+                      const isEnabling =
+                        enableMutation.isPending && enableMutation.variables?.id === template.id
                       return (
                         <div
                           key={template.id}
@@ -169,10 +198,11 @@ export function TemplateMarket({ onClose, onCreated }: TemplateMarketProps) {
                             ) : (
                               <button
                                 onClick={() => enableMutation.mutate(template)}
-                                disabled={enableMutation.isPending}
+                                disabled={isEnabling}
+                                aria-busy={isEnabling}
                                 className="btn-primary flex items-center gap-1 px-2 py-1 text-xs"
                               >
-                                {enableMutation.isPending ? (
+                                {isEnabling ? (
                                   <Spinner className="h-3 w-3" />
                                 ) : (
                                   <Zap className="h-3 w-3" />
