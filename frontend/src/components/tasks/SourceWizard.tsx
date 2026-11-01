@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useCallback, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Globe, Search, Eye, Check, Loader2, AlertCircle } from 'lucide-react'
 import { sourcesApi } from '../../api/sources'
@@ -6,6 +6,7 @@ import { tasksApi } from '../../api/tasks'
 import { queryKeys } from '../../api/queryKeys'
 import { errorMessage } from '../../api/client'
 import { useModalA11y } from '../../hooks/useModalA11y'
+import { ConfirmDialog } from '../ui/ConfirmDialog'
 import { SchedulePicker } from './SchedulePicker'
 import type { DiscoveryResult, PreviewResult } from '../../types'
 
@@ -26,8 +27,20 @@ export function SourceWizard({ onClose, onCreated }: SourceWizardProps) {
   const [keywords, setKeywords] = useState('')
   const [cronExpression, setCronExpression] = useState('0 9 * * *')
   const [error, setError] = useState('')
-  // 焦点陷阱 + Escape 关闭（组件随模态打开条件挂载）
-  const modalRef = useModalA11y(onClose)
+  // 脏数据保护：走到第 2/3 步或已输入任何内容时，退出需确认（与
+  // TaskFormModal 同一标准——此前误点遮罩/Esc 会静默丢掉全部进度）
+  const [confirmDiscardOpen, setConfirmDiscardOpen] = useState(false)
+  const isDirty =
+    step !== 1 || url.trim() !== '' || name.trim() !== '' || keywords.trim() !== ''
+  const requestClose = useCallback(() => {
+    if (isDirty) {
+      setConfirmDiscardOpen(true)
+      return
+    }
+    onClose()
+  }, [isDirty, onClose])
+  // 焦点陷阱 + Escape 经 requestClose（组件随模态打开条件挂载）
+  const modalRef = useModalA11y(requestClose)
 
   const discoverMutation = useMutation({
     mutationFn: () => sourcesApi.discover(url),
@@ -114,7 +127,7 @@ export function SourceWizard({ onClose, onCreated }: SourceWizardProps) {
   }
 
   return (
-    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50" onClick={(e) => { if (e.target === e.currentTarget) onClose() }}>
+    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50" onClick={(e) => { if (e.target === e.currentTarget) requestClose() }}>
       <div
         ref={modalRef}
         role="dialog"
@@ -126,7 +139,7 @@ export function SourceWizard({ onClose, onCreated }: SourceWizardProps) {
           <h2 id="source-wizard-title" className="text-lg font-semibold text-primary">
             添加新数据源
           </h2>
-          <button onClick={onClose} className="text-muted hover:text-secondary" aria-label="关闭">
+          <button onClick={requestClose} className="text-muted hover:text-secondary" aria-label="关闭">
             ✕
           </button>
         </div>
@@ -357,6 +370,20 @@ export function SourceWizard({ onClose, onCreated }: SourceWizardProps) {
           )}
         </div>
       </div>
+
+      {confirmDiscardOpen && (
+        <ConfirmDialog
+          title="放弃未完成的配置？"
+          message="向导中已填写的 URL、选择器与频率尚未保存，关闭后将全部丢失。"
+          confirmText="放弃配置"
+          variant="default"
+          onConfirm={() => {
+            setConfirmDiscardOpen(false)
+            onClose()
+          }}
+          onCancel={() => setConfirmDiscardOpen(false)}
+        />
+      )}
     </div>
   )
 }
