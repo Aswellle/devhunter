@@ -105,7 +105,26 @@ export function TaskFormModal({ task, onClose }: TaskFormModalProps) {
 
   const cronInvalid = !isValidCronExpression(form.cron_expression)
 
+  // 模板会整组覆写 URL/选择器/频率：表单里已有内容且与模板值不同时，
+  // 先确认，避免手填配置被误点静默清掉
+  const [pendingTemplate, setPendingTemplate] = useState<SourceTemplate | null>(null)
+
   const applyTemplate = (tpl: SourceTemplate) => {
+    const hasConflictingInput =
+      (form.source_url && form.source_url !== tpl.source_url) ||
+      (form.selector_list && form.selector_list !== tpl.selector_list) ||
+      (form.selector_title && form.selector_title !== tpl.selector_title) ||
+      (form.selector_link && form.selector_link !== tpl.selector_link) ||
+      (form.cron_expression && form.cron_expression !== tpl.recommended_cron)
+    if (hasConflictingInput) {
+      setPendingTemplate(tpl)
+      return
+    }
+    doApplyTemplate(tpl)
+  }
+
+  const doApplyTemplate = (tpl: SourceTemplate) => {
+    setPendingTemplate(null)
     setForm((f) => ({
       ...f,
       template_id: tpl.id,
@@ -383,6 +402,17 @@ export function TaskFormModal({ task, onClose }: TaskFormModalProps) {
       </div>
 
       {/* 表单有未保存修改时，关闭前需要用户确认（backdrop/Escape/取消/关闭按钮共用 requestClose） */}
+      {pendingTemplate && (
+        <ConfirmDialog
+          title="应用模板并覆盖已填内容？"
+          message={`「${pendingTemplate.name}」会替换当前的来源 URL、选择器与更新频率，已手动填写的内容将丢失。`}
+          confirmText="覆盖"
+          variant="default"
+          onConfirm={() => doApplyTemplate(pendingTemplate)}
+          onCancel={() => setPendingTemplate(null)}
+        />
+      )}
+
       {confirmDiscardOpen && (
         <ConfirmDialog
           title="放弃未保存的修改？"
