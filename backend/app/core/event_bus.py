@@ -54,16 +54,9 @@ class EventBus:
                 self._queues.pop(task_id, None)
 
     def publish(self, event: ExecutionEvent) -> None:
-        """向所有订阅者广播事件（非阻塞，队列满则丢弃）。同时持久化到 execution_events 表。"""
-        with self._lock:
-            queues = list(self._queues.get(event.task_id, []))
-        for q in queues:
-            try:
-                q.put_nowait(event)
-            except queue.Full:
-                pass  # 客户端消费太慢，丢弃事件
-
-        # 持久化到 execution_events 表（durable execution events）
+        """持久化到 execution_events 表后向所有订阅者广播（非阻塞，队列满则丢弃）。"""
+        # 先持久化拿游标 ID 再入队：SSE 首发帧若缺 event_id，
+        # Last-Event-ID 断点续传会从该帧起漏事件
         try:
             from app.repositories.execution_event_repo import execution_event_repo
             execution_id = event.data.get("execution_id", event.task_id)
@@ -74,11 +67,20 @@ class EventBus:
                 message=event.message,
                 data=event.data,
             )
-            # E1: 将持久化 ID 存回 event.data，供 SSE 端点作为 Last-Event-ID 游标
+            # E1: 将持久化 ID 存回 event.data，供 SSE 端点作为 Last-Event-ID 游标。
+            # 必须发生在入队之前——入队后事件对象随时会被消费线程读走
             if persisted and persisted.get("id"):
                 event.data["event_id"] = persisted["id"]
         except Exception:
             pass  # 持久化失败不影响实时流
+
+        with self._lock:
+            queues = list(self._queues.get(event.task_id, []))
+        for q in queues:
+            try:
+                q.put_nowait(event)
+            except queue.Full:
+                pass  # 客户端消费太慢，丢弃事件
 
     def has_listeners(self, task_id: str) -> bool:
         with self._lock:
