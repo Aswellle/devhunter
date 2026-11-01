@@ -365,9 +365,8 @@ export function useTaskEventStream({ taskId, active }: { taskId: string | null; 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [taskId, active])
 
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [events])
+  // 自动滚动改由消费方实现：是否跟随取决于用户在滚动容器里的位置，
+  // hook 拿不到该容器——强制滚底会拽回正在上翻看历史的用户
 
   return { events, steps, status, preview, finalData, reset, bottomRef }
 }

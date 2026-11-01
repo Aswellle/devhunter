@@ -278,6 +278,13 @@ export function TaskExecutionStream({ taskId, taskName, onClose }: Props) {
   // 抽屉与模态同一 a11y 标准：Escape 关闭 + Tab 焦点陷阱 + 背景对读屏屏蔽
   const panelRef = useModalA11y(onClose)
 
+  // 滚动跟随：新事件只在用户本就位于底部附近时才自动滚底；
+  // 上翻看历史时不被打断，并提供"回到底部"浮标
+  const [follow, setFollow] = useState(true)
+  useEffect(() => {
+    if (follow) bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [events, follow, bottomRef])
+
   // 执行终态后刷新服务端缓存：SSE 只更新本面板的本地状态，items/threads/
   // stats/tasks 的 Query 缓存不失效的话，列表与仪表盘会在 staleTime 窗口内
   // 继续展示旧数据（面板说"新增 23 条"，列表里却看不到）
@@ -388,7 +395,24 @@ export function TaskExecutionStream({ taskId, taskName, onClose }: Props) {
         )}
 
         {/* ── 滚动区域 ───────────────────────────────── */}
-        <div className="flex-1 overflow-y-auto min-h-0">
+        {!follow && (
+          <button
+            type="button"
+            onClick={() => setFollow(true)}
+            className="fixed bottom-24 right-6 z-[60] btn-ghost bg-gray-800 text-gray-100 border border-gray-600
+                       shadow-lg rounded-full px-3 py-1.5 text-xs flex items-center gap-1"
+          >
+            <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
+            回到底部
+          </button>
+        )}
+        <div
+          className="flex-1 overflow-y-auto min-h-0"
+          onScroll={(e) => {
+            const el = e.currentTarget
+            setFollow(el.scrollHeight - el.scrollTop - el.clientHeight < 40)
+          }}
+        >
 
           {/* 步骤详情表格 */}
           <div className="px-1 py-3">
