@@ -1,4 +1,5 @@
 import { useCallback, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { createPortal } from 'react-dom'
 import { useQuery } from '@tanstack/react-query'
 import { Plus, LayoutGrid } from 'lucide-react'
@@ -26,7 +27,9 @@ export function TasksPage() {
   const [showForm, setShowForm]         = useState(false)
   const [editTaskId, setEditTaskId]     = useState<string | null>(null)
   const [historyTask, setHistoryTask]   = useState<Task | null>(null)
-  const [statusFilter, setStatusFilter] = useState('')
+  // 状态 tab 同步进 URL：与 Items/Recommend 一致，刷新不丢当前视图
+  const [searchParams, setSearchParams] = useSearchParams()
+  const [statusFilter, setStatusFilter] = useState(searchParams.get('status') ?? '')
   const [showWizard, setShowWizard]     = useState(false)
   const [showMarket, setShowMarket]     = useState(false)
 
@@ -108,7 +111,13 @@ export function TasksPage() {
             aria-selected={statusFilter === tab.value}
             tabIndex={statusFilter === tab.value ? 0 : -1}
             onKeyDown={handleTabKeyDown}
-            onClick={() => setStatusFilter(tab.value)}
+            onClick={() => {
+              setStatusFilter(tab.value)
+              const params = new URLSearchParams(searchParams)
+              if (tab.value) params.set('status', tab.value)
+              else params.delete('status')
+              setSearchParams(params, { replace: true })
+            }}
             className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 ${
               statusFilter === tab.value
                 ? 'border-primary-600 text-primary-600'
