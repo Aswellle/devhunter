@@ -11,7 +11,7 @@ import { ConfirmDialog } from '../components/ui/ConfirmDialog'
 
 const moreLinks = [
   { to: '/dashboard', label: '数据概览', desc: '采集系统运行状态与统计', icon: BarChart2 },
-  { to: '/cloud', label: '结果云', desc: '关键词聚合视图', icon: Cloud },
+  { to: '/cloud', label: '结果云', desc: '采集内容卡片墙', icon: Cloud },
   { to: '/profile', label: '我的画像', desc: '兴趣主题与阅读偏好、RSS 订阅', icon: User },
 ]
 

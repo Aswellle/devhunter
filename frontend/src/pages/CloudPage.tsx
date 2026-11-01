@@ -118,15 +118,23 @@ function getSiteName(url: string): string {
 /**
  * Fetch all items across multiple pages (backend caps at 100 per page)
  */
-async function fetchAllCloudItems(): Promise<Item[]> {
+interface CloudItemsResult {
+  items: Item[]
+  total: number
+  truncated: boolean
+}
+
+async function fetchAllCloudItems(): Promise<CloudItemsResult> {
   const MAX_TOTAL = 500 // Cap at 500 for performance
   const PER_PAGE = 100
   let allItems: Item[] = []
+  let total = 0
   let page = 1
 
   while (allItems.length < MAX_TOTAL) {
     try {
       const response = await itemsApi.list({ page, per_page: PER_PAGE })
+      total = response.total || allItems.length
       if (!response.items.length) break
       allItems = [...allItems, ...response.items]
       // PaginatedResponse has total/page/per_page but no has_more; use total to decide stop
@@ -142,16 +150,20 @@ async function fetchAllCloudItems(): Promise<Item[]> {
     }
   }
 
-  return allItems.slice(0, MAX_TOTAL)
+  const items = allItems.slice(0, MAX_TOTAL)
+  return { items, total: Math.max(total, items.length), truncated: total > items.length }
 }
 
 
 export function CloudPage() {
-  const { data: items, isLoading, isError, refetch } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: queryKeys.items.cloud(),
     queryFn: fetchAllCloudItems,
     staleTime: 30_000, // 30s cache
   })
+  const items = data?.items ?? []
+  const cloudTotal = data?.total ?? 0
+  const cloudTruncated = data?.truncated ?? false
 
   if (isLoading) {
     return (
@@ -259,7 +271,9 @@ export function CloudPage() {
 
       {/* Stats overlay */}
       <div className="absolute bottom-4 right-4 text-xs text-gray-700 bg-white/80 px-3 py-1.5 rounded-full backdrop-blur-sm shadow-sm">
-        共 {items.length} 条采集结果
+        {cloudTruncated
+          ? `共 ${cloudTotal} 条采集结果 · 展示最近 ${items.length} 条`
+          : `共 ${cloudTotal} 条采集结果`}
       </div>
     </div>
   )
