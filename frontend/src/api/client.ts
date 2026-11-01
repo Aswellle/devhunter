@@ -9,6 +9,8 @@ export interface ApiError {
   code: string
   message: string
   details?: unknown
+  /** 失败请求的 HTTP 方法（小写）；用于上层决定重试安全性 */
+  method?: string
 }
 
 function normalizeError(err: AxiosError): ApiError {
@@ -23,6 +25,7 @@ function normalizeError(err: AxiosError): ApiError {
     code: (envelope?.code as string) || (data?.code as string) || err.code || 'UNKNOWN_ERROR',
     message: (envelope?.message as string) || (data?.message as string) || err.message || '请求失败',
     details: envelope?.details ?? data?.details,
+    method: (err.config?.method ?? '').toLowerCase() || undefined,
   }
 }
 

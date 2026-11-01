@@ -35,13 +35,18 @@ function isApiError(error: Error | ApiError): error is ApiError {
  */
 export const defaultMutationOptions: DefaultOptions<Error> = {
   mutations: {
-    // 网络错误时自动重试 1 次（不含 4xx 客户端错误）
+    // 仅对幂等请求重试 1 次。POST 等非幂等写操作绝不重试：请求可能已到达
+    // 服务端（超时/连接重置时响应丢失），重试会产生重复任务/重复副作用——
+    // 与 axios 拦截器"POST 不重试"是同一条纪律，不能在 TanStack 层绕过。
     retry: (_failureCount: number, error: Error | ApiError) => {
-      // 不重试 4xx 错误（客户端问题，重试无意义）
-      if (isApiError(error) && error.status >= 400 && error.status < 500) {
+      if (!isApiError(error)) return false
+      // 4xx 是客户端问题，重试无意义
+      if (error.status >= 400 && error.status < 500) {
         return false
       }
-      return _failureCount < 1
+      const method = error.method ?? ''
+      const idempotent = ['get', 'head', 'put', 'patch', 'delete'].includes(method)
+      return idempotent && _failureCount < 1
     },
     // 指数退避：1s → 2s → 4s
     retryDelay: (attemptIndex) => Math.min(1000 * Math.pow(2, attemptIndex), 10000),
