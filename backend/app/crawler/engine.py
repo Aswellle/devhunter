@@ -231,7 +231,7 @@ def _parse_mode(selector_list: str) -> tuple[str, str, dict]:
         if len(parts) > 1:
             try:
                 post_body = _json.loads(parts[1])
-            except Exception:
+            except Exception as e:
                 logger.warning('Failed to parse json-post body: %s', e)
         return "json-post", list_path, {"post_body": post_body}
 

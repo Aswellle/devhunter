@@ -62,6 +62,15 @@ def test_parse_mode_json_post_extracts_body():
     assert extra == {"post_body": {"page": 2}}
 
 
+def test_parse_mode_malformed_body_falls_back_to_empty():
+    """畸形 body 不抛异常（回归：except 分支曾引用未绑定的 e），
+    回退为空请求体继续以 json-post 模式抓取。"""
+    mode, list_path, extra = _parse_mode("json-post:data.items|||{not-json")
+    assert mode == "json-post"
+    assert list_path == "data.items"
+    assert extra == {"post_body": {}}
+
+
 def test_json_post_sends_body_from_mode_extra():
     """POST 请求体取自 mode_extra["post_body"]，成功返回响应。"""
     client = _RecordingClient([_FakeResp(200, json_body={"ok": True})])
