@@ -4,6 +4,7 @@ FastAPI 应用入口：lifespan 管理 + 路由挂载 + 异常处理 + CORS
 """
 import uuid
 
+import re
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -24,8 +25,6 @@ from app.core.request_id import RequestIdMiddleware
 from app.scheduler.manager import scheduler_manager
 
 logger = get_logger(__name__)
-from app.core.request_id import RequestIdMiddleware
-from app.scheduler.manager import scheduler_manager
 
 
 @asynccontextmanager
@@ -83,19 +82,35 @@ def create_app() -> FastAPI:
     # 验证 Origin/Referer 头，防止跨站请求伪造
     @app.middleware("http")
     async def csrf_protection(request: Request, call_next):
-        # 只对状态变更请求进行 CSRF 检查
+        # 只对状态变更请求进行 CSRF 检查（SameSite=lax cookie 是主防线，
+        # 这里负责显式拒绝携带了可疑 Origin/Referer 的跨站写请求）
         if request.method in ("POST", "PUT", "PATCH", "DELETE"):
             origin = request.headers.get("origin")
             referer = request.headers.get("referer")
-            # 如果存在 Origin 头，验证它是否在允许的 CORS 来源列表中
-            if origin:
-                if origin not in settings.cors_origins_list:
+            # Origin 存在时必须在白名单内
+            if origin and origin not in settings.cors_origins_list:
+                return JSONResponse(
+                    status_code=403,
+                    content={
+                        "error": {
+                            "code": "CSRF_ERROR",
+                            "message": "Origin not allowed",
+                            "details": {},
+                            "request_id": _get_request_id(request),
+                        }
+                    },
+                )
+            # Origin 缺失但 Referer 指向了白名单外的源（部分表单提交不带
+            # Origin）——同样拒绝；两者都缺的是非浏览器客户端，放行
+            if not origin and referer:
+                m = re.match(r"^(https?://[^/]+)", referer)
+                if m and m.group(1) not in settings.cors_origins_list:
                     return JSONResponse(
                         status_code=403,
                         content={
                             "error": {
                                 "code": "CSRF_ERROR",
-                                "message": "Origin not allowed",
+                                "message": "Referer origin not allowed",
                                 "details": {},
                                 "request_id": _get_request_id(request),
                             }

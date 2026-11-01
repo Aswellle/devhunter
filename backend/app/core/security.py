@@ -9,14 +9,11 @@ import secrets
 from datetime import datetime, timedelta, timezone
 
 from jose import JWTError, jwt
-from passlib.context import CryptContext
 
 from app.core.config import settings
 from app.core.exceptions import UnauthorizedError
 
 logger = logging.getLogger(__name__)
-
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # 用户名可通过 AUTH_USERNAME 环境变量配置（默认 "admin"）
 _ADMIN_USERNAME = settings.auth_username
