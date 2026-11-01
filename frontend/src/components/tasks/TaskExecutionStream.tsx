@@ -5,7 +5,7 @@
  *   下半部分：原始事件日志 + 新增条目预览
  */
 import { Activity, ChevronDown, ChevronUp, ExternalLink, RefreshCw, X } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { clsx } from 'clsx'
 import { useQueryClient } from '@tanstack/react-query'
 import {
@@ -290,13 +290,18 @@ export function TaskExecutionStream({ taskId, taskName, onClose }: Props) {
     }
   }, [status, queryClient])
 
-  const isSuccess = events.some((e) => e.type === 'success')
-  const isFailure = events.some((e) => e.type === 'failure')
-  const isWarning = events.some((e) => e.type === 'warning')
+  // 派生数据统一 memo：事件流活跃期每秒多次 setState，不缓存的话
+  // 每次渲染都全量重算 some/filter/find
+  const isSuccess = useMemo(() => events.some((e) => e.type === 'success'), [events])
+  const isFailure = useMemo(() => events.some((e) => e.type === 'failure'), [events])
+  const isWarning = useMemo(() => events.some((e) => e.type === 'warning'), [events])
   const isDone    = status === 'done'
   const isWaiting = status === 'waiting'
   // 失败原因（如"任务配置不完整，缺少：列表项 Selector"）直接呈现给用户
-  const failureMessage = events.find((e) => e.type === 'failure')?.message
+  const failureMessage = useMemo(
+    () => events.find((e) => e.type === 'failure')?.message, [events])
+  const logEvents = useMemo(
+    () => events.filter((e) => e.type !== 'items_preview'), [events])
 
   const itemsNew    = (finalData?.items_new  as number) ?? 0
   const itemsFetched = (finalData?.items_fetched as number) ?? 0
@@ -404,7 +409,7 @@ export function TaskExecutionStream({ taskId, taskName, onClose }: Props) {
             >
               <span className="flex-1 border-t border-gray-800" />
               <span className="shrink-0 flex items-center gap-1">
-                原始日志 ({events.filter((e) => e.type !== 'items_preview').length} 条)
+                原始日志 ({logEvents.length} 条)
                 {showLog ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
               </span>
               <span className="flex-1 border-t border-gray-800" />
@@ -424,11 +429,11 @@ export function TaskExecutionStream({ taskId, taskName, onClose }: Props) {
                   等待任务执行，点击「立即执行」或等待定时触发…
                 </p>
               )}
-              {events
-                .filter((e) => e.type !== 'items_preview')
-                .map((evt, i) => (
-                  <LogRow key={i} evt={evt} idx={i} />
-                ))}
+              {logEvents.map((evt, i) => (
+                // key 用事件 id：500 条滑动窗口每来一条新事件整体前移，
+                // 索引 key 会让全部行重新 reconcile
+                <LogRow key={evt.id || `${evt.timestamp}-${i}`} evt={evt} idx={i} />
+              ))}
               <div ref={bottomRef} />
             </div>
           )}
