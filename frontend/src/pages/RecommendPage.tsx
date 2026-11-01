@@ -1,20 +1,21 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
-import { ChevronDown, ChevronRight, Rss, Sparkles, TrendingUp } from 'lucide-react'
+import { Rss, Sparkles, TrendingUp } from 'lucide-react'
 import { clsx } from 'clsx'
 import { threadsApi } from '../api/threads'
 import { userPrefsApi } from '../api/user_prefs'
 import { queryKeys } from '../api/queryKeys'
 import { formatDistanceToNow } from '../utils/time'
 import { isSafeExternalUrl } from '../utils/url'
+import { ThreadCard } from '../components/items/ThreadCard'
 import { ReasonBadges } from '../components/recommend/ReasonBadges'
 import { ClampText } from '../components/ui/ClampText'
 import { PullToRefresh } from '../components/ui/PullToRefresh'
 import { ScorePill } from '../components/ui/ScorePill'
 import { Spinner } from '../components/ui/Spinner'
 import { Empty } from '../components/ui/Empty'
-import type { RecommendedItem, ThreadWithItems } from '../types'
+import type { RecommendedItem } from '../types'
 
 type Tab = 'recommended' | 'threads'
 
@@ -257,120 +258,10 @@ function ThreadsTab() {
 
   return (
     <div className="space-y-3">
-      {(data.items as ThreadWithItems[]).map((thread) => (
-        <ThreadCard key={thread.id} thread={thread} />
+      {data.items.map((thread) => (
+        <ThreadCard key={thread.id} thread={thread} defaultExpanded={false} />
       ))}
     </div>
   )
 }
 
-function ThreadCard({ thread }: { thread: ThreadWithItems }) {
-  const [expanded, setExpanded] = useState(false)
-  const platforms = thread.platforms ?? []
-
-  // F2: 使用规范化的 query key
-  const { data: details, isError } = useQuery({
-    queryKey: queryKeys.threads.detail(thread.id),
-    queryFn: () => threadsApi.get(thread.id),
-    enabled: expanded,
-  })
-
-  const items = details?.items || []
-
-  if (isError) {
-    return (
-      <div className="card overflow-hidden">
-        <div className="px-4 py-3 text-sm text-danger" role="alert">
-          加载失败，请重试
-        </div>
-      </div>
-    )
-  }
-
-  return (
-    <div className="card overflow-hidden">
-      <button
-
-        onClick={() => setExpanded(e => !e)}
-        aria-expanded={expanded}
-        aria-controls={`thread-items-${thread.id}`}
-        className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-gray-50 transition-colors"
-      >
-        <span className="text-gray-400">
-          {expanded ? (
-            <ChevronDown className="h-5 w-5" />
-          ) : (
-            <ChevronRight className="h-5 w-5" />
-          )}
-        </span>
-        <Rss className="h-4 w-4 text-primary-500 shrink-0" />
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-medium text-gray-900 truncate">{thread.title}</span>
-            {thread.item_count > 1 && (
-              <span className="badge badge-primary">{thread.item_count} 条</span>
-            )}
-          </div>
-          <div className="flex items-center gap-2 mt-0.5">
-            {platforms.slice(0, 3).map((p) => (
-              <span key={p} className={clsx('text-xs font-medium', PLATFORM_COLORS[p] ?? 'text-gray-400')}>
-                {p}
-              </span>
-            ))}
-            {platforms.length > 3 && (
-              <span className="text-xs text-gray-400">+{platforms.length - 3}</span>
-            )}
-            <span className="text-xs text-gray-300">·</span>
-            <span className="text-xs text-gray-400">
-              {formatDistanceToNow(thread.last_seen_at)}
-            </span>
-          </div>
-        </div>
-      </button>
-
-      {/* Expanded items */}
-      {expanded && (
-        <div id={`thread-items-${thread.id}`}>
-          {items.length > 0 ? (
-            <div className="border-t border-gray-100 divide-y divide-gray-100">
-              {items.map((item) => (
-                <div key={item.id} className="flex items-start gap-2 px-4 py-3">
-                  <div className="flex-1 min-w-0">
-                    <a
-                      href={isSafeExternalUrl(item.url) ? item.url : undefined}
-                      target={isSafeExternalUrl(item.url) ? '_blank' : undefined}
-                      rel="noopener noreferrer"
-                      className="text-sm text-gray-700 hover:text-primary-600 transition-colors line-clamp-2"
-                      onClick={() => {
-                        userPrefsApi.recordInteraction({ item_id: item.id, interaction_type: 'click' })
-                      }}
-                    >
-                      {item.title}
-                    </a>
-                    {item.summary && (
-                      <p className="text-xs text-gray-400 mt-0.5 line-clamp-1">{item.summary}</p>
-                    )}
-                    <div className="flex items-center gap-2 mt-1">
-                      {item.task_name && (
-                        <span className={clsx('text-xs', PLATFORM_COLORS[item.task_name] ?? 'text-gray-400')}>
-                          {item.task_name}
-                        </span>
-                      )}
-                      <span className="text-xs text-gray-400">
-                        {formatDistanceToNow(item.fetched_at)}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="border-t border-gray-100 px-4 py-3 text-sm text-gray-500">
-              {details ? '暂无内容' : '加载中...'}
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  )
-}
