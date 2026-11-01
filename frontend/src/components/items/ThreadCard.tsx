@@ -6,6 +6,7 @@ import { clsx } from 'clsx'
 import { useQuery } from '@tanstack/react-query'
 import type { Thread, ThreadRelation, ThreadStats } from '../../types'
 import { formatDistanceToNow } from '../../utils/time'
+import { isSafeExternalUrl } from '../../utils/url'
 import { queryKeys } from '../../api/queryKeys'
 import { threadsApi } from '../../api/threads'
 import { errorMessage } from '../../api/client'
@@ -369,8 +370,8 @@ export function ThreadCard({ thread, defaultExpanded = false }: ThreadCardProps)
                         </div>
                         <h3 className="text-sm font-medium text-gray-900 leading-snug">
                           <a
-                            href={item.url}
-                            target="_blank"
+                            href={isSafeExternalUrl(item.url) ? item.url : undefined}
+                            target={isSafeExternalUrl(item.url) ? '_blank' : undefined}
                             rel="noopener noreferrer"
                             className="hover:text-primary-600 transition-colors"
                             onClick={(e) => e.stopPropagation()}

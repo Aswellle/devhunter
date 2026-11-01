@@ -15,6 +15,7 @@ import {
   type StreamStatus,
 } from '../../hooks/useTaskEventStream'
 import { queryKeys } from '../../api/queryKeys'
+import { isSafeExternalUrl } from '../../utils/url'
 import { Spinner } from '../ui/Spinner'
 
 interface Props {
@@ -226,7 +227,9 @@ function ItemsPreview({ items, total }: { items: { title: string; url: string; s
         {items.map((item, i) => (
           <div key={i} className="px-3 py-2">
             <a
-              href={item.url} target="_blank" rel="noopener noreferrer"
+              href={isSafeExternalUrl(item.url) ? item.url : undefined}
+              target={isSafeExternalUrl(item.url) ? '_blank' : undefined}
+              rel="noopener noreferrer"
               className="flex items-start gap-1 text-xs text-green-300 hover:text-green-200 group"
             >
               <span className="flex-1 line-clamp-2">{item.title}</span>

@@ -7,6 +7,7 @@ import { itemsApi } from '../../api/items'
 import { queryKeys } from '../../api/queryKeys'
 import { userPrefsApi } from '../../api/user_prefs'
 import { formatDistanceToNow } from '../../utils/time'
+import { isSafeExternalUrl } from '../../utils/url'
 import { ClampText } from '../ui/ClampText'
 
 interface ItemCardProps {
@@ -61,10 +62,10 @@ export function ItemCard({ item }: ItemCardProps) {
     >
       <div className="flex items-start justify-between gap-3">
         <div className="flex-1 min-w-0">
-          {/* 标题 */}
+          {/* 标题（爬取来源 URL 仅放行 http(s)，伪协议降级为不可导航的锚点） */}
           <a
-            href={item.url}
-            target="_blank"
+            href={isSafeExternalUrl(item.url) ? item.url : undefined}
+            target={isSafeExternalUrl(item.url) ? '_blank' : undefined}
             rel="noopener noreferrer"
             onClick={handleTitleClick}
             className={clsx(

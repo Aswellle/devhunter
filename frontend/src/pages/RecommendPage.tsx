@@ -7,6 +7,7 @@ import { threadsApi } from '../api/threads'
 import { userPrefsApi } from '../api/user_prefs'
 import { queryKeys } from '../api/queryKeys'
 import { formatDistanceToNow } from '../utils/time'
+import { isSafeExternalUrl } from '../utils/url'
 import { ReasonBadges } from '../components/recommend/ReasonBadges'
 import { ClampText } from '../components/ui/ClampText'
 import { PullToRefresh } from '../components/ui/PullToRefresh'
@@ -187,8 +188,8 @@ function RecommendedItemCard({ item }: { item: RecommendedItem }) {
   return (
     <div className="card p-4 hover:shadow-md transition-shadow">
       <a
-        href={item.url}
-        target="_blank"
+        href={isSafeExternalUrl(item.url) ? item.url : undefined}
+        target={isSafeExternalUrl(item.url) ? '_blank' : undefined}
         rel="noopener noreferrer"
         className="block text-sm font-medium text-gray-900 hover:text-primary-600 transition-colors leading-snug line-clamp-2"
         onClick={() => {
@@ -336,8 +337,8 @@ function ThreadCard({ thread }: { thread: ThreadWithItems }) {
                 <div key={item.id} className="flex items-start gap-2 px-4 py-3">
                   <div className="flex-1 min-w-0">
                     <a
-                      href={item.url}
-                      target="_blank"
+                      href={isSafeExternalUrl(item.url) ? item.url : undefined}
+                      target={isSafeExternalUrl(item.url) ? '_blank' : undefined}
                       rel="noopener noreferrer"
                       className="text-sm text-gray-700 hover:text-primary-600 transition-colors line-clamp-2"
                       onClick={() => {
