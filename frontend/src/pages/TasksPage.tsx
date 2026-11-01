@@ -139,11 +139,16 @@ export function TasksPage() {
       ) : !data?.items.length ? (
         <Empty
           title="暂无采集任务"
-          description="点击「新建任务」开始配置你的第一个数据源"
+          description="点击「添加数据源」开始配置你的第一个采集任务：填一个网址，向导会自动发现结构并预览效果。模板市场里也有一键启用的预设。"
           action={
-            <button className="btn-primary" onClick={() => setShowForm(true)}>
-              <Plus className="h-4 w-4" /> 新建任务
-            </button>
+            <div className="flex items-center gap-2">
+              <button className="btn-primary" onClick={() => setShowWizard(true)}>
+                <Plus className="h-4 w-4" /> 添加数据源
+              </button>
+              <button className="btn-ghost" onClick={() => setShowForm(true)}>
+                手动配置
+              </button>
+            </div>
           }
         />
       ) : (
