@@ -284,7 +284,7 @@ def _run_task(
          f"正在检查 {items_fetched} 条 URL 是否已采集…",
          {"total": items_fetched})
 
-    new_items  = deduplicate(result.items)
+    new_items  = deduplicate(result.items, task_id=task_id)
     items_new  = len(new_items)
     dup_count  = items_fetched - items_new
 
