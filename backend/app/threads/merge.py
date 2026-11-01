@@ -111,32 +111,14 @@ class ThreadMerger:
                 (source_thread_id,)
             )
 
-            # 5. 更新目标 Thread 统计
-            self._rebuild_thread_stats(conn, target_thread_id)
+            # 6. 更新目标 Thread 统计：复用仓储实现——platforms 来自
+            #    items JOIN tasks（items 表没有 source_name 列，旧实现一旦
+            #    被调用即 OperationalError），并同步 item_count 与最长标题
+            from app.repositories.thread_repo import thread_repo
+            thread_repo.rebuild_thread_stats(target_thread_id, conn=conn)
 
         logger.info("Merged thread %s into %s (reason: %s)", source_thread_id, target_thread_id, reason)
         return self.get_thread(target_thread_id)
-
-    def _rebuild_thread_stats(self, conn: Any, thread_id: str) -> None:
-        """重新计算 Thread 统计"""
-        # 更新 item_count
-        conn.execute(
-            "UPDATE threads SET item_count = (SELECT COUNT(*) FROM thread_items WHERE thread_id = ?) WHERE id = ?",
-            (thread_id, thread_id)
-        )
-
-        # 更新 platforms（从 items 表的 source_name 获取）
-        conn.execute(
-            """
-            UPDATE threads SET platforms = (
-                SELECT json_group_array(DISTINCT source_name)
-                FROM items
-                WHERE id IN (SELECT item_id FROM thread_items WHERE thread_id = ?)
-                  AND source_name IS NOT NULL
-            ) WHERE id = ?
-            """,
-            (thread_id, thread_id)
-        )
 
     def get_thread(self, thread_id: str) -> dict[str, Any] | None:
         """获取 Thread"""

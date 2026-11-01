@@ -4,12 +4,14 @@ Thread Split：拆分 Thread。
 
 将指定 items 从 Thread 中移出，创建新的 Thread。
 """
+import json
 import logging
 import uuid
 from datetime import datetime, timezone
 from typing import Any
 
 from app.core.database import get_db
+from app.core.exceptions import BadRequestError
 
 logger = logging.getLogger(__name__)
 
@@ -49,26 +51,40 @@ class ThreadSplitter:
                 logger.warning("Source thread not found: %s", thread_id)
                 return None
 
+            # 不允许拆出全部条目：那等于删除源 Thread，而后面还要给
+            # "源 ↔ 新"建同故事线关联，源被删会撞外键约束
+            total_items = conn.execute(
+                "SELECT COUNT(*) FROM thread_items WHERE thread_id = ?",
+                (thread_id,)
+            ).fetchone()[0]
+            if len(set(item_ids)) >= total_items:
+                raise BadRequestError("不能拆出 Thread 的全部条目，至少要保留一条在原 Thread 中")
+
             # 2. 创建新 Thread
             new_thread_id = str(uuid.uuid4())
             now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
-            # 获取第一个 item 的信息
+            # 获取第一个 item 的信息（platform 取其所属任务名；
+            # items 表没有 source_name 列）
             first_row = conn.execute(
-                "SELECT * FROM items WHERE id = ?",
+                "SELECT i.*, t.name AS task_name FROM items i "
+                "LEFT JOIN tasks t ON i.task_id = t.id WHERE i.id = ?",
                 (item_ids[0],)
             ).fetchone()
             first_item = dict(first_row) if first_row else None
 
             title = new_thread_title or (first_item["title"] if first_item else "Split Thread")
-            platform = first_item.get("source_name", "") if first_item else ""
+            platform = (first_item.get("task_name") or "") if first_item else ""
+            # JSON 一律经 json.dumps 参数化绑定，禁止 f-string 拼接进 SQL
+            # （任务名含引号会产出坏 JSON）
+            platforms_json = json.dumps([platform] if platform else [], ensure_ascii=False)
 
             conn.execute(
                 """
                 INSERT INTO threads (id, title, first_seen_at, last_seen_at, item_count, platforms)
                 VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                (new_thread_id, title, now, now, len(item_ids), f'["{platform}"]')
+                (new_thread_id, title, now, now, len(item_ids), platforms_json)
             )
 
             # 3. 移动 items 到新 Thread
@@ -101,8 +117,11 @@ class ThreadSplitter:
                 (new_thread_id, *item_ids)
             )
 
-            # 4. 更新源 Thread 统计
-            self._rebuild_thread_stats(conn, thread_id)
+            # 4. 更新源 Thread 统计：复用仓储实现（platforms/items_count/
+            #    最长标题与删除路径保持一致；拆出后源 Thread 的平台列表
+            #    也可能变化）
+            from app.repositories.thread_repo import thread_repo
+            thread_repo.rebuild_thread_stats(thread_id, conn=conn)
 
             # 5. 拆分出的新 Thread 与源 Thread 显式关联为同一故事线
             from app.threads.relations import canonical_pair
