@@ -129,7 +129,7 @@ export function SchedulePicker({ value, onChange }: SchedulePickerProps) {
 
       {/* 换算结果：让用户看得见最终保存的值 */}
       <p className="text-xs text-gray-500">
-        下次运行：<span className="text-gray-700">{describeCron(value)}</span>
+        运行频率：<span className="text-gray-700">{describeCron(value)}</span>
         <span className="mx-1.5 text-gray-300">·</span>
         保存为 Cron <code className="font-mono text-gray-700">{value || '—'}</code>
         <span className="text-gray-400">（服务器按 UTC 调度）</span>

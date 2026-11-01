@@ -16,6 +16,7 @@ import {
 } from '../../hooks/useTaskEventStream'
 import { queryKeys } from '../../api/queryKeys'
 import { isSafeExternalUrl } from '../../utils/url'
+import { formatDuration } from '../../utils/time'
 import { Spinner } from '../ui/Spinner'
 import { useModalA11y } from '../../hooks/useModalA11y'
 
@@ -137,7 +138,7 @@ function PipelineNode({ step, isLast }: { step: StepState; isLast: boolean }) {
       </div>
       {/* 耗时 */}
       {step.durationMs != null && (
-        <div className="text-[9px] text-gray-500 mt-0.5">{step.durationMs}ms</div>
+        <div className="text-[9px] text-gray-500 mt-0.5">{formatDuration(step.durationMs)}</div>
       )}
     </div>
   )
@@ -207,7 +208,7 @@ function StepsTable({ steps }: { steps: StepState[] }) {
             {step.status === 'pending' ? '等待中' : (step.detail || '—')}
           </span>
           {step.durationMs != null && (
-            <span className="text-gray-400 font-mono shrink-0">{step.durationMs}ms</span>
+            <span className="text-gray-400 font-mono shrink-0">{formatDuration(step.durationMs)}</span>
           )}
         </div>
       ))}
@@ -384,7 +385,7 @@ export function TaskExecutionStream({ taskId, taskName, onClose }: Props) {
               </p>
               {isSuccess && (
                 <p className="text-xs text-gray-400 mt-0.5">
-                  抓取 {itemsFetched} 条 · 耗时 {duration}ms
+                  抓取 {itemsFetched} 条 · 耗时 {formatDuration(duration)}
                 </p>
               )}
               {isFailure && failureMessage && (
