@@ -13,6 +13,7 @@ import { itemsApi } from '../../api/items'
 import { userPrefsApi } from '../../api/user_prefs'
 import { errorMessage } from '../../api/client'
 import { ClampText } from '../ui/ClampText'
+import { ConfirmDialog } from '../ui/ConfirmDialog'
 import { deriveThreadStatus, THREAD_STATUS_META } from '../../utils/threadStatus'
 
 // Platform display name mapping
@@ -148,6 +149,8 @@ function ThreadStatsBand({ stats }: { stats: ThreadStats }) {
  */
 function RelatedThreadsBand({ threadId, relations }: { threadId: string; relations: ThreadRelation[] }) {
   const qc = useQueryClient()
+  // 误触 X 立即解绑且无自助恢复入口（重新关联需要等重建），二次确认再执行
+  const [pendingUnlink, setPendingUnlink] = useState<ThreadRelation | null>(null)
   const unlinkMutation = useMutation({
     mutationFn: (relatedId: string) => threadsApi.unlinkRelation(threadId, relatedId),
     onSuccess: () => {
@@ -179,7 +182,7 @@ function RelatedThreadsBand({ threadId, relations }: { threadId: string; relatio
             </span>
             <button
               type="button"
-              onClick={(e) => { e.stopPropagation(); unlinkMutation.mutate(rel.id) }}
+              onClick={(e) => { e.stopPropagation(); setPendingUnlink(rel) }}
               disabled={unlinkMutation.isPending}
               className="shrink-0 p-1 rounded text-gray-400 hover:text-red-500 hover:bg-white/70 transition-colors"
               aria-label={`解除与「${rel.title}」的关联`}
@@ -189,6 +192,20 @@ function RelatedThreadsBand({ threadId, relations }: { threadId: string; relatio
           </div>
         ))}
       </div>
+
+      {pendingUnlink && (
+        <ConfirmDialog
+          title="解除这条故事线关联？"
+          message={`「${pendingUnlink.title}」将不再与当前 Thread 关联展示；同一对 Thread 在本次存续期内不会被自动重新关联。`}
+          confirmText="解除关联"
+          variant="default"
+          onConfirm={() => {
+            unlinkMutation.mutate(pendingUnlink.id)
+            setPendingUnlink(null)
+          }}
+          onCancel={() => setPendingUnlink(null)}
+        />
+      )}
     </div>
   )
 }
