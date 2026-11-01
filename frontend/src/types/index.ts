@@ -398,5 +398,3 @@ export interface SourceTemplate {
 export interface TokenResponse {
   ok: boolean
 }
-
-// ── 频率快捷选项 ──────────────────────────────────────────
