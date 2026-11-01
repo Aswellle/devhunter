@@ -19,9 +19,11 @@ logger = get_logger(__name__)
 
 # ── 进程级并发锁 ─────────────────────────────────────────
 _running_tasks: dict[str, bool] = {}
-_cancel_events: dict[str, threading.Event] = {}
-JOB_TIMEOUT_SECONDS = 300  # 5 minutes max per task execution
 _lock = threading.Lock()
+
+# 采集后逐 Thread 生成 AI 综述的总时长预算（秒）：LLM 单次调用超时 60s，
+# 不设总上限时，touched_threads 一多任务就会长时间占住执行锁与 SQLite 单写者
+DIGEST_BUDGET_SECONDS = 180
 
 
 def acquire_task_lock(task_id: str) -> bool:
@@ -29,36 +31,17 @@ def acquire_task_lock(task_id: str) -> bool:
         if _running_tasks.get(task_id):
             return False
         _running_tasks[task_id] = True
-        _cancel_events[task_id] = threading.Event()
         return True
 
 
 def release_task_lock(task_id: str) -> None:
     with _lock:
         _running_tasks.pop(task_id, None)
-        _cancel_events.pop(task_id, None)
 
 
 def is_task_running(task_id: str) -> bool:
     with _lock:
         return bool(_running_tasks.get(task_id))
-
-
-def cancel_task(task_id: str) -> bool:
-    """请求取消正在运行的任务。返回是否成功发送取消信号。"""
-    with _lock:
-        evt = _cancel_events.get(task_id)
-        if evt:
-            evt.set()
-            return True
-    return False
-
-
-def is_task_cancelled(task_id: str) -> bool:
-    """检查任务是否已被请求取消。"""
-    with _lock:
-        evt = _cancel_events.get(task_id)
-        return evt is not None and evt.is_set()
 
 
 # ── 事件发布辅助 ─────────────────────────────────────────
@@ -356,9 +339,19 @@ def _run_task(
                 touched_thread_ids = {
                     r.get("thread_id") for r in new_records if r.get("thread_id")
                 }
+                digest_deadline = time.monotonic() + DIGEST_BUDGET_SECONDS
+                digest_done = 0
                 for tid in touched_thread_ids:
+                    if time.monotonic() > digest_deadline:
+                        logger.warning(
+                            "Digest budget (%ss) exhausted after %d thread(s); %d skipped",
+                            DIGEST_BUDGET_SECONDS, digest_done,
+                            len(touched_thread_ids) - digest_done,
+                        )
+                        break
                     try:
                         digest.generate_digest(tid)
+                        digest_done += 1
                     except Exception as digest_err:  # noqa: BLE001
                         logger.warning("Digest generation failed for %s: %s", tid, digest_err)
         except Exception as e:
