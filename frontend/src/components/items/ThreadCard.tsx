@@ -5,7 +5,7 @@ import { ChevronDown, ChevronRight, ExternalLink, Flame, Gauge, GitBranch, Globe
 import { clsx } from 'clsx'
 import { useQuery } from '@tanstack/react-query'
 import type { Thread, ThreadRelation, ThreadStats } from '../../types'
-import { formatDistanceToNow } from '../../utils/time'
+import { formatDateTime, formatDistanceToNow } from '../../utils/time'
 import { isSafeExternalUrl } from '../../utils/url'
 import { queryKeys } from '../../api/queryKeys'
 import { threadsApi } from '../../api/threads'
@@ -452,7 +452,7 @@ export function ThreadCard({ thread, defaultExpanded = false }: ThreadCardProps)
                             )}
                           />
                         </button>
-                        <span className="text-xs text-gray-400">
+                        <span className="text-xs text-gray-400" title={formatDateTime(item.fetched_at)}>
                           {formatDistanceToNow(item.fetched_at)}
                         </span>
                       </div>

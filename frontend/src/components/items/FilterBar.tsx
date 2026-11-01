@@ -238,6 +238,12 @@ export function FilterBar({
             onKeyDown={(e) => categoryKeyDown(e, category.id)}
           >
             {category.label}
+            {/* 未读数此前传入却从未渲染 */}
+            {!!category.unreadCount && category.unreadCount > 0 && (
+              <span className="ml-1 rounded-full bg-primary-100 px-1.5 text-[10px] font-medium text-primary-700">
+                {category.unreadCount} 未读
+              </span>
+            )}
           </Pill>
         ))}
       </PillGroup>

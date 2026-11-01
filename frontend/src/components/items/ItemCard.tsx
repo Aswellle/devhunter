@@ -6,7 +6,7 @@ import type { Item } from '../../types'
 import { itemsApi } from '../../api/items'
 import { queryKeys } from '../../api/queryKeys'
 import { userPrefsApi } from '../../api/user_prefs'
-import { formatDistanceToNow } from '../../utils/time'
+import { formatDateTime, formatDistanceToNow } from '../../utils/time'
 import { isSafeExternalUrl } from '../../utils/url'
 import { ClampText } from '../ui/ClampText'
 
@@ -96,7 +96,10 @@ export function ItemCard({ item }: ItemCardProps) {
             {item.task_name && (
               <span className="badge badge-gray">{item.task_name}</span>
             )}
-            <span>{formatDistanceToNow(item.fetched_at)}</span>
+            {/* 相对时间悬停显示绝对时间，跨天后仍可溯源 */}
+            <span title={formatDateTime(item.fetched_at)}>
+              {formatDistanceToNow(item.fetched_at)}
+            </span>
           </div>
         </div>
 
