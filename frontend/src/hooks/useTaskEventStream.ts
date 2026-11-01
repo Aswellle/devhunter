@@ -185,6 +185,30 @@ export function useTaskEventStream({ taskId, active }: { taskId: string | null; 
     ;(async () => {
       const MAX_RETRIES = 5
 
+      // 统一的退避重试等待：await 返回后由调用方 continue 下一轮循环。
+      // 等待同时监听 abort——卸载/重置时立即唤醒，否则悬挂的 await 会
+      // 让 while(true) 永远走不到顶部的中止检查（每次关/开面板泄漏一个
+      // 僵尸闭包）。
+      const retryWait = async (message: string): Promise<void> => {
+        retryCount.current++
+        const delay = backoffDelay(retryCount.current - 1)
+        setStatus('connecting')
+        setEvents((prev) => pushEvent(prev, {
+          id: `retry-${retryCount.current}`,
+          type: 'warning',
+          message,
+        }))
+        await new Promise<void>((resolve) => {
+          const timer = setTimeout(resolve, delay)
+          retryTimer.current = timer
+          controller.signal.addEventListener('abort', () => {
+            clearTimeout(timer)
+            resolve()
+          }, { once: true })
+        })
+      }
+      const canRetry = () => retryCount.current < MAX_RETRIES && !controller.signal.aborted
+
       while (true) {
         if (controller.signal.aborted) break
 
@@ -201,6 +225,18 @@ export function useTaskEventStream({ taskId, active }: { taskId: string | null; 
           })
 
           if (!res.ok || !res.body) {
+            if (res.status === 401) {
+              // 裸 fetch 不经过 axios 拦截器：会话过期走统一登出链路
+              clearTimeout(stuckTimerId)
+              localStorage.removeItem('devhunter_auth')
+              window.dispatchEvent(new Event('devhunter:auth-expired'))
+              return
+            }
+            // 瞬时 5xx / 代理错误与网络中断同等待遇：退避重试而非终态
+            if (canRetry()) {
+              await retryWait(`⚠️ 连接失败（HTTP ${res.status}），${(backoffDelay(retryCount.current) / 1000).toFixed(0)}s 后自动重试`)
+              continue
+            }
             clearTimeout(stuckTimerId)
             setStatus('error')
             return
@@ -284,20 +320,9 @@ export function useTaskEventStream({ taskId, active }: { taskId: string | null; 
           // 走到这里说明流被服务端干净关闭（reader done）但未收到终态事件
           // （success/failure/warning 会直接 return）——多为服务端重启或代理断开。
           // 视同连接中断走重试，而不是永久停在"等待 Worker 响应"的误导提示上。
-          if (retryCount.current < MAX_RETRIES && !controller.signal.aborted) {
-            retryCount.current++
-            const delay = backoffDelay(retryCount.current - 1)
-            setStatus('connecting')
-            setEvents((prev) => pushEvent(prev, {
-              id: `retry-${retryCount.current}`,
-              type: 'warning',
-              message: `⚠️ 连接被服务端关闭，${(delay / 1000).toFixed(0)}s 后自动重连 (${retryCount.current}/${MAX_RETRIES})`,
-            }))
-            let retryResolve: () => void
-            const promise = new Promise<void>((r) => { retryResolve = r })
-            retryTimer.current = setTimeout(() => retryResolve(), delay)
-
-            await promise
+          if (canRetry()) {
+            const delay = backoffDelay(retryCount.current)
+            await retryWait(`⚠️ 连接被服务端关闭，${(delay / 1000).toFixed(0)}s 后自动重连`)
             continue
           }
 
@@ -315,30 +340,19 @@ export function useTaskEventStream({ taskId, active }: { taskId: string | null; 
             clearTimeout(stuckTimerId)
             return
           }
-          if (retryCount.current < MAX_RETRIES && !controller.signal.aborted) {
-            retryCount.current++
-            const delay = backoffDelay(retryCount.current - 1)
-            setStatus('connecting')
-            setEvents((prev) => pushEvent(prev, {
-              id: `retry-${retryCount.current}`,
-              type: 'warning',
-              message: `⚠️ 连接中断，${(delay / 1000).toFixed(0)}s 后自动重试 (${retryCount.current}/${MAX_RETRIES})`,
-            }))
-            let retryResolve: () => void
-            const promise = new Promise<void>((r) => { retryResolve = r })
-            retryTimer.current = setTimeout(() => retryResolve(), delay)
-
-            await promise
-          } else {
-            clearTimeout(stuckTimerId)
-            setStatus('error')
-            setEvents((prev) => pushEvent(prev, {
-              id: 'final-error',
-              type: 'warning',
-              message: `⚠️ 连接失败，已重试 ${MAX_RETRIES} 次。请手动刷新页面重试。`,
-            }))
-            return
+          if (canRetry()) {
+            const delay = backoffDelay(retryCount.current)
+            await retryWait(`⚠️ 连接中断，${(delay / 1000).toFixed(0)}s 后自动重试`)
+            continue
           }
+          clearTimeout(stuckTimerId)
+          setStatus('error')
+          setEvents((prev) => pushEvent(prev, {
+            id: 'final-error',
+            type: 'warning',
+            message: `⚠️ 连接失败，已重试 ${MAX_RETRIES} 次。请手动刷新页面重试。`,
+          }))
+          return
         }
       }
     })()
