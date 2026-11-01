@@ -12,6 +12,7 @@ services:
       # ⚠️ 生产环境必须通过 .env 文件设置真实值，不提供任何 fallback 默认值。
       # 若 AUTH_PASSWORD 或 SECRET_KEY 为空/占位符，后端启动时会拒绝启动。
       # 使用方式：cp backend/.env.example backend/.env 并填写真实值
+      APP_ENV: production
       AUTH_PASSWORD: ${AUTH_PASSWORD}
       SECRET_KEY: ${SECRET_KEY}
       JWT_EXPIRE_MINUTES: "10080"
@@ -20,6 +21,9 @@ services:
       SCHEDULER_MAX_WORKERS: "3"
       LOG_LEVEL: INFO
       LOG_FORMAT: json
+      # 数据库必须落在挂载卷内：默认相对路径会写进容器可写层，
+      # 容器重建（升级/迁移镜像）即丢失全部数据
+      DB_PATH: /data/devhunter.db
       # 浏览器可见的前端 origin；http://frontend 是 Docker 内部服务名，
       # 浏览器永远不会把它当作 Origin 发送，此前留在这里是死配置。
       CORS_ORIGINS: http://localhost,http://localhost:80,https://localhost
