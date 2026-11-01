@@ -15,6 +15,7 @@ import { Spinner } from '../components/ui/Spinner'
 import { Empty } from '../components/ui/Empty'
 import { SkeletonList } from '../components/ui/Skeleton'
 import { ConfirmDialog } from '../components/ui/ConfirmDialog'
+import { Pagination } from '../components/ui/Pagination'
 import { PullToRefresh } from '../components/ui/PullToRefresh'
 import { toast } from 'react-hot-toast'
 import type { Item, ThreadWithItems } from '../types'
@@ -51,6 +52,14 @@ export function ItemsPage() {
   const [threadSort, setThreadSort] = useState<'first_seen' | 'hotness'>(
     searchParams.get('sort') === 'hotness' ? 'hotness' : 'first_seen',
   )
+  // 列表页码：URL 为源。筛选/视图/排序变化时由同步 effect 重建参数而归 1
+  const page = Math.max(1, Number(searchParams.get('page')) || 1)
+  const updatePage = useCallback((p: number) => {
+    const params = new URLSearchParams(searchParams)
+    if (p > 1) params.set('page', String(p))
+    else params.delete('page')
+    setSearchParams(params, { replace: true })
+  }, [searchParams, setSearchParams])
   // Sync filter state to URL
   useEffect(() => {
     const params = new URLSearchParams()
@@ -84,13 +93,14 @@ export function ItemsPage() {
 
   // Fetch items
   const { data, isFetching, isError, refetch } = useQuery({
-    queryKey: queryKeys.items.grouped(filters),
+    queryKey: queryKeys.items.grouped({ ...filters, page }),
     queryFn: () =>
       itemsApi.list({
         search: filters.search || undefined,
         task_id: filters.task_id || undefined,
         starred: filters.starred,
         is_read: filters.is_read,
+        page,
         per_page: 100,
       }),
     // Keep the previous page's items while a filter change refetches —
@@ -114,10 +124,11 @@ export function ItemsPage() {
 
   // Fetch Threads (only when in thread view)；排序由 threadSort state 决定
   const { data: threadsPage, isError: threadsError, refetch: refetchThreads } = useQuery({
-    queryKey: queryKeys.threads.list({ task_id: filters.task_id, sort: threadSort }),
+    queryKey: queryKeys.threads.list({ task_id: filters.task_id, sort: threadSort, page }),
     queryFn: () =>
       threadsApi.list({
         task_id: filters.task_id || undefined,
+        page,
         per_page: 50,
         sort: threadSort,
       }),
@@ -567,6 +578,8 @@ export function ItemsPage() {
                 defaultExpanded={false}
               />
             ))}
+            {/* Thread 视图分页（固定 per_page=50） */}
+            <Pagination page={page} total={threadsPage.total} perPage={50} onChange={updatePage} />
           </div>
         ) : hasOnlyCatalogTasks ? (
           // 全部数据源都是榜单类时给出业务解释，而不是误导性的"采集更多"
@@ -763,6 +776,9 @@ export function ItemsPage() {
                 )
               })}
             </div>
+
+            {/* 数据源视图分页：固定 per_page=100 时第 101 条起必须可达 */}
+            <Pagination page={page} total={data?.total ?? 0} perPage={100} onChange={updatePage} />
 
             {/* Batch actions bar */}
             {totalSelected > 0 && (
