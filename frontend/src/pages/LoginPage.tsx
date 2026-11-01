@@ -9,7 +9,8 @@ import { toast } from 'react-hot-toast'
 function loginErrorMessage(err: unknown): string {
   const status = (err as ApiError | undefined)?.status
   if (status === 401) return '密码错误，请重试'
-  if (status === 429) return '尝试次数过多，账户已临时锁定，请 5 分钟后再试'
+  // 后端 429 带真实剩余秒数（ACCOUNT_LOCKED），缺失时回退到不带时长的提示
+  if (status === 429) return errorMessage(err, '尝试次数过多，账户已临时锁定，请稍后再试')
   return errorMessage(err, '登录失败，请检查网络连接后重试')
 }
 

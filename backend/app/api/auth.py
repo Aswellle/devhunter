@@ -68,7 +68,7 @@ def do_login(request: Request, body: LoginRequest, response: Response):
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail={
                 "code": "ACCOUNT_LOCKED",
-                "message": f"Too many failed attempts. Try again in {remaining}s.",
+                "message": f"登录尝试次数过多，账户已临时锁定，请 {remaining} 秒后重试",
             },
         )
 
