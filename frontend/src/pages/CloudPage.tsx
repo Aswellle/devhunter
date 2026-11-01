@@ -17,6 +17,7 @@ import { formatDateTime } from '../utils/time'
 import { Spinner } from '../components/ui/Spinner'
 import { Empty } from '../components/ui/Empty'
 import type { Item } from '../types'
+import { usePageTitle } from '../hooks/usePageTitle'
 
 /** Font size based on title character count - fluid scaling */
 function getTitleSize(title: string): string {
@@ -156,6 +157,7 @@ async function fetchAllCloudItems(): Promise<CloudItemsResult> {
 
 
 export function CloudPage() {
+  usePageTitle('结果云')
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: queryKeys.items.cloud(),
     queryFn: fetchAllCloudItems,

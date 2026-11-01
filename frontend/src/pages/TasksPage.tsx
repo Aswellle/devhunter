@@ -12,6 +12,7 @@ import { ExecutionHistoryPanel } from '../components/tasks/ExecutionHistoryPanel
 import { Spinner } from '../components/ui/Spinner'
 import { Empty } from '../components/ui/Empty'
 import type { Task } from '../types'
+import { usePageTitle } from '../hooks/usePageTitle'
 
 const STATUS_TABS = [
   { label: '全部', value: '' },
@@ -21,6 +22,7 @@ const STATUS_TABS = [
 ] as const
 
 export function TasksPage() {
+  usePageTitle('任务管理')
   const [showForm, setShowForm]         = useState(false)
   const [editTaskId, setEditTaskId]     = useState<string | null>(null)
   const [historyTask, setHistoryTask]   = useState<Task | null>(null)

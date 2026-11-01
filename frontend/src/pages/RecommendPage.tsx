@@ -16,6 +16,7 @@ import { ScorePill } from '../components/ui/ScorePill'
 import { Spinner } from '../components/ui/Spinner'
 import { Empty } from '../components/ui/Empty'
 import type { RecommendedItem } from '../types'
+import { usePageTitle } from '../hooks/usePageTitle'
 
 type Tab = 'recommended' | 'threads'
 
@@ -38,6 +39,7 @@ const PLATFORM_COLORS: Record<string, string> = {
 }
 
 export function RecommendPage() {
+  usePageTitle('推荐')
   const [searchParams, setSearchParams] = useSearchParams()
   const [tab, setTab] = useState<Tab>((searchParams.get('tab') as Tab) || 'recommended')
   const qc = useQueryClient()

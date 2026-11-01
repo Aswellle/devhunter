@@ -13,6 +13,7 @@ import { PullToRefresh } from '../components/ui/PullToRefresh'
 import { StickySectionNav } from '../components/ui/StickySectionNav'
 import { Spinner } from '../components/ui/Spinner'
 import { Empty } from '../components/ui/Empty'
+import { usePageTitle } from '../hooks/usePageTitle'
 
 /** 仪表盘分区（模块级常量：引用稳定，StickySectionNav 的 effect 依赖它） */
 const DASH_SECTIONS = [
@@ -23,6 +24,7 @@ const DASH_SECTIONS = [
 ]
 
 export function DashboardPage() {
+  usePageTitle('数据概览')
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: queryKeys.stats.all,
     queryFn: statsApi.get,

@@ -8,6 +8,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { BarChart2, ChevronRight, Cloud, LogOut, User } from 'lucide-react'
 import { useAuthStore } from '../stores/authStore'
 import { ConfirmDialog } from '../components/ui/ConfirmDialog'
+import { usePageTitle } from '../hooks/usePageTitle'
 
 const moreLinks = [
   { to: '/dashboard', label: '数据概览', desc: '采集系统运行状态与统计', icon: BarChart2 },
@@ -16,6 +17,7 @@ const moreLinks = [
 ]
 
 export function MorePage() {
+  usePageTitle('更多')
   const { logout } = useAuthStore()
   const navigate = useNavigate()
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false)

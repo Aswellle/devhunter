@@ -18,6 +18,7 @@ import { LLMSetupCard } from '../components/profile/LLMSetupCard'
 import { LabelingAssistant } from '../components/profile/LabelingAssistant'
 import { PreferenceModal } from '../components/dashboard/PreferenceModal'
 import type { AffinityEntry, FeedInfo } from '../types'
+import { usePageTitle } from '../hooks/usePageTitle'
 
 // 展示维度 → 中文标签（后端已把 task/platform 归一为 task）
 const AFFINITY_TYPE_LABELS: Record<string, string> = {
@@ -81,6 +82,7 @@ function FeedRow({ name, url }: { name: string; url: string }) {
 }
 
 export function ProfilePage() {
+  usePageTitle('我的画像')
   const [prefsOpen, setPrefsOpen] = useState(false)
   const { data: topics, isLoading: topicsLoading, isError: topicsError, refetch: refetchTopics } = useQuery({
     queryKey: queryKeys.userPrefs.topics(),

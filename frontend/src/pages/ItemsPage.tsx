@@ -19,6 +19,7 @@ import { Pagination } from '../components/ui/Pagination'
 import { PullToRefresh } from '../components/ui/PullToRefresh'
 import { toast } from 'react-hot-toast'
 import type { Item, ThreadWithItems } from '../types'
+import { usePageTitle } from '../hooks/usePageTitle'
 
 type ViewMode = 'source' | 'thread'
 
@@ -39,6 +40,7 @@ interface GroupedItems {
 }
 
 export function ItemsPage() {
+  usePageTitle('采集结果')
   const [searchParams, setSearchParams] = useSearchParams()
 
   const [filters, setFilters] = useState<Filters>({

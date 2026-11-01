@@ -7,8 +7,10 @@ import { Pagination } from '../components/ui/Pagination'
 import { Spinner } from '../components/ui/Spinner'
 import { Empty } from '../components/ui/Empty'
 import { Star } from 'lucide-react'
+import { usePageTitle } from '../hooks/usePageTitle'
 
 export function StarredPage() {
+  usePageTitle('收藏')
   const [page, setPage] = useState(1)
 
   // 翻页时滚动到顶部。布局的滚动容器是 AppLayout 的 <main id="main-content">，

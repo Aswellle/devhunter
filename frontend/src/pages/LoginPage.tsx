@@ -4,6 +4,7 @@ import { useAuthStore } from '../stores/authStore'
 import { errorMessage, type ApiError } from '../api/client'
 import { Spinner } from '../components/ui/Spinner'
 import { toast } from 'react-hot-toast'
+import { usePageTitle } from '../hooks/usePageTitle'
 
 /** 按失败原因给出准确文案，避免把限流/网络错误一律误导成"密码错误" */
 function loginErrorMessage(err: unknown): string {
@@ -15,6 +16,7 @@ function loginErrorMessage(err: unknown): string {
 }
 
 export function LoginPage() {
+  usePageTitle('登录')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const { login } = useAuthStore()
