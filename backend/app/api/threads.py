@@ -95,6 +95,59 @@ def unlink_related_thread(
         )
 
 
+class ThreadMergeRequest(BaseModel):
+    """人工合并参数：源（路径）Thread 的全部条目并入目标后删除源"""
+    target_thread_id: str = Field(..., description="合并目标 Thread ID")
+    reason: str = Field("", max_length=200, description="合并原因（审计记录）")
+
+
+@router.post("/{thread_id}/merge")
+def merge_thread(thread_id: str, body: ThreadMergeRequest, _: str = Depends(require_auth)):
+    """把当前 Thread 人工合并进目标 Thread（多来源同事件被误拆时使用）"""
+    if thread_id == body.target_thread_id:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "INVALID_MERGE", "message": "源 Thread 与目标 Thread 不能相同"},
+        )
+    try:
+        merged = thread_service.merge_threads(thread_id, body.target_thread_id, body.reason)
+    except DevHunterError as e:
+        raise HTTPException(
+            status_code=e.status_code,
+            detail={"code": e.error_code, "message": e.message},
+        )
+    if not merged:
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "THREAD_NOT_FOUND", "message": "Thread 不存在"},
+        )
+    return merged
+
+
+class ThreadSplitRequest(BaseModel):
+    """人工拆分参数：把指定条目移出当前 Thread，创建新 Thread"""
+    item_ids: list[str] = Field(..., min_length=1, description="要移出的条目 ID 列表")
+    new_thread_title: str | None = Field(None, max_length=300, description="新 Thread 标题（缺省取首个条目标题）")
+
+
+@router.post("/{thread_id}/split")
+def split_thread(thread_id: str, body: ThreadSplitRequest, _: str = Depends(require_auth)):
+    """把指定条目从当前 Thread 拆出并创建新 Thread（误聚合时使用）"""
+    try:
+        new_thread = thread_service.split_thread(thread_id, body.item_ids, body.new_thread_title)
+    except DevHunterError as e:
+        raise HTTPException(
+            status_code=e.status_code,
+            detail={"code": e.error_code, "message": e.message},
+        )
+    if not new_thread:
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "THREAD_NOT_FOUND", "message": "Thread 不存在"},
+        )
+    return new_thread
+
+
 class ThreadDigestRequest(BaseModel):
     """综述生成参数：force=True 时重新生成（相同材料会命中结果复用，不重复付费）"""
     force: bool = False
