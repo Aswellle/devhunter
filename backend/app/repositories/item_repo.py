@@ -203,10 +203,11 @@ class ItemRepository:
                     params + [per_page, offset],
                 ).fetchall()
             except sqlite3.OperationalError:
-                # FTS 查询语法错误时回退到 LIKE
+                # FTS 查询语法错误时回退到 LIKE（过滤条件必须原样透传，
+                # 否则 LIKE 路径会静默丢掉 created_after 等维度）
                 logger.warning("FTS query failed, falling back to LIKE for: %s", search)
                 return self._query_with_like(
-                    task_id, search, starred, is_read, page, per_page
+                    task_id, search, starred, is_read, created_after, page, per_page
                 )
 
         return [_row_to_dict(r) for r in rows], total
@@ -217,10 +218,11 @@ class ItemRepository:
         search: str | None,
         starred: bool | None,
         is_read: bool | None,
+        created_after: str | None,
         page: int,
         per_page: int,
     ) -> tuple[list[dict], int]:
-        """LIKE 回退查询（FTS 不可用时）"""
+        """LIKE 回退查询（FTS 不可用时），过滤条件与 FTS 路径保持一致"""
         base_from = "FROM items i LEFT JOIN tasks t ON i.task_id = t.id"
         conditions: list[str] = []
         params: list[Any] = []
@@ -234,6 +236,9 @@ class ItemRepository:
         if is_read is not None:
             conditions.append("i.is_read = ?")
             params.append(1 if is_read else 0)
+        if created_after:
+            conditions.append("i.created_at >= ?")
+            params.append(created_after)
         if search:
             # Escape LIKE wildcards so '%' and '_' are treated as literals,
             # not as wildcard operators. Without escaping, a search for '%'
