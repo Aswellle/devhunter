@@ -1,0 +1,16 @@
+# 构建上下文瘦身与防泄露：.env 含真实凭据，data/ 是本地数据库，
+# 二者绝不能进镜像层
+.env
+.env.*
+!.env.example
+data/
+__pycache__/
+**/__pycache__/
+*.pyc
+.pytest_cache/
+.devhunter_backend.egg-info/
+devhunter_backend.egg-info/
+.gstack/
+.omc/
+tests/
+scripts/

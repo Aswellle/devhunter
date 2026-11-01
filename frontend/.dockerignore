@@ -1,0 +1,9 @@
+# 宿主机 node_modules 含平台二进制，会覆盖容器内 npm ci 的 Linux 产物；
+# .env 含真实凭据不能进镜像层
+node_modules/
+dist/
+.env
+.env.*
+!.env.example
+.gstack/
+.omc/
