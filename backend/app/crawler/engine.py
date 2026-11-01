@@ -96,6 +96,20 @@ _PRIVATE_IP_BLOCKS = [
 ]
 
 
+def _blocklist_ip(ip_str: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address:
+    """
+    把地址字符串转为黑名单比对用 IP。
+
+    IPv4-mapped IPv6（::ffff:a.b.c.d）与 IPv4 黑名单段版本不同，直接做
+    in 判断恒为 False；OS 实际连接时会把它映射回 IPv4——必须先归一化，
+    否则 mapped 形式的内网/元数据地址会绕过校验。
+    """
+    ip = ipaddress.ip_address(ip_str)
+    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped:
+        return ip.ipv4_mapped
+    return ip
+
+
 def _is_ssrf_safe_url(url: str) -> tuple[bool, str]:
     """
     Check if a URL is safe from SSRF attacks.
@@ -147,10 +161,10 @@ def _resolve_and_check_url(url: str) -> tuple[bool, str]:
         for family, _, _, _, sockaddr in addr_info:
             if family == socket.AF_INET:
                 ip_str = sockaddr[0]
-                ip = ipaddress.ip_address(ip_str)
+                ip = _blocklist_ip(ip_str)
             elif family == socket.AF_INET6:
                 ip_str = sockaddr[0]
-                ip = ipaddress.ip_address(ip_str)
+                ip = _blocklist_ip(ip_str)
             else:
                 continue
 
@@ -200,7 +214,7 @@ def resolve_and_validate_url(url: str) -> tuple[bool, str, str | None]:
         validated_ip = None
         for family, _, _, _, sockaddr in addr_info:
             ip_str = sockaddr[0]
-            ip = ipaddress.ip_address(ip_str)
+            ip = _blocklist_ip(ip_str)
             for block in _PRIVATE_IP_BLOCKS:
                 if ip in block:
                     return False, f"禁止访问私有/保留 IP 地址: {ip_str}", None

@@ -69,3 +69,50 @@ class TestSSRFProtection:
         """Test that ftp: protocol is blocked."""
         safe, msg, ip = engine.resolve_and_validate_url('ftp://example.com')
         assert safe is False
+
+
+# ── IPv4-mapped IPv6 归一化 ──────────────────────────────────
+
+def _addrinfo_result(sockaddr):
+    return [(socket.AF_INET6, socket.SOCK_STREAM, 6, '', sockaddr)]
+
+
+def test_ipv4_mapped_ipv6_private_blocked(monkeypatch):
+    """回归：::ffff:10.0.0.1 与 10.0.0.0/8 版本不同，直接 in 判断为 False；
+    OS 连接时会映射回 IPv4 内网地址，必须归一化后比对。"""
+    monkeypatch.setattr(
+        socket, "getaddrinfo",
+        lambda host, port: _addrinfo_result(('::ffff:10.0.0.1', 0, 0, 0)),
+    )
+    safe, msg, ip = engine.resolve_and_validate_url('http://[::ffff:10.0.0.1]/')
+    assert safe is False
+
+
+def test_ipv4_mapped_ipv6_metadata_blocked(monkeypatch):
+    """mapped 形式的云元数据地址同样必须被拦截。"""
+    monkeypatch.setattr(
+        socket, "getaddrinfo",
+        lambda host, port: _addrinfo_result(('::ffff:169.254.169.254', 0, 0, 0)),
+    )
+    safe, msg, ip = engine.resolve_and_validate_url('http://[::ffff:169.254.169.254]/')
+    assert safe is False
+
+
+def test_ipv4_mapped_ipv6_public_allowed(monkeypatch):
+    """mapped 形式的公网 IPv4 不得误伤。"""
+    monkeypatch.setattr(
+        socket, "getaddrinfo",
+        lambda host, port: _addrinfo_result(('::ffff:93.184.216.34', 0, 0, 0)),
+    )
+    safe, msg, ip = engine.resolve_and_validate_url('http://[::ffff:93.184.216.34]/')
+    assert safe is True
+
+
+def test_plain_ipv6_loopback_still_blocked(monkeypatch):
+    """原生 IPv6 环回地址照常拦截（归一化不改变既有行为）。"""
+    monkeypatch.setattr(
+        socket, "getaddrinfo",
+        lambda host, port: _addrinfo_result(('::1', 0, 0, 0)),
+    )
+    safe, msg, ip = engine.resolve_and_validate_url('http://[::1]/')
+    assert safe is False
