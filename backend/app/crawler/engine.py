@@ -519,6 +519,7 @@ def _fetch_page_with_retry(
     last_error = ""
     last_status = 0
     attempt = 0
+    post_body = mode_extra.get("post_body") or {}
 
     for attempt in range(1, MAX_RETRY_ATTEMPTS + 1):
         try:
