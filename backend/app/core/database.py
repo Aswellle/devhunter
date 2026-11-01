@@ -137,6 +137,14 @@ _ADD_COLUMN_RE = re.compile(
     r"ALTER\s+TABLE\s+(\w+)\s+ADD\s+COLUMN\s+(\w+)", re.IGNORECASE
 )
 
+_MIGRATION_VERSION_RE = re.compile(r"^(\d+)")
+
+
+def _migration_version(sql_file: Path) -> int | None:
+    """从迁移文件名前缀提取版本号（008_fk_cascade.sql → 8），无数字前缀返回 None。"""
+    m = _MIGRATION_VERSION_RE.match(sql_file.name)
+    return int(m.group(1)) if m else None
+
 
 def init_database() -> None:
     Path(settings.db_path).parent.mkdir(parents=True, exist_ok=True)
@@ -152,7 +160,18 @@ def init_database() -> None:
     conn.execute("PRAGMA foreign_keys=ON")
 
     try:
+        # 迁移只应用一次：以 PRAGMA user_version 为游标，跳过已应用的文件。
+        # 此前每次启动全量重放全部迁移，其中重建型迁移（006/008/015/018）
+        # 用显式列清单搬数据，等效于每次重启清空 items 去重键、执行指标
+        # 与交互权重列——版本游标让重建只在真正升级时发生一次。
+        # 已存在的旧库游标为 0，升级后的首次启动会完整重放一遍（与旧行为
+        # 一致）并写入游标，此后每次启动仅执行新增迁移。
+        applied_version = conn.execute("PRAGMA user_version").fetchone()[0]
+        applied_count = 0
         for sql_file in sql_files:
+            version = _migration_version(sql_file)
+            if version is not None and version <= applied_version:
+                continue
             logger.info("Running migration: %s", sql_file.name)
             sql = sql_file.read_text(encoding="utf-8")
             for stmt in _split_sql_statements(sql):
@@ -180,10 +199,16 @@ def init_database() -> None:
                         logger.error("Migration error (%s): %s\n%.200s",
                                      sql_file.name, e, stmt)
                         raise
+            applied_count += 1
+            if version is not None:
+                # PRAGMA 不支持参数绑定；version 来自 \d+ 前缀解析，可安全内插
+                conn.execute(f"PRAGMA user_version = {version}")
+                applied_version = version
     finally:
         conn.close()
 
-    logger.info("Database initialized at: %s", settings.db_path)
+    logger.info("Database initialized at: %s (%d migration(s) applied)",
+                settings.db_path, applied_count)
 
 
 def close_database() -> None:
