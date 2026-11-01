@@ -6,494 +6,332 @@
 
 **Automatic Content Aggregation & Discovery System for Developers**
 
-Automatically scrape high-value content from Hacker News, V2EX, GitHub Trending, Juejin and more — cluster cross-platform coverage into events, rank them against your reading habits, and keep everything searchable on a schedule.
+Configure a crawl task once and DevHunter watches 28+ platforms for you — Hacker News, V2EX, GitHub Trending, Juejin and more. It scrapes on schedule, clusters cross-platform coverage into events, ranks them against your reading habits, keeps everything searchable, and stores 100% of the data on your own machine.
 
+[![CI](https://github.com/Aswellle/devhunter/actions/workflows/ci.yml/badge.svg)](https://github.com/Aswellle/devhunter/actions/workflows/ci.yml)
 [![Python](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.11+-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)](https://react.dev/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![License](https://img.shields.io/badge/license-MIT-blue)](#license)
 
-[**[简体中文]**](./README.md) · [Quick Start](#quick-start) · [Use Cases](#typical-use-cases) · [Features](#features) · [Architecture](#architecture) · [API Docs](#api-documentation) · [Environment Variables](#environment-variables)
+[Quick Start](#quick-start) · [Highlights](#highlights) · [How It Works](#how-it-works) · [Sources](#supported-sources) · [**简体中文**](./README.md)
+
+<img src=".github/assets/dashboard.png" alt="DevHunter dashboard: crawl stats, daily picks and trends" width="880" />
 
 </div>
 
 ---
 
-## What is DevHunter
+## Why DevHunter
 
-DevHunter is a **self-hosted** content aggregation system built for developers, indie hackers and content creators who track multiple platforms.
+Every morning: scroll Hacker News, scroll GitHub Trending, scroll V2EX, scroll sspai — forty minutes later you're tired, you remember nothing, and **the same story was posted on three platforms while yesterday's important discussion is gone forever.**
 
-Configure a crawl task once (source, CSS selector or JSON path, keywords, cron schedule) and the system fetches, three-layer deduplicates, stores and full-text-indexes on schedule — then serves one searchable UI instead of a dozen browser tabs.
+RSS readers don't solve it (many platforms have no feed, and there's no dedup or search). Bookmarks don't solve it (nothing ever comes back out). So DevHunter exists:
 
-Built-in advanced capabilities:
+> **Turn "manually browsing ten sites a day" into "configure once, then open one page."** Fetching, dedup, clustering and ranking run automatically, and the data lives in your own SQLite file.
 
-- **Cross-platform Thread Aggregation (V2)**: multi-factor scoring (lexical + entity + semantic + temporal + source) clusters coverage of the same event across platforms into one thread.
-- **Personalized Recommendations V2**: candidate generation → multi-factor scoring → diversification → explainable output, with an adaptive exploration/exploitation ratio driven by your reading behaviour.
-- **3-Step Template Wizard**: enter a URL → auto-discover the structure → preview and confirm. No CSS Selector knowledge required.
-- **Template Marketplace**: share your templates with the community and import others' configurations with one click.
+It's not another scraping framework — it's a **complete, batteries-included system**: scheduling, live execution monitoring, clustering, recommendations, search and RSS feeds are all wired up.
 
-### The problem it removes
+## Highlights
 
-| Today | With DevHunter |
-|-------|----------------|
-| Manually refreshing 10+ sites; miss it and it is gone | One cron config; the scheduler fetches on time, history stays searchable forever |
-| The same story repeated on HN / V2EX / Reddit | Multi-factor clustering merges them into a single thread — read it once |
-| Bookmarks become a second junk drawer | SQLite FTS5 search plus read/star state and multi-dimension filters |
-| 300 unordered items a day, and still anxious | Ranked against your behaviour with an explicit reason — information becomes a decision input |
-| Reinstalling scripts on every machine | One-command self-hosting with Docker Compose; your data stays yours |
+### 📥 Multi-source crawling, configured once
 
-### Who it is for
+25 preset templates for one-click onboarding (Hacker News, GitHub Trending, V2EX, Juejin, sspai, Product Hunt, Reddit…), plus fully custom sites. 5-field cron scheduling, manual trigger, automatic retries, multiple fetch modes (HTML selector / JSON API / RSS), automatic pagination — crawling is no longer your problem.
 
-- **Indie hackers / side-project builders** — find demand and ideas: `r/SomebodyMakeThis`, V2EX 创意分享, Indie Hackers, Product Hunt
-- **Content creators** — topics and material: Bilibili / Douyin / Zhihu hot lists plus tech blogs
-- **Tech leads / architects** — technology selection and ecosystem trends: GitHub Trending, Hacker News, Lobste.rs
-- **Job seekers / freelancers** — opportunity radar: V2EX jobs, `r/forhire`
+<p align="center">
+  <img src=".github/assets/items-source.png" alt="Item list: search, filters, grouped by source" width="880" />
+</p>
 
----
+### 🧵 Cross-platform thread aggregation
 
-## Typical Use Cases
+Multi-factor scoring (lexical + entity + semantic + temporal + source) merges coverage of the same event into one thread — the HN discussion, the GitHub repo and the blog write-up in a single view. Every thread carries live hotness (24h half-life), lifecycle status, an AI digest, and explicit links to near-miss "same storyline" events you can unlink with one click.
 
-| Scenario | How to configure | What you get |
-|----------|------------------|--------------|
-| **Daily tech briefing** | Three tasks (Hacker News, GitHub Trending, V2EX) on cron `0 9 * * *` | Open the app once in the morning; the day's highlights are already stored and searchable |
-| **Topic tracking** | Keywords (e.g. `rust`, `llm`, `saas`) across several platforms | Keyword filtering plus thread aggregation — the same event seen once, across platforms |
-| **Demand / idea radar** | Subscribe to `reddit_ideas`, `v2ex_create`, `indiehackers` | Turn other people's complaints and ideas into concrete product leads |
-| **Creator topic pool** | Subscribe to Bilibili / Douyin / Zhihu hot-list templates | A material pool with full-text recall instead of endless scrolling |
-| **Technology radar** | GitHub Trending + Lobste.rs + Medium | Watch ecosystem heat objectively instead of picking a stack on vibes |
-| **Self-calibration** | Browse, star and dwell as usual; the recommendation page explains itself | Recommendations improve with use, and you know *why* each item was shown |
+<p align="center">
+  <img src=".github/assets/threads.png" alt="Hot threads: detail, hotness momentum, storyline relations" width="880" />
+</p>
 
-> Every task supports manual triggering (the ⚡ button) and a live execution stream (SSE pushes each fetch / parse / dedup / save step).
+### 🧙 Three-step wizard, zero selector knowledge
+
+Enter a URL → auto-discover the content structure (including JSON paths) → preview and save. If you can paste a URL, you can configure a crawl.
+
+<p align="center">
+  <img src=".github/assets/wizard.png" alt="Wizard: automatic structure discovery" width="640" />
+</p>
+
+### ⚡ Live execution stream
+
+Trigger a task and SSE streams every step — fetch → parse → filter → dedup → save — with HTTP status, timings, parsed counts and dedup results. Automatic reconnection and persisted events for replay.
+
+<p align="center">
+  <img src=".github/assets/execution.png" alt="Live execution stream over SSE" width="880" />
+</p>
+
+### 🏪 Template marketplace
+
+Share your tuned crawl configs as templates and enable community templates with one click. Already-enabled templates are marked automatically so you can't create duplicates.
+
+<p align="center">
+  <img src=".github/assets/market.png" alt="Template marketplace" width="640" />
+</p>
+
+### 🎯 Explainable recommendations that improve with use
+
+A recommendation pipeline of candidates → multi-factor scoring → diversification → **stated reasons**. The labeling assistant on the profile page shows why each item surfaced and lets you score simple pairwise preferences. The dashboard's daily picks and trend chart keep the system transparent (see the hero screenshot).
 
 ---
 
 ## Quick Start
 
-### Option 1: Docker Compose (production / self-hosting, recommended)
-
-Requirements: Docker and Docker Compose v2.
+### Option 1: Docker Compose (recommended)
 
 ```bash
 git clone https://github.com/Aswellle/devhunter.git && cd devhunter
-
-cp .env.example .env
-# Edit .env with real values:
-#   AUTH_PASSWORD=<your strong password>
-#   SECRET_KEY=$(openssl rand -hex 32)
-
+cp .env.example .env      # set AUTH_PASSWORD and SECRET_KEY (openssl rand -hex 32)
 docker compose up -d
 ```
 
-> If your environment ships the standalone `docker-compose` binary instead of the Compose plugin, replace every `docker compose` below with `docker-compose`.
-
-**Where to access it after startup:**
-
-| Entry point | URL | Notes |
-|-------------|-----|-------|
-| **Frontend UI (main entry)** | **http://localhost** (or `http://<server-ip>`) | Nginx inside the `frontend` container, published on host port **80** (`ports: "80:80"`). For LAN/public access replace `localhost` with the server IP |
-| Backend API | `http://localhost/api/...` | The backend port is **not** published in production (the compose file only uses `expose: "8000"`). The API is same-origin and proxied by Nginx to `backend:8000` |
-| Health check | http://localhost/health | Nginx proxies to the backend `/health` |
-| Swagger / ReDoc | Not reachable in production | The backend is not mapped to the host. To browse the API docs, use the dev override below to publish the backend on 8001 |
-| Dev override (publish backend) | http://localhost:8001/docs | `docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d` (development/debugging only — do not use in production) |
-
-First login: any username (single-user mode; the backend subject is `admin`) with the `AUTH_PASSWORD` from `.env`.
-**In production the app validates `AUTH_PASSWORD` / `SECRET_KEY` at startup and refuses to boot with placeholder values.**
+Open **http://localhost** and sign in with the password from `.env`. The production startup refuses placeholder credentials.
 
 Common commands:
 
 ```bash
-docker compose logs -f backend     # follow backend logs
-docker compose ps                  # container and health status
-docker compose down                # stop (the devhunter_data volume is kept)
-docker compose up -d --build       # rebuild after code changes
+docker compose logs -f backend     # backend logs
+docker compose up -d --build       # rebuild after updates
+docker compose down                # stop (data volume is kept)
 ```
 
-**Host port 80 already in use?** Change the frontend port mapping in `docker-compose.yml`:
+Port 80 taken? Change the frontend `ports` mapping in `docker-compose.yml` to `"8080:80"` and set `CORS_ORIGINS` to `http://localhost:8080`.
 
-```yaml
-    ports:
-      - "8080:80"          # then reach the UI on 8080
-```
-
-Also update `CORS_ORIGINS` to `http://localhost:8080`, then open **http://localhost:8080**.
-
-### Option 2: Local Development (backend and frontend separately)
-
-**Backend** (requires Python 3.11+):
+### Option 2: Local development
 
 ```bash
+# Backend (Python 3.11+)
 cd backend
 pip install -r requirements.txt
-cp .env.example .env        # adjust AUTH_PASSWORD / APP_PORT if needed
-python run.py
-```
+cp .env.example .env        # adjust AUTH_PASSWORD / APP_PORT
+python run.py               # API: http://127.0.0.1:18100 · docs: /docs
 
-- API: **http://127.0.0.1:18100** (port comes from `APP_PORT` in `backend/.env`; the example config uses `18100`)
-- API docs: **http://127.0.0.1:18100/docs**
-
-**Frontend** (requires Node.js 18+):
-
-```bash
+# Frontend (Node.js 18+)
 cd frontend
 npm install
-npm run dev
+npm run dev                 # UI: http://127.0.0.1:5200
 ```
 
-- UI: **http://127.0.0.1:5200**
-- The dev server proxies `/api` to `http://127.0.0.1:18100` (see `frontend/vite.config.ts`). **If you change the backend `APP_PORT` you must update that proxy target too**, otherwise the UI will 404.
-
-On Windows you can run `start.bat` in the repository root to launch both sides.
+> The dev server proxies `/api` to the backend port from `backend/.env` (see `frontend/vite.config.ts`) — if you change the backend port, update the proxy target too. On Windows, run `start.bat` to launch both.
 
 ---
 
-## Features
+## How It Works
 
-| Feature | Description |
-|---------|-------------|
-| 📥 Task Management | Create / edit / delete crawl tasks; 25 preset templates with one-click enable |
-| 🧙 3-Step Wizard | Auto-discover a URL's structure (including JSON paths and field detection) — no CSS Selector needed |
-| 🏪 Template Marketplace | Share templates with the community, import others' configurations |
-| ⏰ Scheduled Crawling | 5-field cron expressions evaluated in UTC, minute precision, manual trigger |
-| 🌐 Multi-Mode Engine | HTML CSS Selector / JSON API (GET & POST) / RSS, auto-pagination, retry (3 attempts, exponential backoff) |
-| 🔍 Full-Text Search | SQLite FTS5 index, automatic LIKE fallback on query syntax errors |
-| 🔗 Thread Aggregation V2 | Multi-factor clustering (lexical + entity + semantic + temporal + source) keeping source and similarity scores |
-| 🎯 Recommendations V2 | Candidate generation → scoring → diversification → explanations, adaptive exploration/exploitation |
-| 🏥 Source Health | HTTP availability + parse success rate + field coverage + freshness + duplicate rate |
-| ✅ Semantic Validation | 3-layer validation (transport → parse → semantic) distinguishing HTTP 200 from real success |
-| ⭐ Star & Read | Star / read state per item, batch operations, multi-dimension filtering |
-| 📊 Real-Time Monitoring | SSE stream of every execution step, plus execution history and duration stats |
-| 🔐 Single-User Auth | JWT in httpOnly Cookie, login rate limiting (5/min, lockout after 5 consecutive failures) |
+```mermaid
+flowchart LR
+    A["⏰ APScheduler<br/>cron / manual trigger"] --> B["🌐 Crawl engine<br/>HTML · JSON · RSS · pagination"]
+    B --> C["🧹 3-layer dedup<br/>external_id / url_hash / content_hash"]
+    C --> D[("💾 SQLite<br/>WAL + FTS5")]
+    D --> E["🧵 Thread clustering V2<br/>5-factor scoring"]
+    D --> F["🎯 Recommendations<br/>candidates → scoring → reasons"]
+    E --> G["📡 EventBus"]
+    F --> G
+    G -->|SSE live + persisted replay| H["⚛️ React 19 UI"]
+```
+
+**Data flow**: API routes → services → repositories → SQLite. The scheduler runs on its own thread with the **database as the single source of truth** (all schedules are restored from the DB on restart).
+
+**Crawl engine**: four parse modes (HTML / `json:` GET / `json-post:` POST / `rss:`), exponential-backoff retries (POST 5xx is never retried to avoid duplicate side effects), SSRF protection (private/loopback/metadata ranges blocked, fail-closed DNS, per-hop redirect re-validation) and response size caps.
+
+**Dedup**: three layers — source-native ID (per task) → URL hash (global) → content fingerprint (SHA256 of title+summary).
+
+**Thread scoring**:
+
+```
+score = 0.30·lexical + 0.25·entity + 0.20·semantic + 0.15·temporal + 0.10·source
+```
+
+**Stack**: FastAPI + APScheduler + SQLite (WAL/FTS5) · React 19 + Vite + TypeScript + TanStack Query + Tailwind CSS · Docker Compose + Nginx
 
 ---
 
 ## Supported Sources
 
-**25 preset templates** grouped by category; any other site works too — enter a URL, auto-discover the structure, save the generated config.
+**25 preset templates**, grouped by category; fully custom sources work too (paste any URL, auto-discover the structure).
 
-### Development Trends
+<details>
+<summary><b>Expand all 25 preset templates</b></summary>
 
-| Template | Platform | Method | Description |
-|----------|----------|--------|-------------|
-| `hackernews` | Hacker News | RSS | Tech / startup / indie dev aggregation |
-| `github_trending` | GitHub Trending | HTML | Trending open-source repositories |
-| `trending_github_repos` | GitHub Trending (Daily) | HTML | Daily trending repositories |
-| `lobsters` | Lobste.rs | RSS | Tech link aggregation community |
+### Dev trends
 
-### Creative Discovery
+| Template | Platform | Mode | Notes |
+|----------|----------|------|-------|
+| `hackernews` | Hacker News | RSS | Tech / startup / indie aggregator |
+| `github_trending` | GitHub Trending | HTML | Today's popular repositories |
+| `trending_github_repos` | GitHub Trending (Daily) | HTML | Daily trending repos |
+| `lobsters` | Lobste.rs | RSS | Tech link aggregation |
 
-| Template | Platform | Method | Description |
-|----------|----------|--------|-------------|
-| `hackernews_show` | Hacker News Show HN | RSS | Indie developers showcasing projects |
-| `producthunt` | Product Hunt | RSS | Daily new product launches |
+### Idea discovery
+
+| Template | Platform | Mode | Notes |
+|----------|----------|------|-------|
+| `hackernews_show` | Hacker News Show HN | RSS | Indie makers showing projects |
+| `producthunt` | Product Hunt | RSS | Daily product launches |
 | `indiehackers` | Indie Hackers | RSS | Indie products and discussions |
-| `v2ex_create` | V2EX 创意分享 | JSON API | Developers sharing projects and ideas |
-| `reddit_sideproject` | Reddit r/SideProject | JSON API | Side projects and feedback |
+| `v2ex_create` | V2EX Create | JSON API | Developers sharing projects and ideas |
+| `reddit_sideproject` | Reddit r/SideProject | JSON API | Side projects from makers |
 
-### Community Discussion
+### Community
 
-| Template | Platform | Method | Description |
-|----------|----------|--------|-------------|
+| Template | Platform | Mode | Notes |
+|----------|----------|------|-------|
 | `v2ex` | V2EX Hot | JSON API | Real-time hot topics |
-| `reddit_webdev` | Reddit r/webdev | JSON API | Web development discussion |
-| `reddit_startups` | Reddit r/startups | JSON API | Startup and business-model discussion |
+| `reddit_webdev` | Reddit r/webdev | JSON API | Web development |
+| `reddit_startups` | Reddit r/startups | JSON API | Startups and business models |
 
-### Tech Blogs
+### Tech blogs
 
-| Template | Platform | Method | Description |
-|----------|----------|--------|-------------|
-| `devto` | Dev.to | JSON API | Popular tech articles |
+| Template | Platform | Mode | Notes |
+|----------|----------|------|-------|
+| `devto` | Dev.to | JSON API | Trending articles |
 | `hashnode` | Hashnode | JSON API (POST) | Developer blogging platform |
-| `juejin` | Juejin | JSON API (POST) | Recommended article feed (with anti-bot headers) |
-| `sspai` | Sspai | RSS | Tech / productivity / indie tools |
-| `medium_programming` | Medium Programming | RSS | In-depth engineering articles |
+| `juejin` | Juejin | JSON API (POST) | Recommended feed (anti-bot headers) |
+| `sspai` | sspai | RSS | Tech / productivity / indie tools |
+| `medium_programming` | Medium Programming | RSS | In-depth engineering posts |
 
-### Content Creation (creator material)
+### Content creation
 
-| Template | Platform | Method | Description |
-|----------|----------|--------|-------------|
-| `bilibili_comprehensive` | Bilibili General | JSON API | Trending video material |
-| `bilibili_music` | Bilibili Music | JSON API | Trending music video material |
-| `douyin_trending` | Douyin Trending | JSON API | Short-video trends |
-| `zhihu_hot` | Zhihu Hot | JSON API | Real-time hot topics and discussions |
+| Template | Platform | Mode | Notes |
+|----------|----------|------|-------|
+| `bilibili_comprehensive` | Bilibili General | JSON API | Trending videos |
+| `bilibili_music` | Bilibili Music | JSON API | Trending music videos |
+| `douyin_trending` | Douyin Hot | JSON API | Short-video trends |
+| `zhihu_hot` | Zhihu Hot | JSON API | Real-time hot questions |
 
-### Demand Sharing
+### Requests & jobs
 
-| Template | Platform | Method | Description |
-|----------|----------|--------|-------------|
-| `v2ex_jobs` | V2EX Jobs | JSON API | Job openings and hiring |
-| `reddit_forhire` | Reddit r/forhire | JSON API | Freelance project opportunities |
-| `reddit_ideas` | Reddit r/SomebodyMakeThis | JSON API | Ideas people want built |
-| `hackernews_ask` | Hacker News Ask HN | RSS | Developer questions and advice requests |
+| Template | Platform | Mode | Notes |
+|----------|----------|------|-------|
+| `v2ex_jobs` | V2EX Jobs | JSON API | Job postings |
+| `reddit_forhire` | Reddit r/forhire | JSON API | Freelance gigs |
+| `reddit_ideas` | Reddit r/SomebodyMakeThis | JSON API | Users posting product requests |
+| `hackernews_ask` | Hacker News Ask HN | RSS | Ask HN |
 
----
-
-## Architecture
-
-```
-devhunter/
-├── backend/                    # FastAPI backend
-│   ├── app/
-│   │   ├── api/                # HTTP routes
-│   │   ├── services/           # Business logic
-│   │   ├── repositories/       # Data access layer
-│   │   ├── scheduler/          # APScheduler module
-│   │   ├── crawler/            # Crawling engine (HTML / JSON / RSS)
-│   │   ├── sources/            # Template registry / discovery / preview / validation / health
-│   │   ├── features/           # Feature extraction (entity / semantic / temporal)
-│   │   ├── threads/            # Thread clustering / scoring
-│   │   ├── recommendation/     # Recommendation engine (candidates / scoring / ranking / diversification / explanations)
-│   │   ├── execution/          # Execution state machine
-│   │   ├── schemas/            # Pydantic request / response models
-│   │   ├── core/               # Infrastructure: DB, config, logging, event bus
-│   │   └── utils/              # Hash / URL / similarity utilities
-│   ├── migrations/             # Plain SQL migrations, executed in order on startup
-│   ├── templates/              # Preset source templates (JSON)
-│   └── run.py                  # Local entry point
-│
-├── frontend/                   # React + Vite + TypeScript
-│   └── src/
-│       ├── api/                # axios API client
-│       ├── components/         # UI components
-│       ├── pages/              # Page components
-│       ├── stores/             # Zustand state
-│       └── hooks/              # Custom hooks (SSE subscription, etc.)
-│
-└── docker-compose.yml          # One-command deployment (backend + frontend/Nginx)
-```
-
-**Data flow**: API routes → services → repositories → SQLite.
-
-**Scheduler**: APScheduler's `BackgroundScheduler` runs in its own thread, fully isolated from the FastAPI asyncio loop; job state lives in the same SQLite database (`SQLAlchemyJobStore`) and the database task table is the **single source of truth** — all jobs are rebuilt from it on startup (`restore_jobs()`), with an in-process reentrancy lock enforcing `max_instances=1`.
-
-**Crawling engine**: one entry point, four parse modes (HTML CSS Selector / `json:` GET / `json-post:` POST / `rss:`), automatic response-type detection, on-demand pagination, retry (3 attempts, exponential backoff), SSRF protection before every request (private / loopback / link-local addresses and cloud metadata endpoints are blocked, DNS failures fail closed) and redirects re-validated hop by hop.
-
-**Deduplication**: three layers — (1) source-native ID (`external_id`, per task) → (2) URL hash (global) → (3) content fingerprint (SHA256 of title + summary).
-
-**Thread V2 scoring**:
-
-```
-thread_score = 0.30 * lexical + 0.25 * entity + 0.20 * semantic + 0.15 * temporal + 0.10 * source
-```
-
-**Recommendation V2 flow**: candidate generation (8 sources) → multi-factor scoring → diversification → explainable output.
-
-**Real-time events**: the `EventBus` singleton writes to both an in-memory queue (live SSE stream) and the `execution_events` table, so a dropped client can resume with a `Last-Event-ID` cursor.
-
-**Tech stack**:
-
-| Layer | Technology |
-|-------|------------|
-| Backend | FastAPI + Uvicorn |
-| Scheduler | APScheduler 3.x (SQLAlchemyJobStore) |
-| Crawling | httpx + BeautifulSoup4 + chardet |
-| Auth | python-jose (JWT) + passlib |
-| Database | SQLite (WAL) + FTS5 full-text index |
-| Frontend | React 19 + Vite + TypeScript |
-| State | TanStack Query (server state) + Zustand (local state) |
-| Styling | Tailwind CSS v3 |
-| Deployment | Docker Compose + Nginx |
+</details>
 
 ---
 
-## API Documentation
+## Typical Use Cases
 
-All endpoints live under the `/api` prefix and require authentication (httpOnly cookie or `Authorization: Bearer`), except `/api/auth/login` and `/health`.
+| Scenario | Configuration | What you get |
+|----------|---------------|--------------|
+| **Daily tech briefing** | 3 tasks for HN, GitHub Trending and V2EX, cron `0 9 * * *` | Open one page in the morning; everything is already stored and searchable |
+| **Topic tracking** | Keywords (`rust`, `llm`, `saas`) + cross-platform sources | Keyword filtering + thread clustering — one view per event |
+| **Idea radar** | Subscribe to `reddit_ideas`, `v2ex_create`, `indiehackers` | Product ideas mined from real complaints and requests |
+| **Creator research** | Bilibili / Douyin / Zhihu hot-list templates | A material pool with full-text recall |
+| **Tech radar** | GitHub Trending + Lobste.rs + Medium | Watch ecosystem heat shift instead of guessing |
 
-**Local development**: `http://127.0.0.1:18100/docs` (Swagger UI) and `/redoc`.
-**Docker production**: the backend publishes no host port, so the API docs are not directly reachable; use the dev override to publish it on 8001 and open `http://localhost:8001/docs`.
+---
 
-```
-# Auth
-POST   /api/auth/login                        Login (rate limited, sets httpOnly cookie)
-POST   /api/auth/logout                       Logout
+## Feature Overview
 
-# Crawl tasks
-GET    /api/tasks                             Task list (status filter + pagination)
-POST   /api/tasks                             Create task
-GET    /api/tasks/templates                   Preset templates
-GET    /api/tasks/{id}                        Task detail
-PUT    /api/tasks/{id}                        Update task
-DELETE /api/tasks/{id}                        Delete task (soft delete, data kept 30 days)
-POST   /api/tasks/{id}/execute                Manual trigger (202)
-GET    /api/tasks/{id}/executions             Execution history
-GET    /api/tasks/{id}/events                 SSE stream of execution events
-
-# Collected items
-GET    /api/items                             Item list (FTS search / filters / pagination)
-GET    /api/items/counts                      Counts per dimension (badges)
-GET    /api/items/{id}                        Item detail
-PATCH  /api/items/{id}                        Mark read / starred
-DELETE /api/items/{id}                        Delete item
-PATCH  /api/items/batch                       Batch update (read / starred)
-POST   /api/items/batch-delete                Batch delete (rate limited)
-
-# Cross-platform threads
-GET    /api/items/threads                     Thread list
-GET    /api/items/threads/{thread_id}         Thread detail with items
-
-# Sources and templates
-GET    /api/sources                           List templates
-POST   /api/sources                           Create template
-GET    /api/sources/{id}                      Template detail
-POST   /api/sources/discover                  URL auto-discovery (wizard step 1)
-POST   /api/sources/preview                   Preview extracted items (wizard step 2)
-POST   /api/sources/test                      Test a crawl configuration
-POST   /api/sources/{id}/share                Share to marketplace
-POST   /api/sources/{id}/unshare              Unshare
-GET    /api/sources/marketplace/list          Browse the marketplace
-POST   /api/sources/{id}/import               Import from the marketplace
-POST   /api/sources/{id}/clone                Clone a template
-
-# Recommendations and preferences
-GET    /api/user-prefs/recommendations        Personalized recommendations (For You)
-GET    /api/user-prefs/topics                 Followed topics
-POST   /api/user-prefs/topics                 Add a topic
-PATCH  /api/user-prefs/topics/{topic}         Adjust topic weight
-DELETE /api/user-prefs/topics/{topic}         Remove a topic
-GET    /api/user-prefs/topics/recommended     Recommended topics (from reading history)
-POST   /api/user-prefs/interactions           Record behaviour (view/click/dwell/star/share)
-GET    /api/user-prefs/interactions/recent    Recent interactions
-
-# Overview and health
-GET    /api/stats                             Dashboard statistics
-GET    /health                                Health check (no auth)
-```
+| Feature | Notes |
+|---------|-------|
+| 📥 Task management | CRUD with 25 one-click preset templates |
+| 🧙 3-step wizard | Automatic structure discovery, no CSS Selector needed |
+| 🏪 Template marketplace | Share & import, duplicate enablement blocked |
+| ⏰ Scheduling | 5-field cron (UTC) + manual trigger |
+| 🌐 Crawl engine | HTML / JSON API (GET & POST) / RSS, pagination and retries |
+| 🔗 Thread aggregation V2 | 5-factor clustering + hotness momentum + lifecycle + storyline relations |
+| 🎯 Recommendations | Multi-factor scoring → diversification → explainable reasons + labeling assistant |
+| 🔍 Full-text search | SQLite FTS5 with LIKE fallback |
+| 📊 Live execution monitor | SSE full-chain events + history + replay |
+| 🏥 Source health | Availability + parse success + field coverage + freshness |
+| ⭐ Star & read state | Batch ops, filters, RSS feed output |
+| 🔐 Single-user auth | JWT httpOnly cookie + rate limiting + lockout |
 
 ---
 
 ## Environment Variables
 
-See [`backend/.env.example`](backend/.env.example) for the full list (local runs) and the root [`.env.example`](.env.example) for Docker Compose (which only interpolates `AUTH_PASSWORD` and `SECRET_KEY`). All values are read by `pydantic-settings`, case-insensitively.
+See [`backend/.env.example`](backend/.env.example) (local run) and [`.env.example`](.env.example) (Docker Compose reads `AUTH_PASSWORD` and `SECRET_KEY`). All loaded by `pydantic-settings`, case-insensitive.
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `APP_ENV` | `development` | `development` / `production`; production validates secrets at startup and refuses placeholder values |
-| `APP_HOST` / `APP_PORT` | `0.0.0.0` / `8000` | Backend bind address and port (`backend/.env.example` uses `18100`) |
-| `APP_DEBUG` | `false` | Keep `false` in production to avoid leaking stack traces |
-| `AUTH_USERNAME` | `admin` | JWT subject / display name in single-user mode |
-| `AUTH_PASSWORD` | `devhunter123` | Login password (plaintext comparison), **must change** |
-| `SECRET_KEY` | `change-me-in-production` | JWT signing key, **must change** (`openssl rand -hex 32`) |
-| `JWT_ALGORITHM` / `JWT_EXPIRE_MINUTES` | `HS256` / `10080` | Signing algorithm and token lifetime (7 days) |
-| `DB_PATH` | `data/devhunter.db` | SQLite path (parent directory is created automatically) |
-| `CRAWLER_TIMEOUT` | `15.0` | Per-request timeout in seconds |
-| `CRAWLER_MAX_RESPONSE_MB` | `5` | Maximum response body size (larger responses abort) |
-| `CRAWLER_USER_AGENT` | Chrome 124 UA | User-Agent used for crawl requests |
-| `SCHEDULER_MAX_WORKERS` | `3` | Parallel scheduler workers |
-| `SCHEDULER_MISFIRE_GRACE_TIME` | `300` | APScheduler misfire grace time (seconds) |
-| `LOG_LEVEL` / `LOG_FORMAT` | `INFO` / `json` | Log level and format (`json` or `text`) |
-| `CORS_ORIGINS` | `http://localhost:5173,http://localhost:3000,http://localhost:5200,http://127.0.0.1:5200` | Allowed frontend origins, comma separated (update when the frontend port/domain changes) |
-| `SEMANTIC_BACKEND` | `ngram` | Semantic similarity backend (`ngram` or `embedding`) |
+| Variable | Default | Notes |
+|----------|---------|-------|
+| `APP_ENV` | `development` | `development` / `production`; production rejects placeholder secrets |
+| `APP_HOST` / `APP_PORT` | `0.0.0.0` / `8000` | Backend bind address and port |
+| `AUTH_USERNAME` | `admin` | JWT subject / display name |
+| `AUTH_PASSWORD` | `devhunter123` | Login password (plaintext compare), **change it** |
+| `SECRET_KEY` | `change-me-in-production` | JWT signing key, **change it** (`openssl rand -hex 32`) |
+| `DB_PATH` | `data/devhunter.db` | SQLite path (fixed to `/data/devhunter.db` in Docker) |
+| `CRAWLER_TIMEOUT` | `15.0` | Per-request timeout (seconds) |
+| `CRAWLER_MAX_RESPONSE_MB` | `5` | Response size cap |
+| `SCHEDULER_MAX_WORKERS` | `3` | Scheduler workers |
+| `LOG_LEVEL` / `LOG_FORMAT` | `INFO` / `json` | Logging level and format |
+| `CORS_ORIGINS` | `http://localhost:5200,...` | Allowed frontend origins, comma-separated |
 
 ---
 
-## Development
+## Development & Testing
 
 ```bash
-# Backend tests
+# Backend tests (410+ cases)
 cd backend
 pytest                                   # full suite
 pytest tests/test_crawler/               # single module
-pytest -k test_404_is_terminal_no_retry  # by name
 pytest --cov=app --cov-report=term       # with coverage
-python e2e_test.py                       # standalone E2E (run from backend/)
+python e2e_test.py                       # standalone E2E (self-contained temp DB)
 
 # Frontend
-cd frontend
 npm run dev      # dev server (:5200)
 npm run build    # production build (tsc -b && vite build)
 npm run lint     # ESLint
 ```
 
-Test coverage:
+Every push runs the full CI gate: backend tests + standalone E2E + frontend lint/build — green only when all pass.
 
-- Crawling engine (retry / pagination / SSRF protection)
-- Task execution pipeline (config guard / transactional insert / execution result persistence)
-- Item repository (bulk insert / dedup fields / FTS index synchronisation)
-- Template registry / marketplace / sharing / wizard API
-- Thread clustering and scoring
-- Recommendation engine (candidates / scoring / diversification / explanations)
-- Semantic similarity
+## Security Notes
 
----
+DevHunter uses a **single-user auth** model, designed for self-hosting behind a LAN or reverse proxy:
 
-## Security Notice
+- The login password comes from an environment variable (plaintext compare) — **change it before deploying**; production startup rejects placeholders
+- JWT is delivered via an **httpOnly cookie** (the response body never contains the token)
+- Login rate limiting (5/min) with account lockout after repeated failures
+- Built-in SSRF protection: private/loopback/link-local and cloud-metadata addresses are blocked, DNS failures fail closed, and redirects are re-validated hop by hop
+- Nginx sets `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy` and other baseline headers
 
-DevHunter uses a **single-user** authentication model and is intended for self-hosting, a private network, or behind a reverse proxy:
-
-- The login password comes from an environment variable (plaintext comparison) and **must be changed**; production startup refuses placeholder values
-- The JWT is delivered as an **httpOnly cookie** (never in the response body), so the frontend never touches the credential
-- Login is rate limited (5 requests/minute) with a 5-minute account lockout after 5 consecutive failures
-- The crawling engine blocks private / loopback / link-local addresses and cloud metadata endpoints, fails closed on DNS errors, and re-validates every redirect hop
-- The frontend Nginx sets baseline security headers (`X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`, …)
-
-Before exposing it to the public internet, add access control and HTTPS at the reverse-proxy layer (and enable the `Secure` flag on cookies).
+Before exposing to the public internet, add access control and HTTPS at the reverse proxy (and enable `Secure` on the cookie).
 
 ---
 
-## Legal Compliance & Disclaimer
+## ⭐ Support the Project
 
-### Intended Use
+If DevHunter saves you the daily site-scrolling, please give it a ⭐️ — it keeps the project moving and helps other self-hosters find it.
 
-DevHunter is an **information aggregation tool** designed for:
+<div align="center">
+<a href="https://star-history.com/#Aswellle/devhunter&Date">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=Aswellle/devhunter&type=Date&theme=dark" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=Aswellle/devhunter&type=Date" />
+   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=Aswellle/devhunter&type=Date" width="480" />
+ </picture>
+</a>
+</div>
 
-- Tracking public tech trends and open-source projects
-- Aggregating public RSS/Atom Feeds and public API data
-- Personal knowledge management
-- Academic research and data analysis
+---
 
-### User Obligations
+## Legal & Disclaimer
 
-By using this project, you agree to:
+DevHunter is an **information aggregation tool** intended for lawful purposes: tracking public tech trends, aggregating public RSS/Atom feeds and public APIs, and personal knowledge management. By using it you agree to:
 
-1. **Comply with laws**: Not violate any applicable laws or third-party rights
-2. **Respect ToS**: Abide by target websites' terms of service and robots.txt
-3. **Control frequency**: Use reasonable crawl rates to avoid undue load
-4. **Protect IP**: Not scrape unauthorized copyrighted or proprietary content
-5. **Respect privacy**: Not collect or process personal sensitive data
+1. **Obey the law**: never use the project to violate applicable laws, regulations or third-party rights
+2. **Respect terms of service**: honor target sites' ToS and robots.txt directives
+3. **Control request rates**: configure reasonable crawl frequencies to avoid load on target sites
+4. **Protect IP and privacy**: never scrape, store or distribute copyrighted content you don't have rights to, or personal sensitive data
 
-### Prohibited Uses
+Large-scale unauthorized scraping, DDoS, competitive intelligence harvesting, privacy violations and any illegal use are strictly prohibited. Target sites may change their structure at any time; aggressive crawling may get your IP banned.
 
-- Unauthorized data scraping (bypassing login, captcha, IP bans)
-- DDoS attacks or excessive request loads
-- Commercial espionage or competitive intelligence
-- Privacy violations (collecting PII)
-- Copyright infringement (paid content, DRM-protected material)
-- Any illegal activity
-
-### Risk Warnings
-
-- Target websites may change their structure, APIs or access policies at any time, causing crawl failures or incomplete data
-- Large-scale crawling may get your IP address blocked by the target site
-- When using publicly scraped data for business decisions, verify the accuracy yourself
-
-### Limitation of Liability
-
-**This project is provided "as-is". Authors assume no liability** for:
-
-- Legal disputes arising from misuse
-- Feature failures due to target site changes
-- Decisions made based on scraped data
-- Consequences of violating third-party ToS
-
-### Compliance Recommendations
-
-- Read and understand target website ToS before scraping
-- Consult legal professionals for commercial use
-- Prefer official APIs over web scraping
-- Respect `robots.txt` and Crawl-delay settings
+**The project is provided "as is", without warranty of any kind.** For commercial use, consult a legal professional and prefer official APIs where available.
 
 ---
 
 ## License
 
 [MIT](LICENSE)
-
----
-
-<div align="center">
-
-**If you find DevHunter useful, please consider giving it a star!**
-
-⭐ [Star on GitHub](https://github.com/Aswellle/devhunter) ⭐
-
-</div>
