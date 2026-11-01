@@ -8,7 +8,7 @@ DevHunter 是一个自托管的内容聚合系统，自动从 28+ 开发者平�
 
 **关键能力：**
 - **Thread V2** — 多因素跨平台事件聚类（词法 + 实体 + 语义 + 时间 + 来源）
-- **Recommendation V2** — 候选生成 → 多因子评分 → 多样性处理 → 可解释推荐
+- **个性化推荐** — 多因子引擎（`services/recommendation_service.py`：候选 → 评分 → 排序 → 可解释推荐），配合标注助手（服务端快照 + 胜率指标）；`recommendation/` 目录仅保留解释生成与离线评测指标等共享纯函数模块
 - **3 步模板向导** — URL → 自动发现 → 预览（无需 CSS 选择器知识）
 - **模板市场** — 分享和导入社区爬取模板
 
@@ -193,7 +193,7 @@ start.bat                              # 一键启动：backend（:8000）+ fron
 | `backend/app/scheduler/jobs.py` | 任务执行、重入锁、事件发布 |
 | `backend/app/threads/clustering.py` | Thread 聚类算法 v2 |
 | `backend/app/threads/scoring.py` | 五因子 Thread 评分 |
-| `backend/app/recommendation/` | 完整推荐管线（候选→评分→排序→多样性→解释） |
+| `backend/app/recommendation/` | 共享纯函数模块（解释生成、离线评测指标）；生产引擎在 `services/recommendation_service.py` |
 | `frontend/src/App.tsx` | 根组件、路由、认证守卫 |
 | `frontend/src/api/client.ts` | 共享 axios 客户端 + 拦截器 |
 | `frontend/src/hooks/useTaskEventStream.ts` | SSE 事件消费 hook |
@@ -212,7 +212,7 @@ start.bat                              # 一键启动：backend（:8000）+ fron
 - **无 monorepo 工具：** 后端和前端是独立项目，分别管理依赖。
 - **数据库：** 仅 SQLite（无 PostgreSQL/MySQL）。WAL 模式启用。FTS5 用于全文搜索。
 - **无 ORM 迁移工具：** 纯 SQL 文件，非 Alembic。
-- **前端端口：** 开发服务器在 **5200**（非 Vite 默认的 5173）。代理目标为 `127.0.0.1:8100`（必须与后端实际端口匹配）。
+- **前端端口：** 开发服务器在 **5200**（非 Vite 默认的 5173）。代理目标见 `vite.config.ts`（必须与后端实际端口匹配）。
 - **无后端 linter/formatter 配置**（无 ruff/black）——遵循现有代码风格。
 
 ---
@@ -311,8 +311,8 @@ SQLite，WAL 模式。关键表：
 | `/auth/login` | POST | 登录（速率限制，设置 httpOnly cookie） |
 | `/auth/logout` | POST | 登出 |
 | `/tasks` | GET/POST | 列出/创建爬取任务 |
-| `/tasks/{id}` | GET/PATCH/DELETE | 任务 CRUD |
-| `/tasks/{id}/trigger` | POST | 手动执行触发（202） |
+| `/tasks/{id}` | GET/PUT/DELETE | 任务 CRUD（更新用 PUT） |
+| `/tasks/{id}/execute` | POST | 手动执行触发（202） |
 | `/tasks/{id}/events` | GET | SSE 事件流 |
 | `/tasks/{id}/executions` | GET | 执行历史 |
 | `/items` | GET | 列出条目（分页、FTS 搜索、过滤） |
@@ -321,6 +321,10 @@ SQLite，WAL 模式。关键表：
 | `/items/batch` | DELETE | 批量删除（速率限制） |
 | `/items/threads` | GET | Thread 列表（分页） |
 | `/items/threads/{id}` | GET | Thread 详情含条目 |
+| `/items/threads/recompute` | POST | 全量重建 Thread（202 后台执行） |
+| `/items/threads/recompute/status` | GET | 后台重建进度 |
+| `/items/threads/{id}/merge` | POST | 人工合并 Thread |
+| `/items/threads/{id}/split` | POST | 人工拆分 Thread |
 | `/sources/discover` | POST | 自动发现来源结构 |
 | `/sources/preview` | POST | 预览爬取结果 |
 | `/sources/test` | POST | 测试爬取配置 |
@@ -397,7 +401,7 @@ SQLite，WAL 模式。关键表：
 9. **迁移幂等性**：使用 `PRAGMA table_info` 检查列是否存在，非错误消息字符串匹配。
 10. **启动恢复**：所有来自前一进程的 `running` 执行在加载任务前标记为 `interrupted`。
 11. **Nginx SSE 配置**：`/api/tasks/` 需要 `proxy_buffering off` + `proxy_read_timeout 3600s`（流式传输关键）。
-12. **Vite 代理端口不匹配**：`vite.config.ts` 代理到 8100，但后端默认 8000。如更改 `APP_PORT`，代理会断。
+12. **Vite 代理端口不匹配**：`vite.config.ts` 的代理目标必须与后端实际监听端口一致（后端默认 8000）。如更改 `APP_PORT`，代理会断。
 13. **JWT 响应体不含 token**：登录响应不包含 `access_token`（XSS 缓解）。JWT 仅通过 httpOnly cookie 传递。
 14. **无暗色模式切换**：侧边栏始终深色（`#0F1117`），内容始终浅色。`DESIGN.md` 提到暗色模式但未实现为切换。
 15. **前端端口为 5200**：非标准，非 Vite 默认 5173。
