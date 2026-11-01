@@ -635,12 +635,12 @@ export function ItemsPage() {
           <Empty
             title="暂无采集结果"
             description={
-              filters.search || filters.task_id || filters.starred
+              filters.search || filters.task_id || filters.starred !== undefined || filters.is_read !== undefined
                 ? '当前筛选条件无匹配结果'
                 : '前往「任务管理」创建采集任务，系统将自动抓取数据'
             }
             action={
-              filters.search || filters.task_id || filters.starred ? (
+              filters.search || filters.task_id || filters.starred !== undefined || filters.is_read !== undefined ? (
                 <button
                   onClick={() => setFilters({ search: '', task_id: '', starred: undefined, is_read: undefined })}
                   className="btn-ghost"
