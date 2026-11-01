@@ -94,6 +94,13 @@ class TestRssAuth:
         assert response.status_code == 200
         assert response.headers["content-type"].startswith("application/rss+xml")
 
+    def test_rss_accepts_machine_token_as_bearer_header(self):
+        """能力令牌经 Authorization: Bearer 携带同样有效（不落访问日志的推荐方式）"""
+        headers = {"Authorization": f"Bearer {machine_token()}"}
+        response = client.get("/api/rss", headers=headers)
+        assert response.status_code == 200
+
+
     def test_rss_accepts_bearer_auth(self):
         """标准 Bearer 认证也能访问（前端/Agent 复用）"""
         response = client.get("/api/rss", headers=_auth_headers())

@@ -56,14 +56,20 @@ def require_machine_access(
     token_cookie: str | None = Cookie(None, alias=_TOKEN_COOKIE),
 ) -> str:
     """
-    机器出口端点的双重认证：URL 能力令牌 或 标准用户认证。
+    机器出口端点的双重认证：能力令牌 或 标准用户认证。
 
-    RSS 阅读器 / MCP 客户端无法走 httpOnly cookie，用 `?token=` 携带
-    派生自 SECRET_KEY 的能力令牌；浏览器内已登录的请求（如前端 Profile 页）
-    则自然回落到 Bearer/Cookie 认证。
+    能力令牌（派生自 SECRET_KEY）的携带方式：
+    - `?token=` —— RSS 阅读器只能带 URL 参数；注意它会进入服务器/代理
+      访问日志与浏览器历史，泄露面较大
+    - `Authorization: Bearer <token>` —— 可配置 header 的客户端（MCP 等）
+      应优先使用，不落日志
+
+    浏览器内已登录的请求（如前端 Profile 页）自然回落到 Bearer/Cookie
+    用户认证。
 
     返回主体标识："machine-token" 或用户名。
     """
-    if verify_machine_token(token):
+    header_token = credentials.credentials if credentials else None
+    if verify_machine_token(token) or verify_machine_token(header_token):
         return "machine-token"
     return require_auth(credentials=credentials, token_cookie=token_cookie)
