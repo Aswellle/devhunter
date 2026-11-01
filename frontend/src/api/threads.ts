@@ -1,5 +1,5 @@
 import client from './client'
-import type { PaginatedResponse, Thread, ThreadWithItems, ThreadRecomputeResult, ThreadDigestResult } from '../types'
+import type { PaginatedResponse, Thread, ThreadWithItems, ThreadRecomputeAccepted, ThreadRecomputeStatus, ThreadDigestResult } from '../types'
 export interface ThreadsQuery {
   task_id?: string
   page?: number
@@ -14,11 +14,15 @@ export const threadsApi = {
   get: (threadId: string) =>
     client.get<ThreadWithItems>(`/items/threads/${threadId}`).then((r) => r.data),
 
-  /** 重建全部 Thread（同步执行；窗口小时数控制候选活动范围） */
+  /** 重建全部 Thread（后台执行，返回 202；进度经 recomputeStatus 轮询） */
   recompute: (windowHours: number = 24) =>
     client
-      .post<ThreadRecomputeResult>('/items/threads/recompute', { window_hours: windowHours })
+      .post<ThreadRecomputeAccepted>('/items/threads/recompute', { window_hours: windowHours })
       .then((r) => r.data),
+
+  /** 查询后台重建状态 */
+  recomputeStatus: () =>
+    client.get<ThreadRecomputeStatus>('/items/threads/recompute/status').then((r) => r.data),
 
   /** 手动生成/更新 AI 综述（force=True 重新生成；相同材料命中结果复用不重复付费） */
   generateDigest: (threadId: string, force: boolean = false) =>

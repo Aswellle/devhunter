@@ -124,3 +124,34 @@ class TestUnlinkRelationAPI:
         ta, tb = _two_related_threads()
         response = client.delete(f"/api/items/threads/{ta}/relations/{tb}")
         assert response.status_code == 401
+
+
+class TestRecomputeBackgroundAPI:
+    """POST /items/threads/recompute → 202 后台执行 + GET status"""
+
+    def test_recompute_returns_202_and_completes(self):
+        start = client.post(
+            "/api/items/threads/recompute",
+            json={"window_hours": 24},
+            headers=_auth_headers(),
+        )
+        assert start.status_code == 202
+
+        import time
+        deadline = time.monotonic() + 60
+        status = None
+        while time.monotonic() < deadline:
+            s = client.get("/api/items/threads/recompute/status", headers=_auth_headers())
+            assert s.status_code == 200
+            status = s.json()
+            if not status["running"]:
+                break
+            time.sleep(0.2)
+
+        assert status["running"] is False
+        assert status["error"] is None
+        assert status["result"] is not None
+
+    def test_recompute_requires_auth(self):
+        assert client.post("/api/items/threads/recompute", json={}).status_code == 401
+        assert client.get("/api/items/threads/recompute/status").status_code == 401

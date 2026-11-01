@@ -54,16 +54,18 @@ class ThreadRepository:
         algorithm_version: str = "v2",
         similarity_threshold: float = 0.45,
         match_reason: str = "",
+        conn: sqlite3.Connection | None = None,
     ) -> str:
         """创建新 Thread，关联第一个 Item。返回 thread_id。
         T2: 存储 algorithm_version 和 similarity_threshold。
+        传入 conn 时加入调用方事务，不自行提交。
         """
         thread_id = str(uuid.uuid4())
         now = _now_iso()
         platforms = json.dumps([platform], ensure_ascii=False)
 
-        with get_db() as conn:
-            conn.execute(
+        def _run(c: sqlite3.Connection) -> None:
+            c.execute(
                 """
                 INSERT INTO threads
                     (id, title, first_seen_at, last_seen_at, item_count, platforms,
@@ -73,7 +75,7 @@ class ThreadRepository:
                 (thread_id, title, now, now, platforms,
                  algorithm_version, similarity_threshold, now),
             )
-            conn.execute(
+            c.execute(
                 """
                 INSERT INTO thread_items (thread_id, item_id, similarity, match_reason)
                 VALUES (?, ?, 1.0, ?)
@@ -81,10 +83,16 @@ class ThreadRepository:
                 (thread_id, item_id, match_reason or "initial_item"),
             )
             # 更新 items.thread_id
-            conn.execute(
+            c.execute(
                 "UPDATE items SET thread_id = ? WHERE id = ?",
                 (thread_id, item_id),
             )
+
+        if conn is not None:
+            _run(conn)
+        else:
+            with get_db() as c:
+                _run(c)
 
         logger.debug("Thread created: %s (%s)", thread_id, title[:40])
         return thread_id
@@ -304,17 +312,19 @@ class ThreadRepository:
         title: str,
         platform: str,
         match_reason: str = "",
+        conn: sqlite3.Connection | None = None,
     ) -> None:
         """
         将已有 Item 加入现有 Thread。
         更新 Thread 元数据（item_count、last_seen_at、platforms、title 取最长的）。
         T2: 记录 match_reason 到 thread_items。
+        传入 conn 时加入调用方事务，不自行提交。
         """
         now = _now_iso()
 
-        with get_db() as conn:
+        def _run(c: sqlite3.Connection) -> None:
             # 插入关联
-            cursor = conn.execute(
+            cursor = c.execute(
                 """
                 INSERT OR IGNORE INTO thread_items (thread_id, item_id, similarity, match_reason)
                 VALUES (?, ?, ?, ?)
@@ -327,13 +337,13 @@ class ThreadRepository:
             was_inserted = cursor.rowcount > 0
 
             # 更新 items.thread_id
-            conn.execute(
+            c.execute(
                 "UPDATE items SET thread_id = ? WHERE id = ?",
                 (thread_id, item_id),
             )
             # 更新 Thread 元数据
             # platforms: 添加新 platform（去重）
-            th = conn.execute(
+            th = c.execute(
                 "SELECT platforms, item_count, title FROM threads WHERE id = ?",
                 (thread_id,),
             ).fetchone()
@@ -344,7 +354,7 @@ class ThreadRepository:
                 new_count = th["item_count"] + (1 if was_inserted else 0)
                 # title 取最长的（更完整的描述）
                 new_title = title if len(title) > len(th["title"]) else th["title"]
-                conn.execute(
+                c.execute(
                     """
                     UPDATE threads
                     SET item_count = ?, last_seen_at = ?,
@@ -353,6 +363,12 @@ class ThreadRepository:
                     """,
                     (new_count, now, json.dumps(current_platforms, ensure_ascii=False), new_title, thread_id),
                 )
+
+        if conn is not None:
+            _run(conn)
+        else:
+            with get_db() as c:
+                _run(c)
 
     def get_items_in_thread(self, thread_id: str) -> list[dict]:
         """获取 Thread 内所有 Items，按 fetched_at 倒序"""
@@ -381,6 +397,7 @@ class ThreadRepository:
         self,
         hours: int = 24,
         limit: int = 500,
+        conn: sqlite3.Connection | None = None,
     ) -> list[dict[str, Any]]:
         """
         获取最近 N 小时内仍有活动的 Thread，作为新条目的聚类候选。
@@ -391,21 +408,25 @@ class ThreadRepository:
         恒为空列表，同批次/跨批次的聚类 join 从未真正生效（Thread 全是单条目）。
         现直接返回有近期活动的 Thread 行，语义与聚类器的输入完全对齐。
 
+        传入 conn 时在调用方事务内读取——同批次先前条目在本事务内创建/
+        加入的 Thread 对本查询可见，保持"候选逐条目刷新"的原语义。
+
         返回: Thread dict 列表（含 id/title/last_seen_at/platforms）。
         """
         boundary = (
             datetime.now(timezone.utc) - timedelta(hours=hours)
         ).strftime("%Y-%m-%dT%H:%M:%SZ")
-        with get_db() as conn:
-            rows = conn.execute(
-                """
-                SELECT * FROM threads
-                WHERE last_seen_at >= ?
-                ORDER BY last_seen_at DESC
-                LIMIT ?
-                """,
-                (boundary, limit),
-            ).fetchall()
+        sql = """
+            SELECT * FROM threads
+            WHERE last_seen_at >= ?
+            ORDER BY last_seen_at DESC
+            LIMIT ?
+        """
+        if conn is not None:
+            rows = conn.execute(sql, (boundary, limit)).fetchall()
+        else:
+            with get_db() as c:
+                rows = c.execute(sql, (boundary, limit)).fetchall()
         return [_row_to_dict(r) for r in rows]
 
     def count_all(self) -> int:
@@ -423,7 +444,9 @@ class ThreadRepository:
 
     # ── 同一故事线关联 ─────────────────────────────────────────
 
-    def is_pair_rejected(self, thread_a: str, thread_b: str) -> bool:
+    def is_pair_rejected(
+        self, thread_a: str, thread_b: str, conn: sqlite3.Connection | None = None,
+    ) -> bool:
         """
         该 Thread 对是否被用户明确拒绝过关联（unlink 记录为 reject_merge）。
 
@@ -432,17 +455,19 @@ class ThreadRepository:
         的重复自动关联（同一对 Thread 随新条目涌入会反复触发 near-miss）。
         """
         x, y = sorted((thread_a, thread_b))
-        with get_db() as conn:
-            row = conn.execute(
-                """
-                SELECT 1 FROM thread_overrides
-                WHERE override_type = 'reject_merge'
-                  AND ((thread_id = ? AND target_thread_id = ?)
-                    OR (thread_id = ? AND target_thread_id = ?))
-                LIMIT 1
-                """,
-                (x, y, y, x),
-            ).fetchone()
+        sql = """
+            SELECT 1 FROM thread_overrides
+            WHERE override_type = 'reject_merge'
+              AND ((thread_id = ? AND target_thread_id = ?)
+                OR (thread_id = ? AND target_thread_id = ?))
+            LIMIT 1
+        """
+        params = (x, y, y, x)
+        if conn is not None:
+            row = conn.execute(sql, params).fetchone()
+        else:
+            with get_db() as c:
+                row = c.execute(sql, params).fetchone()
         return row is not None
 
     def record_relation(
@@ -451,6 +476,7 @@ class ThreadRepository:
         thread_b: str,
         similarity: float,
         source: str = "auto",
+        conn: sqlite3.Connection | None = None,
     ) -> bool:
         """
         记录两个 Thread 的"同一故事线"关联（幂等）。
@@ -465,21 +491,22 @@ class ThreadRepository:
         """
         if thread_a == thread_b:
             return False
-        if source == "auto" and self.is_pair_rejected(thread_a, thread_b):
+        if source == "auto" and self.is_pair_rejected(thread_a, thread_b, conn=conn):
             logger.debug("Relation skipped (user rejected): %s / %s", thread_a, thread_b)
             return False
         from app.threads.relations import canonical_pair
 
         a, b = canonical_pair(thread_a, thread_b)
+        sql = (
+            "INSERT OR IGNORE INTO thread_relations (thread_a, thread_b, similarity, source) "
+            "VALUES (?, ?, ?, ?)"
+        )
         try:
-            with get_db() as conn:
-                cursor = conn.execute(
-                    """
-                    INSERT OR IGNORE INTO thread_relations (thread_a, thread_b, similarity, source)
-                    VALUES (?, ?, ?, ?)
-                    """,
-                    (a, b, similarity, source),
-                )
+            if conn is not None:
+                cursor = conn.execute(sql, (a, b, similarity, source))
+            else:
+                with get_db() as c:
+                    cursor = c.execute(sql, (a, b, similarity, source))
             return cursor.rowcount > 0
         except sqlite3.IntegrityError:
             # 引用的 Thread 已被并发删除——关联本身已无意义

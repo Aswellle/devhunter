@@ -124,14 +124,15 @@ export function ItemsPage() {
     enabled: viewMode === 'thread',
   })
 
-  // 重新聚合 Thread：清空现有聚合后按当前算法重放全部条目
+  // 重新聚合 Thread：清空现有聚合后按当前算法重放全部条目。
+  // 服务端改为后台执行（202），前端轮询状态端点直到完成再刷新缓存
   const [confirmRecompute, setConfirmRecompute] = useState(false)
+  const [recomputeRunning, setRecomputeRunning] = useState(false)
   const recomputeMutation = useMutation({
     mutationFn: () => threadsApi.recompute(24),
-    onSuccess: (res) => {
-      qc.invalidateQueries({ queryKey: queryKeys.threads.all })
-      qc.invalidateQueries({ queryKey: queryKeys.items.all })
-      toast.success(`重新聚合完成：${res.items} 条内容 → ${res.threads} 个 Thread`)
+    onSuccess: () => {
+      toast.success('重新聚合已在后台开始，完成后列表自动刷新')
+      setRecomputeRunning(true)
       setConfirmRecompute(false)
     },
     onError: (err) => {
@@ -139,6 +140,30 @@ export function ItemsPage() {
       setConfirmRecompute(false)
     },
   })
+
+  useEffect(() => {
+    if (!recomputeRunning) return
+    let cancelled = false
+    const tick = async () => {
+      try {
+        const status = await threadsApi.recomputeStatus()
+        if (cancelled) return
+        if (!status.running) {
+          setRecomputeRunning(false)
+          if (status.error) {
+            toast.error(`重新聚合失败：${status.error}`)
+          } else if (status.result) {
+            toast.success(`重新聚合完成：${status.result.items} 条内容 → ${status.result.threads} 个 Thread`)
+          }
+          qc.invalidateQueries({ queryKey: queryKeys.threads.all })
+          qc.invalidateQueries({ queryKey: queryKeys.items.all })
+        }
+      } catch { /* 状态查询失败，下一轮再试 */ }
+    }
+    const timer = setInterval(tick, 2000)
+    return () => { cancelled = true; clearInterval(timer) }
+  }, [recomputeRunning, qc])
+  const recomputeBusy = recomputeMutation.isPending || recomputeRunning
 
   // Compute category counts from dedicated counts API (stable across filter changes)
   const categoryCounts = useMemo<Record<string, { total: number; unread: number }>>(() => {
@@ -494,15 +519,15 @@ export function ItemsPage() {
               <button
                 type="button"
                 onClick={() => setConfirmRecompute(true)}
-                disabled={recomputeMutation.isPending}
-                aria-busy={recomputeMutation.isPending}
+                disabled={recomputeBusy}
+                aria-busy={recomputeBusy}
                 className="btn-ghost text-xs py-1.5 px-2.5 inline-flex items-center gap-1.5 disabled:opacity-60"
               >
                 <RefreshCw
-                  className={clsx('h-3.5 w-3.5', recomputeMutation.isPending && 'animate-spin')}
+                  className={clsx('h-3.5 w-3.5', recomputeBusy && 'animate-spin')}
                   aria-hidden="true"
                 />
-                {recomputeMutation.isPending ? '聚合中…' : '重新聚合'}
+                {recomputeBusy ? '聚合中…' : '重新聚合'}
               </button>
             </div>
           </div>

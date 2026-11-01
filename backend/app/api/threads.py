@@ -24,20 +24,28 @@ class ThreadRecomputeRequest(BaseModel):
     window_hours: int = Field(24, ge=1, le=720, description="候选 Thread 的活动窗口（小时）")
 
 
-@router.post("/recompute")
+@router.post("/recompute", status_code=202)
 def recompute_threads(body: ThreadRecomputeRequest, _: str = Depends(require_auth)):
     """
     重建全部 Thread：清空现有聚合后按时间正序重放所有条目的聚类。
 
-    同步执行（个人规模秒级到分钟级）；已有重建进行中返回 409。
+    后台执行，立即返回 202；进度经 GET /items/threads/recompute/status
+    查询。已有重建进行中返回 409。
     """
     try:
-        return thread_service.recompute_all_threads(window_hours=body.window_hours)
+        thread_service.start_recompute(window_hours=body.window_hours)
     except ConflictError as e:
         raise HTTPException(
             status_code=e.status_code,
             detail={"code": e.error_code, "message": e.message},
         )
+    return {"message": "Thread 重建已在后台开始", "window_hours": body.window_hours}
+
+
+@router.get("/recompute/status")
+def recompute_threads_status(_: str = Depends(require_auth)):
+    """查询后台重建状态：{running, result, error}"""
+    return thread_service.recompute_status()
 
 
 @router.get("", response_model=PaginatedResponse)

@@ -26,8 +26,13 @@ _RECOMPUTE_BATCH_SIZE = 200
 
 class ThreadService:
 
-    # 重建互斥锁：防止两次重建并发交错（SQLite 单写入者，交错会产生半重建状态）
-    _recompute_lock = threading.Lock()
+    # 重建互斥锁：防止两次重建并发交错（SQLite 单写入者，交错会产生半重建状态）。
+    # RLock 可重入——重建线程内部逐批调 compute_threads_for_items 时持有同一把锁。
+    _recompute_lock = threading.RLock()
+
+    # 后台重建状态（start_recompute 在独立线程中跑 recompute_all_threads）
+    _recompute_state_lock = threading.Lock()
+    _recompute_state: dict = {"running": False, "result": None, "error": None}
 
     def compute_threads_for_items(
         self,
@@ -47,6 +52,11 @@ class ThreadService:
 
         候选 Thread 逐条目刷新：同批次中先前条目刚创建/加入的 Thread 也会
         出现在后续条目的候选里——同一条事件的多篇报道才能聚进同一个 Thread。
+        整批写入包在单个事务里（候选查询走同一连接，可见未提交的本批写入），
+        避免逐条目独立提交与调度器争 SQLite 单写者。
+
+        重建进行中时跳过本批聚类（重建结束后新条目随下次采集归位）：
+        重建的 delete_all/重放与采集写入交错会产生双重归属。
 
         返回实际参与聚类的 Item 数量。
         """
@@ -73,41 +83,60 @@ class ThreadService:
         if not clusterable:
             return 0
 
-        # 处理每个新 Item
-        matched_count = 0
-        for item in clusterable:
-            item_id = item["id"]
-            title = item["title"]
-            platform = item_id_to_platform.get(item_id, "unknown")
+        if not self._recompute_lock.acquire(blocking=False):
+            # RLock 对持有线程可重入：走到这里说明是重建线程之外
+            # 的采集批次——让位于整体重建，避免交错写
+            logger.warning(
+                "Thread compute: skipped %d items (recompute in progress); "
+                "they will be clustered on the next run",
+                len(clusterable),
+            )
+            return len(clusterable)
+        try:
+            matched_count = 0
+            from app.core.database import transaction
 
-            # 每个条目都重新取候选（近期活跃 Thread），见 get_candidate_threads
-            candidate_threads = thread_repo.get_candidate_threads(hours=window_hours)
+            with transaction() as conn:
+                for item in clusterable:
+                    item_id = item["id"]
+                    title = item["title"]
+                    platform = item_id_to_platform.get(item_id, "unknown")
 
-            # 使用多因素聚类
-            result = thread_clusterer.cluster(item, candidate_threads, threshold=threshold)
-
-            if result.action == "join" and result.thread_id:
-                # 加入已有 Thread
-                matched_count += 1
-                thread_repo.add_item(
-                    thread_id=result.thread_id,
-                    item_id=item_id,
-                    similarity=result.score.total_score if result.score else 0.5,
-                    title=title,
-                    platform=platform,
-                    match_reason=result.match_reason,
-                )
-            else:
-                # 创建新 Thread
-                new_thread_id = thread_repo.create(title=title, item_id=item_id, platform=platform, algorithm_version="v2", similarity_threshold=threshold, match_reason="no_match")
-                # 同一故事线 near-miss：与最佳候选显式关联（展示层分层，不改变归属）
-                if result.related_thread_id:
-                    thread_repo.record_relation(
-                        new_thread_id,
-                        result.related_thread_id,
-                        similarity=result.score.total_score if result.score else 0.0,
-                        source="auto",
+                    # 每个条目都重新取候选（近期活跃 Thread），见 get_candidate_threads；
+                    # 事务内可读到此批次先前条目的写入，语义与逐条目提交一致
+                    candidate_threads = thread_repo.get_candidate_threads(
+                        hours=window_hours, conn=conn,
                     )
+
+                    # 使用多因素聚类
+                    result = thread_clusterer.cluster(item, candidate_threads, threshold=threshold)
+
+                    if result.action == "join" and result.thread_id:
+                        # 加入已有 Thread
+                        matched_count += 1
+                        thread_repo.add_item(
+                            thread_id=result.thread_id,
+                            item_id=item_id,
+                            similarity=result.score.total_score if result.score else 0.5,
+                            title=title,
+                            platform=platform,
+                            match_reason=result.match_reason,
+                            conn=conn,
+                        )
+                    else:
+                        # 创建新 Thread
+                        new_thread_id = thread_repo.create(title=title, item_id=item_id, platform=platform, algorithm_version="v2", similarity_threshold=threshold, match_reason="no_match", conn=conn)
+                        # 同一故事线 near-miss：与最佳候选显式关联（展示层分层，不改变归属）
+                        if result.related_thread_id:
+                            thread_repo.record_relation(
+                                new_thread_id,
+                                result.related_thread_id,
+                                similarity=result.score.total_score if result.score else 0.0,
+                                source="auto",
+                                conn=conn,
+                            )
+        finally:
+            self._recompute_lock.release()
 
         logger.info(
             "Thread compute: %d items clustered, %d matched to existing threads, %d created new, %d catalog-skipped",
@@ -230,6 +259,42 @@ class ThreadService:
         updated = thread_repo.get(thread_id) or {}
         return {"digest": text, "digest_at": updated.get("digest_at")}
 
+    def start_recompute(self, window_hours: int = 24) -> None:
+        """
+        在后台线程中启动全量重建（API 立即返回 202）。
+
+        已有重建进行中时抛 ConflictError。进度经 recompute_status() 查询；
+        重建与采集管线的互斥由 recompute_all_threads / compute_threads_for_items
+        的锁语义保证。
+        """
+        with self._recompute_state_lock:
+            if self._recompute_state["running"]:
+                raise ConflictError("Thread 重建已在进行中，请稍后再试")
+            self._recompute_state.update(running=True, result=None, error=None)
+
+        worker = threading.Thread(
+            target=self._run_recompute_background,
+            args=(window_hours,),
+            name="thread-recompute",
+            daemon=True,
+        )
+        worker.start()
+
+    def _run_recompute_background(self, window_hours: int) -> None:
+        try:
+            result = self.recompute_all_threads(window_hours=window_hours)
+            with self._recompute_state_lock:
+                self._recompute_state.update(running=False, result=result, error=None)
+        except Exception as e:  # noqa: BLE001 — 后台线程必须自己兜底并暴露给状态端点
+            logger.exception("Thread recompute failed")
+            with self._recompute_state_lock:
+                self._recompute_state.update(running=False, result=None, error=str(e))
+
+    def recompute_status(self) -> dict:
+        """后台重建状态：{running, result, error}"""
+        with self._recompute_state_lock:
+            return dict(self._recompute_state)
+
     def recompute_all_threads(self, window_hours: int = 24) -> dict:
         """
         重建全部 Thread：清空后按 created_at 时间正序重放所有条目的聚类。
@@ -238,9 +303,12 @@ class ThreadService:
           活动窗口可调（window_hours，默认 24h 与采集路径一致）
         - 按批次重放，候选随批次刷新
         - thread_overrides 为人工纠错审计记录，保留不动（旧引用自然失效）
+        - 注意：重建会重新生成全部 Thread id，用户的人工合并/拆分/解除关联
+          记录无法跨重建保留（thread_overrides 的 id 引用随重建失效）
 
-        同步执行、进程内互斥：已有重建进行中时抛 ConflictError。
-        个人规模的条目量（数千级）应在秒级到分钟级内完成。
+        进程内互斥：已有重建进行中时抛 ConflictError。
+        个人规模的条目量（数千级）应在秒级到分钟级内完成；
+        经 start_recompute 在后台线程运行，本方法也可直接同步调用（测试）。
 
         Returns:
             {"items": 处理条目数, "threads": 重建后 Thread 数,

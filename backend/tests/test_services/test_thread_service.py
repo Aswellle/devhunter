@@ -49,7 +49,9 @@ class TestThreadService:
 
         new_items = [{"id": "item_1", "title": "T", "task_id": "task_1"}]
         thread_service.compute_threads_for_items(new_items, threshold=0.6, window_hours=48)
-        mock_thread_repo.get_candidate_threads.assert_called_with(hours=48)
+        # 整批写入包在单事务里，候选查询走同一连接
+        assert mock_thread_repo.get_candidate_threads.call_args.kwargs["hours"] == 48
+        assert "conn" in mock_thread_repo.get_candidate_threads.call_args.kwargs
         _, kwargs = mock_thread_repo.create.call_args
         assert kwargs["similarity_threshold"] == 0.6
 
@@ -172,10 +174,27 @@ class TestHotnessSort:
         assert threads_hot[0]["hotness_delta"] == threads_hot[0]["hotness"]
 
     def test_rebuild_is_mutex(self):
-        """已有重建进行中 → ConflictError"""
-        with thread_service._recompute_lock:
+        """另一线程持有重建锁 → ConflictError（锁可重入，同线程的重建内部调用不冲突）"""
+        import threading as _threading
+
+        acquired = _threading.Event()
+        release = _threading.Event()
+
+        def _hold() -> None:
+            thread_service._recompute_lock.acquire()
+            acquired.set()
+            release.wait(timeout=10)
+            thread_service._recompute_lock.release()
+
+        holder = _threading.Thread(target=_hold)
+        holder.start()
+        assert acquired.wait(timeout=5), "持锁线程未就绪"
+        try:
             with pytest.raises(ConflictError):
                 thread_service.recompute_all_threads()
+        finally:
+            release.set()
+            holder.join(timeout=5)
 
     def test_rebuild_releases_lock_on_error(self):
         """重建中途异常也要释放互斥锁"""
@@ -185,3 +204,79 @@ class TestHotnessSort:
         # 锁已释放：再次调用不再抛 ConflictError
         result = thread_service.recompute_all_threads()
         assert "threads" in result
+
+
+class TestBackgroundRecompute:
+    """后台重建生命周期：start_recompute + recompute_status"""
+
+    def _reset_state(self):
+        with thread_service._recompute_state_lock:
+            thread_service._recompute_state.update(running=False, result=None, error=None)
+
+    def test_start_completes_with_result(self):
+        """启动后台重建后状态从 running → 完成并携带结果"""
+        import time as _time
+
+        self._reset_state()
+        thread_service.start_recompute(window_hours=24)
+        assert thread_service.recompute_status()["running"] is True
+
+        deadline = _time.monotonic() + 60
+        status = thread_service.recompute_status()
+        while _time.monotonic() < deadline:
+            status = thread_service.recompute_status()
+            if not status["running"]:
+                break
+            _time.sleep(0.1)
+
+        assert status["running"] is False
+        assert status["error"] is None
+        assert status["result"] is not None
+        assert {"items", "threads", "duration_ms", "window_hours"} <= set(status["result"])
+
+    def test_start_while_running_conflicts(self):
+        """重建进行中再次启动 → ConflictError"""
+        import threading as _threading
+        import time as _time
+
+        release = _threading.Event()
+        self._reset_state()
+        try:
+            with patch.object(
+                thread_service, "recompute_all_threads",
+                side_effect=lambda **kw: (release.wait(timeout=10), {"items": 0})[1],
+            ):
+                thread_service.start_recompute()
+                deadline = _time.monotonic() + 5
+                while not thread_service.recompute_status()["running"] and _time.monotonic() < deadline:
+                    _time.sleep(0.01)
+                with pytest.raises(ConflictError):
+                    thread_service.start_recompute()
+        finally:
+            release.set()
+            deadline = _time.monotonic() + 10
+            while thread_service.recompute_status()["running"] and _time.monotonic() < deadline:
+                _time.sleep(0.05)
+
+    def test_background_error_is_exposed(self):
+        """后台线程的异常经 status 端点暴露，而不是静默吞掉"""
+        import time as _time
+
+        self._reset_state()
+        try:
+            with patch.object(
+                thread_service, "recompute_all_threads",
+                side_effect=RuntimeError("boom"),
+            ):
+                thread_service.start_recompute()
+                deadline = _time.monotonic() + 10
+                status = thread_service.recompute_status()
+                while _time.monotonic() < deadline:
+                    status = thread_service.recompute_status()
+                    if not status["running"]:
+                        break
+                    _time.sleep(0.05)
+            assert status["running"] is False
+            assert "boom" in (status["error"] or "")
+        finally:
+            self._reset_state()

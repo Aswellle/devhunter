@@ -232,12 +232,25 @@ export interface TaskExecution {
   executed_at: string
 }
 
-/** POST /api/items/threads/recompute 响应 */
+/** POST /api/items/threads/recompute 202 响应（后台启动） */
+export interface ThreadRecomputeAccepted {
+  message: string
+  window_hours: number
+}
+
+/** POST /api/items/threads/recompute 完成后的统计 */
 export interface ThreadRecomputeResult {
   items: number
   threads: number
   duration_ms: number
   window_hours: number
+}
+
+/** GET /api/items/threads/recompute/status 响应 */
+export interface ThreadRecomputeStatus {
+  running: boolean
+  result: ThreadRecomputeResult | null
+  error: string | null
 }
 
 // ── RSS 机器出口 ──────────────────────────────────────────
