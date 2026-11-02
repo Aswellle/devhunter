@@ -37,6 +37,12 @@ class _FakeResponse:
         self.encoding = "utf-8"
         self.headers = httpx.Headers({"content-type": content_type})
 
+    def iter_bytes(self, chunk_size=65536):
+        yield self.content
+
+    def close(self):
+        pass
+
     def raise_for_status(self):
         if 400 <= self.status_code:
             raise httpx.HTTPStatusError(
@@ -62,6 +68,17 @@ class _ScriptedClient:
 
     def post(self, url, json=None, headers=None, timeout=None):
         return self.get(url, headers, timeout)
+
+    def build_request(self, method, url, **kwargs):
+        kwargs.pop("timeout", None)
+        return httpx.Request(method, url, **kwargs)
+
+    def send(self, request, stream=False):
+        self.calls += 1
+        result = self._responses.pop(0)
+        if isinstance(result, Exception):
+            raise result
+        return result
 
 
 def _selectors(next_page: str | None = None) -> dict:

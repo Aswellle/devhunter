@@ -512,6 +512,58 @@ class _FetchOutcome:
     http_status: int = 0
 
 
+def _fetch_bounded(
+    client: httpx.Client,
+    method: str,
+    url: str,
+    max_bytes: int,
+    **kwargs,
+) -> tuple[httpx.Response | None, str | None]:
+    """
+    Issue an HTTP request with streaming reads, enforcing max_bytes on the
+    decoded body before it is fully buffered. Returns a regular (non-streaming)
+    httpx.Response with the truncated content, or (None, error_message).
+
+    Without this, httpx's default send(stream=False) reads and decodes the
+    entire body into memory before the caller can check its size — so a
+    remote source returning a multi-GB or gzip-bomb body would exhaust the
+    process before MAX_RESPONSE_BYTES could reject it.
+    """
+    req = client.build_request(method, url, **kwargs)
+    response = client.send(req, stream=True)
+    try:
+        # Pre-check Content-Length when the server declares it
+        cl = response.headers.get("content-length")
+        if cl:
+            try:
+                if int(cl) > max_bytes:
+                    return None, f"Response too large: Content-Length {cl} exceeds limit"
+            except ValueError:
+                pass  # malformed header, fall through to incremental check
+
+        # Read in chunks with incremental cap
+        chunks: list[bytes] = []
+        total = 0
+        for chunk in response.iter_bytes(chunk_size=65536):
+            total += len(chunk)
+            if total > max_bytes:
+                return None, f"Response too large: exceeded {max_bytes} bytes"
+            chunks.append(chunk)
+
+        body = b"".join(chunks)
+        # Build a regular (non-streaming) Response so the caller can use
+        # .content, .text, .json(), .raise_for_status(), .is_redirect, etc.
+        # with the same interface as a normal client.get() result.
+        return httpx.Response(
+            status_code=response.status_code,
+            headers=response.headers,
+            content=body,
+            request=req,
+        ), None
+    finally:
+        response.close()
+
+
 def _fetch_page_with_retry(
     client: httpx.Client,
     url: str,
@@ -540,14 +592,25 @@ def _fetch_page_with_retry(
     for attempt in range(1, MAX_RETRY_ATTEMPTS + 1):
         try:
             if mode == "json-post":
-                response = client.post(
-                    url,
+                response, fetch_err = _fetch_bounded(
+                    client, "POST", url, MAX_RESPONSE_BYTES,
                     json=post_body,
                     headers={**extra_headers, "Content-Type": "application/json"},
                     timeout=timeout,
                 )
             else:
-                response = client.get(url, headers=extra_headers, timeout=timeout)
+                response, fetch_err = _fetch_bounded(
+                    client, "GET", url, MAX_RESPONSE_BYTES,
+                    headers=extra_headers, timeout=timeout,
+                )
+            if fetch_err:
+                _emit(on_progress, "fetch_error", fetch_err, {"attempt": attempt})
+                return _FetchOutcome(
+                    response=None,
+                    retries_used=attempt - 1,
+                    error=fetch_err,
+                    http_status=0,
+                )
 
             # C1: redirects are followed manually so each hop's Location URL
             # can be re-validated against the SSRF blocklist. The shared
@@ -568,13 +631,25 @@ def _fetch_page_with_retry(
                     )
                 redirect_hops += 1
                 if mode == "json-post":
-                    response = client.post(
-                        next_url, json=post_body,
+                    response, fetch_err = _fetch_bounded(
+                        client, "POST", next_url, MAX_RESPONSE_BYTES,
+                        json=post_body,
                         headers={**extra_headers, "Content-Type": "application/json"},
                         timeout=timeout,
                     )
                 else:
-                    response = client.get(next_url, headers=extra_headers, timeout=timeout)
+                    response, fetch_err = _fetch_bounded(
+                        client, "GET", next_url, MAX_RESPONSE_BYTES,
+                        headers=extra_headers, timeout=timeout,
+                    )
+                if fetch_err:
+                    _emit(on_progress, "fetch_error", fetch_err, {"attempt": attempt})
+                    return _FetchOutcome(
+                        response=None,
+                        retries_used=attempt - 1,
+                        error=fetch_err,
+                        http_status=0,
+                    )
 
             response.raise_for_status()
             return _FetchOutcome(

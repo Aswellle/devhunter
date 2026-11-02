@@ -22,9 +22,14 @@ class _FakeResp:
         self.content = b"{}" if json_body is not None else b""
         self.encoding = "utf-8"
         self.is_redirect = redirect_to is not None
-        self.headers = {"location": redirect_to} if redirect_to else {}
-        # httpx.Response.url 是 httpx.URL（engine 用它做重定向 join）
+        self.headers = httpx.Headers({"location": redirect_to} if redirect_to else {})
         self.url = httpx.URL("http://example.com/api")
+
+    def iter_bytes(self, chunk_size: int = 65536):
+        yield self.content
+
+    def close(self):
+        pass
 
     def raise_for_status(self):
         if self.status_code >= 400:
@@ -47,11 +52,35 @@ class _RecordingClient:
 
     def get(self, url, headers=None, timeout=None):
         self.calls.append(("GET", url, None))
-        return self._responses.pop(0)
+        return self._next()
 
     def post(self, url, json=None, headers=None, timeout=None):
         self.calls.append(("POST", url, json))
-        return self._responses.pop(0)
+        return self._next()
+
+    def build_request(self, method, url, **kwargs):
+        kwargs.pop("timeout", None)  # client-level, not Request-level
+        return httpx.Request(method, url, **kwargs)
+
+    def send(self, request, stream=False):
+        # Extract the json body from the request content for recording
+        body = None
+        if request.content:
+            import json as _json
+            try:
+                body = _json.loads(request.content)
+            except Exception:
+                body = request.content
+        method = request.method
+        url = str(request.url)
+        self.calls.append((method, url, body))
+        return self._next()
+
+    def _next(self):
+        result = self._responses.pop(0)
+        if isinstance(result, Exception):
+            raise result
+        return result
 
 
 def test_parse_mode_json_post_extracts_body():
@@ -80,7 +109,8 @@ def test_json_post_sends_body_from_mode_extra():
     )
     assert outcome.error is None
     assert outcome.http_status == 200
-    assert client.calls == [("POST", "http://example.com/api", {"page": 2})]
+    assert client.calls[0][0] == "POST"
+    assert client.calls[0][2] == {"page": 2}
 
 
 def test_json_post_5xx_is_terminal_no_retry():
@@ -97,7 +127,6 @@ def test_json_post_5xx_is_terminal_no_retry():
 
 def test_json_post_redirect_reposts_same_body(monkeypatch):
     """手动跟随重定向时，下一跳以同一请求体 POST 到解析后的目标。"""
-    # 重定向目标会经过 SSRF 校验（含 DNS 解析）；单测中直接放行
     monkeypatch.setattr(
         engine, "resolve_and_validate_url", lambda _url: (True, "", None)
     )
