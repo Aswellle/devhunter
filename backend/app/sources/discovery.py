@@ -124,7 +124,7 @@ class URLDiscoverer:
 
     def _fetch(self, url: str) -> httpx.Response | None:
         """
-        获取页面：SSRF 校验 + 手动跟随重定向（每一跳重新校验）。
+        获取页面：SSRF 校验 + 手动跟随重定向（每一跳重新校验）+ 响应体限长。
 
         ⚠️ 这里刻意不做 IP pinning。把请求地址换成「已验证 IP + Host 头」会让
         HTTPS 的 SNI 与证书按 IP 校验，直接
@@ -132,6 +132,8 @@ class URLDiscoverer:
         站点的自动发现都失败。抓取引擎采用的是同一套策略：先校验、再按原 URL
         请求（follow_redirects=False），每一跳手动重新校验 SSRF。
         """
+        from app.crawler.engine import MAX_RESPONSE_BYTES, _fetch_bounded
+
         is_safe, error_msg, _ = resolve_and_validate_url(url)
         if not is_safe:
             logger.warning("SSRF check blocked URL %s: %s", url, error_msg)
@@ -139,7 +141,13 @@ class URLDiscoverer:
 
         try:
             client = get_http_client()
-            response = client.get(url, follow_redirects=False, timeout=15.0)
+            response, fetch_err = _fetch_bounded(
+                client, "GET", url, MAX_RESPONSE_BYTES,
+                timeout=15.0,
+            )
+            if fetch_err:
+                logger.warning("Discovery fetch error for %s: %s", url, fetch_err)
+                return None
 
             hops = 0
             while getattr(response, "is_redirect", False) and hops < MAX_REDIRECTS:
@@ -153,7 +161,13 @@ class URLDiscoverer:
                                    url, next_url, hop_msg)
                     return None
                 hops += 1
-                response = client.get(next_url, follow_redirects=False, timeout=15.0)
+                response, fetch_err = _fetch_bounded(
+                    client, "GET", next_url, MAX_RESPONSE_BYTES,
+                    timeout=15.0,
+                )
+                if fetch_err:
+                    logger.warning("Discovery fetch error on redirect %s: %s", next_url, fetch_err)
+                    return None
 
             response.raise_for_status()
             return response
