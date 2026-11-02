@@ -7,6 +7,7 @@ app/utils/similarity.py
 """
 import re
 import unicodedata
+from functools import lru_cache
 from typing import Callable
 
 
@@ -49,16 +50,21 @@ def normalize_text(text: str) -> str:
     return text
 
 
+@lru_cache(maxsize=512)
+def _cached_tokenize(text: str) -> frozenset[str]:
+    """带缓存的词分词。新条目的 title 在 20 次候选对比中重复传入，
+    缓存消除 19 次重复的 normalize+split+filter。"""
+    normalized = normalize_text(text)
+    tokens = set(normalized.split())
+    return frozenset(t for t in tokens if t not in STOP_WORDS and len(t) > 1)
+
+
 def tokenize(text: str) -> set[str]:
     """
     将文本分词为词集合。
     过滤停用词和单字符词。
     """
-    normalized = normalize_text(text)
-    tokens = set(normalized.split())
-    # 过滤停用词和太短的词
-    tokens = {t for t in tokens if t not in STOP_WORDS and len(t) > 1}
-    return tokens
+    return set(_cached_tokenize(text))
 
 
 def jaccard_similarity(text_a: str, text_b: str) -> float:

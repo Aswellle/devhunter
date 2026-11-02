@@ -11,6 +11,7 @@ Semantic Similarity：语义相似度可插拔架构。
 import logging
 import re
 from abc import ABC, abstractmethod
+from functools import lru_cache
 from typing import Any
 
 # Optional numpy dependency for embedding similarity
@@ -22,6 +23,18 @@ except ImportError:
     np = None  # type: ignore
 
 logger = logging.getLogger(__name__)
+
+
+@lru_cache(maxsize=512)
+def _cached_ngram_tokenize(text: str, n: int) -> frozenset[str]:
+    """带缓存的 n-gram 分词。新条目的 title 在 20 次候选对比中重复传入，
+    缓存消除 19 次重复的 O(L) set 构建；候选侧同 title 也被复用。"""
+    if not text:
+        return frozenset()
+    cleaned = re.sub(r'[^\w\u4e00-\u9fff]', '', text.lower())
+    if len(cleaned) < n:
+        return frozenset({cleaned})
+    return frozenset(cleaned[i:i + n] for i in range(len(cleaned) - n + 1))
 
 
 class SemanticSimilarity(ABC):
@@ -71,15 +84,9 @@ class CharacterNgramSimilarity(SemanticSimilarity):
         """
         self.n = n
 
-    def _tokenize(self, text: str) -> set[str]:
-        """将文本分解为字符级 n-gram"""
-        if not text:
-            return set()
-        # 清理文本：保留中英文数字
-        text = re.sub(r'[^\w\u4e00-\u9fff]', '', text.lower())
-        if len(text) < self.n:
-            return {text}
-        return {text[i:i + self.n] for i in range(len(text) - self.n + 1)}
+    def _tokenize(self, text: str) -> frozenset[str]:
+        """将文本分解为字符级 n-gram（带缓存）"""
+        return _cached_ngram_tokenize(text, self.n)
 
     def compute(self, text_a: str, text_b: str) -> float:
         """计算两个文本的 n-gram Jaccard 相似度"""
