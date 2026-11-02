@@ -24,6 +24,11 @@ services:
       # 数据库必须落在挂载卷内：默认相对路径会写进容器可写层，
       # 容器重建（升级/迁移镜像）即丢失全部数据
       DB_PATH: /data/devhunter.db
+      # uvicorn 0.42 默认 forwarded_allow_ips='127.0.0.1'，而 nginx 容器的
+      # bridge 地址不是 loopback——不设置此变量时 request.client.host 始终
+      # 是 nginx 地址，登录限流和锁定对全部外部调用者共享一个桶。
+      # 后端仅 expose 在 Docker 内部网络，此网络上的唯一 peer 就是 nginx。
+      FORWARDED_ALLOW_IPS: "*"
       # 浏览器可见的前端 origin；http://frontend 是 Docker 内部服务名，
       # 浏览器永远不会把它当作 Origin 发送，此前留在这里是死配置。
       CORS_ORIGINS: http://localhost,http://localhost:80,https://localhost
