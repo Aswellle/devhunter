@@ -7,6 +7,7 @@ import threading
 import httpx
 
 from app.core.config import settings
+from app.core.ssrf import SSRFPinnedTransport
 
 
 def _build_client() -> httpx.Client:
@@ -42,12 +43,17 @@ def _build_client() -> httpx.Client:
         # manually — auto-following here would let a 301/302 to a private
         # IP bypass the SSRF check entirely.
         follow_redirects=False,
-        limits=httpx.Limits(
-            max_keepalive_connections=5,
-            max_connections=10,
+        # SSRF 连接层执法：每次 TCP 连接自行解析 DNS 并只拨号到通过黑名单
+        # 校验的地址（解析与拨号同调用内完成，关闭 DNS rebinding TOCTOU）。
+        # verify 与 limits 必须放在自定义 transport 上——传入 transport 后
+        # 客户端层级的这两个参数不会再生效
+        transport=SSRFPinnedTransport(
+            verify=True,
+            limits=httpx.Limits(
+                max_keepalive_connections=5,
+                max_connections=10,
+            ),
         ),
-        # 显式启用 SSL 证书验证，防止中间人攻击
-        verify=True,
     )
 
 

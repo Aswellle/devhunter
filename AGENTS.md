@@ -74,7 +74,7 @@ devhunter/
 │   │   ├── api/            # FastAPI 路由处理器（10 个模块）
 │   │   │   ├── deps.py     # require_auth 依赖注入
 │   │   │   └── router.py   # 中央 /api 路由器；threads 必须在 items 之前注册
-│   │   ├── core/           # 配置、数据库、安全、日志、event_bus、http_client、exceptions、rate_limit
+│   │   ├── core/           # 配置、数据库、安全、SSRF、日志、event_bus、http_client、exceptions、rate_limit
 │   │   ├── services/       # 业务逻辑（task、item、execution、thread、recommendation）
 │   │   ├── repositories/   # 数据访问层（6 个仓储）
 │   │   ├── schemas/        # Pydantic 请求/响应模型
@@ -153,7 +153,7 @@ start.bat                              # 一键启动：backend（:8000）+ fron
 - **数据库访问：** `get_db()` 上下文管理器自动 commit/rollback。`transaction()` 用于跨仓储原子性。SQLite WAL 模式，`busy_timeout=5000`，`foreign_keys=ON`。
 - **迁移：** 纯 SQL 文件通过 `init_database()` 在启动时应用。使用幂等 `ALTER TABLE ADD COLUMN`——永不破坏性变更。触发器感知的 SQL 拆分器正确处理 `BEGIN...END` 块。
 - **单例模式：** `scheduler_manager`、`event_bus`、`settings`（lru_cache）、`get_http_client()`。所有仓储/服务导出单一实例。
-- **SSRF 防护：** 爬取引擎在 HTTP 调用前阻止私有/环回/链路本地 IP。DNS 解析失败时 **fail-closed**。`follow_redirects=False`——每个跳转手动重新验证 SSRF。
+- **SSRF 防护：** 两层防线。① URL 预检（`core/ssrf.py::resolve_and_validate_url`）：HTTP 调用前阻止私有/环回/链路本地 IP 与 metadata.* 主机名，DNS 解析失败时 **fail-closed**。② 连接层 IP pinning（`SSRFPinnedNetworkBackend`，挂在共享客户端的传输后端）：每次 TCP 连接在同一次调用内解析 DNS、校验黑名单、只拨号到已验证 IP——关闭 DNS rebinding TOCTOU；TLS 的 SNI/证书校验仍用原始主机名，https 不受影响。`follow_redirects=False`——每个跳转手动重新预检。
 - **去重：** 三层去重——(1) `external_id` 按任务，(2) `url_hash` 全局，(3) `content_hash`（title+summary 的 SHA256）。
 - **日志：** 结构化 JSON 日志，`RequestIdFilter` 从 contextvars 注入 `request_id`。
 
@@ -183,6 +183,7 @@ start.bat                              # 一键启动：backend（:8000）+ fron
 | `backend/app/core/config.py` | Pydantic-settings 配置 |
 | `backend/app/core/database.py` | SQLite 连接、迁移、事务 |
 | `backend/app/core/security.py` | JWT 创建/验证、密码校验 |
+| `backend/app/core/ssrf.py` | SSRF 预检 + 连接层 IP pinning 网络后端（防 DNS rebinding） |
 | `backend/app/core/event_bus.py` | 线程安全 SSE 事件广播器 |
 | `backend/app/core/http_client.py` | 共享 httpx 客户端（Chrome 指纹 headers） |
 | `backend/app/core/exceptions.py` | DevHunterError 层级 |
@@ -361,7 +362,7 @@ SQLite，WAL 模式。关键表：
 
 ### 修改爬取器
 - 永远不要从 `crawler/engine.py` 抛出异常——通过 `CrawlResult.error` 返回错误
-- 维护 SSRF 防护（私有 IP 阻止）
+- 维护 SSRF 防护：所有对外抓取必须走共享客户端（`get_http_client()`，其传输后端自带连接层 IP pinning）；新增出口请求不要自建 `httpx.Client`，主机名策略变更只改 `core/ssrf.py` 预检层
 - 遵守 `CRAWLER_MAX_RESPONSE_MB` 截断
 - 使用 `tests/test_crawler/` 模式测试（stubs、monkeypatch）
 
@@ -391,7 +392,7 @@ SQLite，WAL 模式。关键表：
 ## 关键注意事项（非显而易见的坑）
 
 1. **路由顺序很重要**：`threads` 必须在 `router.py` 中注册在 `items` 之前，否则 `/items/{id}` 通配符会吞掉 `/items/threads`。
-2. **SSRF fail-closed**：DNS 解析错误返回 `(False, "...")`——不是允许。这对安全至关重要。
+2. **SSRF fail-closed**：DNS 解析错误返回 `(False, "...")`——不是允许。这对安全至关重要。连接层 pinning 同样 fail-closed：解析失败或全部命中黑名单时抛 `ConnectError`，绝不退化。
 3. **POST 5xx 不重试**：重试失败的 POST 可能产生重复副作用。GET/HTML/RSS 5xx 重试 3 次。
 4. **线程隔离**：调度器在独立线程运行——不直接调用 async 函数。
 5. **WAL 模式**：SQLite 单写入器。`busy_timeout=5000` 处理争用。无连接池——每次 `get_db()` 创建新连接。

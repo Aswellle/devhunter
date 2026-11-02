@@ -24,11 +24,14 @@ import chardet
 import httpx
 from bs4 import BeautifulSoup
 
-import ipaddress
 from urllib.parse import urlparse
 
 from app.core.config import settings
 from app.core.http_client import get_http_client
+# SSRF 预检（快速失败层）与 IP 黑名单定义在 core/ssrf.py；连接层的 IP
+# pinning 执法在共享 HTTP 客户端的传输后端里（SSRFPinnedNetworkBackend），
+# 本模块的预检只负责在发起请求前给出即时、可读的拒绝信息
+from app.core.ssrf import resolve_and_validate_url
 from app.utils.url import compute_url_hash
 
 logger = logging.getLogger(__name__)
@@ -73,162 +76,9 @@ class CrawlResult:
 
 
 # ─── SSRF Protection ─────────────────────────────────────────────────────────
-
-# Reserved/private IP ranges that should be blocked
-_PRIVATE_IP_BLOCKS = [
-    ipaddress.ip_network("10.0.0.0/8"),       # Class A private
-    ipaddress.ip_network("172.16.0.0/12"),     # Class B private
-    ipaddress.ip_network("192.168.0.0/16"),    # Class C private
-    ipaddress.ip_network("127.0.0.0/8"),       # Loopback
-    ipaddress.ip_network("169.254.0.0/16"),    # Link-local (including 169.254.169.254)
-    ipaddress.ip_network("0.0.0.0/8"),         # Current network
-    ipaddress.ip_network("100.64.0.0/10"),    # Carrier-grade NAT
-    ipaddress.ip_network("192.0.0.0/24"),    # IETF Protocol assignments
-    ipaddress.ip_network("192.0.2.0/24"),    # TEST-NET-1
-    ipaddress.ip_network("198.51.100.0/24"),  # TEST-NET-2
-    ipaddress.ip_network("203.0.113.0/24"),   # TEST-NET-3
-    ipaddress.ip_network("224.0.0.0/4"),     # Multicast
-    ipaddress.ip_network("240.0.0.0/4"),     # Reserved
-    ipaddress.ip_network("255.255.255.255/32"),  # Broadcast
-    ipaddress.ip_network("::1/128"),          # Loopback (IPv6)
-    ipaddress.ip_network("::/128"),           # Unspecified address (IPv6) — connect() targets localhost
-    ipaddress.ip_network("64:ff9b::/96"),     # NAT64 well-known prefix (embeds IPv4)
-    ipaddress.ip_network("fc00::/7"),         # Unique local (IPv6)
-    ipaddress.ip_network("fe80::/10"),        # Link-local (IPv6)
-]
-
-
-def _blocklist_ip(ip_str: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address:
-    """
-    把地址字符串转为黑名单比对用 IP。
-
-    IPv4-mapped IPv6（::ffff:a.b.c.d）与 IPv4 黑名单段版本不同，直接做
-    in 判断恒为 False；OS 实际连接时会把它映射回 IPv4——必须先归一化，
-    否则 mapped 形式的内网/元数据地址会绕过校验。
-    """
-    ip = ipaddress.ip_address(ip_str)
-    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped:
-        return ip.ipv4_mapped
-    return ip
-
-
-def _is_ssrf_safe_url(url: str) -> tuple[bool, str]:
-    """
-    Check if a URL is safe from SSRF attacks.
-    Returns (is_safe, error_message).
-
-    NOTE on DNS rebinding: this resolves hostname→IP and validates the IP,
-    but the caller must then connect to that validated IP directly (with the
-    Host header set to the original hostname) to close the TOCTOU gap. See
-    resolve_and_validate_url() which pairs resolution with the pinning contract.
-    """
-    return _resolve_and_check_url(url)
-
-
-def _resolve_and_check_url(url: str) -> tuple[bool, str]:
-    """Core resolution + blocklist check. Kept separate for clarity."""
-    """
-    Check if a URL is safe from SSRF attacks.
-    Returns (is_safe, error_message).
-    """
-    try:
-        parsed = urlparse(url)
-        if parsed.scheme not in ("http", "https"):
-            return False, f"不支持的协议: {parsed.scheme}，仅允许 http/https"
-
-        hostname = parsed.hostname
-        if not hostname:
-            return False, "无法解析的主机名"
-
-        hostname_lower = hostname.lower()
-        # Block cloud metadata endpoints
-        if hostname_lower == "metadata.google.internal":
-            return False, "禁止访问云元数据端点 (metadata.google.internal)"
-        if hostname_lower == "169.254.169.254":
-            return False, "禁止访问云元数据地址 (169.254.169.254)"
-        if hostname_lower.startswith("metadata."):
-            return False, f"禁止访问云元数据端点 ({hostname_lower})"
-
-        # Try to resolve hostname to IP(s)
-        import socket
-        # C1: DNS resolution failure must fail CLOSED (block), not open.
-        # Previously any getaddrinfo error (including a transient DNS blip)
-        # returned (True, "") — i.e. "safe" — permissively allowing requests
-        # that should have been blocked. Resolution errors are now caught by
-        # the outer except below and also treated as unsafe.
-        addr_info = socket.getaddrinfo(hostname_lower, None)
-        if not addr_info:
-            return False, "无法解析主机名对应的 IP 地址"
-
-        for family, _, _, _, sockaddr in addr_info:
-            if family == socket.AF_INET:
-                ip_str = sockaddr[0]
-                ip = _blocklist_ip(ip_str)
-            elif family == socket.AF_INET6:
-                ip_str = sockaddr[0]
-                ip = _blocklist_ip(ip_str)
-            else:
-                continue
-
-            # Check against private/reserved blocks
-            for block in _PRIVATE_IP_BLOCKS:
-                if ip in block:
-                    return False, f"禁止访问私有/保留 IP 地址: {ip_str}"
-
-        return True, ""
-
-    except Exception as e:
-        # C1: fail closed — a malformed URL or DNS resolution error must
-        # block the request rather than silently letting it through.
-        logger.debug("SSRF check error, blocking as unsafe: %s", e)
-        return False, f"URL 安全校验失败: {e}"
-
-
-def resolve_and_validate_url(url: str) -> tuple[bool, str, str | None]:
-    """
-    Resolve hostname, check against SSRF blocklist, and return the validated
-    IP to pin. This closes the DNS-rebind TOCTOU: the caller connects to the
-    returned IP directly (with the original Host header) instead of re-resolving
-    the hostname at fetch time.
-
-    Returns (is_safe, error_message, validated_ip_or_none).
-    """
-    try:
-        parsed = urlparse(url)
-        if parsed.scheme not in ("http", "https"):
-            return False, f"不支持的协议: {parsed.scheme}", None
-        hostname = parsed.hostname
-        if not hostname:
-            return False, "无法解析的主机名", None
-        hostname_lower = hostname.lower()
-        if hostname_lower == "metadata.google.internal":
-            return False, "禁止访问云元数据端点", None
-        if hostname_lower == "169.254.169.254":
-            return False, "禁止访问云元数据地址", None
-        if hostname_lower.startswith("metadata."):
-            return False, f"禁止访问云元数据端点 ({hostname_lower})", None
-
-        import socket
-        addr_info = socket.getaddrinfo(hostname_lower, None)
-        if not addr_info:
-            return False, "无法解析主机名对应的 IP 地址", None
-
-        validated_ip = None
-        for family, _, _, _, sockaddr in addr_info:
-            ip_str = sockaddr[0]
-            ip = _blocklist_ip(ip_str)
-            for block in _PRIVATE_IP_BLOCKS:
-                if ip in block:
-                    return False, f"禁止访问私有/保留 IP 地址: {ip_str}", None
-            if family == socket.AF_INET and validated_ip is None:
-                validated_ip = ip_str  # pin first IPv4
-            elif family == socket.AF_INET6 and validated_ip is None:
-                validated_ip = ip_str
-
-        return True, "", validated_ip
-    except Exception as e:
-        logger.debug("resolve_and_validate_url error: %s", e)
-        return False, f"URL 安全校验失败: {e}", None
+# 已迁移至 app/core/ssrf.py：IP 黑名单、resolve_and_validate_url 预检，
+# 以及连接层 IP pinning 后端（SSRFPinnedNetworkBackend / SSRFPinnedTransport）。
+# 本文件经顶部 import 复用预检函数，接口与既有调用保持不变。
 
 
 # ─── Mode Detection ────────────────────────────────────────────────────────────

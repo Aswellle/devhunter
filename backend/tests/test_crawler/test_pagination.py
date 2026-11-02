@@ -93,8 +93,8 @@ def _fast(monkeypatch):
     """No real sleeping; no real network."""
     monkeypatch.setattr(engine.time, "sleep", lambda *_a, **_k: None)
     # SSRF: allow http://example.com/* (resolves to a real public IP in CI, but
-    # to be deterministic, stub the SSRF check to always pass for these tests).
-    monkeypatch.setattr(engine, "_is_ssrf_safe_url", lambda url: (True, ""))
+    # to be deterministic, stub the SSRF pre-check to always pass for these tests).
+    monkeypatch.setattr(engine, "resolve_and_validate_url", lambda url: (True, "", None))
     # Site-specific headers: keep empty for the fake domain.
     monkeypatch.setattr(engine, "_get_extra_headers", lambda url: {})
 

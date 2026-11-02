@@ -20,7 +20,9 @@ import httpx
 from bs4 import BeautifulSoup
 
 from ..core.http_client import get_http_client
-from ..crawler.engine import MAX_REDIRECTS, resolve_and_validate_url
+from ..core.http_client import get_http_client
+from ..core.ssrf import resolve_and_validate_url
+from ..crawler.engine import MAX_REDIRECTS
 
 logger = logging.getLogger(__name__)
 
@@ -124,13 +126,15 @@ class URLDiscoverer:
 
     def _fetch(self, url: str) -> httpx.Response | None:
         """
-        获取页面：SSRF 校验 + 手动跟随重定向（每一跳重新校验）+ 响应体限长。
+        获取页面：SSRF 预检 + 手动跟随重定向（每一跳重新预检）。
 
-        ⚠️ 这里刻意不做 IP pinning。把请求地址换成「已验证 IP + Host 头」会让
-        HTTPS 的 SNI 与证书按 IP 校验，直接
-        `CERTIFICATE_VERIFY_FAILED: IP address mismatch` —— 于是所有 https
-        站点的自动发现都失败。抓取引擎采用的是同一套策略：先校验、再按原 URL
-        请求（follow_redirects=False），每一跳手动重新校验 SSRF。
+        连接层的 IP pinning（DNS rebinding TOCTOU 关闭）由共享客户端的
+        传输后端强制执行（core/ssrf.py::SSRFPinnedNetworkBackend）：每次
+        TCP 连接在同一次调用内解析 DNS、校验黑名单、拨号到已验证 IP，
+        TLS 的 SNI/证书校验仍使用原始主机名。这里的逐跳
+        resolve_and_validate_url 是快速失败层：在发起任何网络 I/O 之前
+        拦截恶意 URL 并给出即时错误信息，同时承载主机名策略
+        （metadata.*、协议白名单）。
         """
         from app.crawler.engine import MAX_RESPONSE_BYTES, _fetch_bounded
 
