@@ -330,7 +330,7 @@ def _parse_json_items(
         title = _get_nested(item, title_path)
         if not title:
             continue
-        title = str(title).strip()
+        title = str(title).strip()[:500]
         if not title:
             continue
 
@@ -379,7 +379,7 @@ def _parse_rss_items(xml_text: str, base_url: str) -> tuple[list[CrawlItem], int
         # Atom
         for entry in root.iter("entry"):
             title_el = entry.find("title")
-            title = (title_el.text or "").strip() if title_el is not None else ""
+            title = (title_el.text or "").strip()[:500] if title_el is not None else ""
 
             link = ""
             for lel in entry.findall("link"):
@@ -408,7 +408,7 @@ def _parse_rss_items(xml_text: str, base_url: str) -> tuple[list[CrawlItem], int
                 desc_el = item_el.find("encoded")
             guid_el  = item_el.find("guid")
 
-            title = (title_el.text or "").strip() if title_el is not None else ""
+            title = (title_el.text or "").strip()[:500] if title_el is not None else ""
 
             link = ""
             if link_el is not None:
@@ -876,7 +876,7 @@ def _parse_one_page(
         title_el = el.select_one(title_sel) if title_sel else None
         if not title_el:
             continue
-        title = title_el.get_text(strip=True)
+        title = title_el.get_text(strip=True)[:500]
         if not title:
             continue
 
