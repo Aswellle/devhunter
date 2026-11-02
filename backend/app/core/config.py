@@ -109,11 +109,20 @@ class Settings(BaseSettings):
     def is_production(self) -> bool:
         return self.app_env == "production"
 
+    def validate_credentials(self) -> None:
+        """拒绝空 AUTH_PASSWORD——不管 APP_ENV 是什么。
+        空密码配 compare_digest('','') 会让任何未认证调用者获取 JWT。"""
+        if not self.auth_password or not self.auth_password.strip():
+            raise RuntimeError(
+                "AUTH_PASSWORD must not be empty; set a strong password in the environment"
+            )
+
     def validate_production_secrets(self) -> None:
         """生产环境启动时校验敏感配置，防止使用默认值/占位符部署"""
+        self.validate_credentials()
         if not self.is_production:
             return
-        insecure_passwords = {"devhunter123", "change-me", "", "<请修改为强密码>"}
+        insecure_passwords = {"devhunter123", "change-me", "<请修改为强密码>"}
         insecure_keys = {
             "change-me-in-production", "change-me", "",
             "<请用 openssl rand -hex 32 生成>",

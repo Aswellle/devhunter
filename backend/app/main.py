@@ -32,6 +32,7 @@ async def lifespan(app: FastAPI):
     """应用生命周期管理：启动 → 提供服务 → 关闭"""
     setup_logging()
     logger.info("DevHunter starting up (env=%s)", settings.app_env)
+    settings.validate_credentials()
     settings.validate_production_secrets()
 
     init_database()
