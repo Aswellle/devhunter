@@ -116,3 +116,23 @@ def test_plain_ipv6_loopback_still_blocked(monkeypatch):
     )
     safe, msg, ip = engine.resolve_and_validate_url('http://[::1]/')
     assert safe is False
+
+
+def test_ipv6_unspecified_blocked(monkeypatch):
+    """回归：IPv6 未指定地址 :: 必须被拦截（Linux 上 connect(::) 目标为本机）。"""
+    monkeypatch.setattr(
+        socket, "getaddrinfo",
+        lambda host, port: _addrinfo_result(('::', 0, 0, 0)),
+    )
+    safe, msg, ip = engine.resolve_and_validate_url('http://[::]:8000/')
+    assert safe is False
+
+
+def test_nat64_mapped_blocked(monkeypatch):
+    """回归：NAT64 64:ff9b::/96 编码的 IPv4 地址必须被拦截。"""
+    monkeypatch.setattr(
+        socket, "getaddrinfo",
+        lambda host, port: _addrinfo_result(('64:ff9b::7f00:1', 0, 0, 0)),
+    )
+    safe, msg, ip = engine.resolve_and_validate_url('http://[64:ff9b::7f00:1]/')
+    assert safe is False

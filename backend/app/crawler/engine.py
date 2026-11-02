@@ -91,6 +91,8 @@ _PRIVATE_IP_BLOCKS = [
     ipaddress.ip_network("240.0.0.0/4"),     # Reserved
     ipaddress.ip_network("255.255.255.255/32"),  # Broadcast
     ipaddress.ip_network("::1/128"),          # Loopback (IPv6)
+    ipaddress.ip_network("::/128"),           # Unspecified address (IPv6) — connect() targets localhost
+    ipaddress.ip_network("64:ff9b::/96"),     # NAT64 well-known prefix (embeds IPv4)
     ipaddress.ip_network("fc00::/7"),         # Unique local (IPv6)
     ipaddress.ip_network("fe80::/10"),        # Link-local (IPv6)
 ]
