@@ -143,3 +143,32 @@ def test_retry_exhausted_on_network_errors():
     )
     assert outcome.error is not None
     assert "3 attempt(s)" in outcome.error
+
+
+# ── _fetch_bounded：响应头重建回归 ────────────────────────────────────────────
+
+def test_bounded_response_decodes_compressed_headers_correctly():
+    """回归：上游响应带 Content-Encoding 时，重建的 Response 不得再解压一次。
+
+    iter_bytes() 返回的是已解压明文；若把原始 Content-Encoding/Content-Length
+    头透传给新 Response，httpx 构造时会按头二次解码 → zlib "incorrect header
+    check"，所有压缩响应（绝大多数站点）的抓取全部失败。
+    """
+    plaintext = b"<html><body>decoded payload</body></html>"
+    fake = _FakeResponse(200)
+    fake.content = plaintext
+    fake.headers = httpx.Headers({
+        "Content-Type": "text/html; charset=utf-8",
+        "Content-Encoding": "gzip",
+        "Content-Length": str(len(plaintext) + 123),  # 压缩后的假长度
+    })
+    client = _ScriptedClient([fake])
+    response, fetch_err = engine._fetch_bounded(
+        client, "GET", "http://example.com/", 1024 * 1024, timeout=5.0,
+    )
+    assert fetch_err is None
+    assert response is not None
+    # 明文按原文读出，且残留的压缩头已剔除
+    assert response.text == plaintext.decode("utf-8")
+    assert response.headers.get("content-encoding") is None
+    assert response.headers.get("content-length") == str(len(plaintext))

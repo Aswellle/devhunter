@@ -404,9 +404,20 @@ def _fetch_bounded(
         # Build a regular (non-streaming) Response so the caller can use
         # .content, .text, .json(), .raise_for_status(), .is_redirect, etc.
         # with the same interface as a normal client.get() result.
+        # The body is the DECODED plaintext (iter_bytes transparently
+        # decompressed it). Carrying over Content-Encoding makes httpx run
+        # the decoder AGAIN when constructing the new Response
+        # (zlib "incorrect header check" on every compressed response), and
+        # the stale Content-Length no longer matches the decoded body.
+        # Strip both so httpx treats `body` as final bytes.
+        stripped_headers = [
+            (k, v)
+            for k, v in response.headers.raw
+            if k.lower() not in (b"content-encoding", b"content-length")
+        ]
         return httpx.Response(
             status_code=response.status_code,
-            headers=response.headers,
+            headers=stripped_headers,
             content=body,
             request=req,
         ), None
