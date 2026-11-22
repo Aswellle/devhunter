@@ -7,10 +7,11 @@
  * - Each element floats gently with randomized CSS keyframe animations
  * - Solid pastel cards (no backdrop blur: 500+ blur layers tank scroll FPS)
  * - Titles determine their own size (no truncation)
- * - Handles pagination to fetch all available items (up to 500)
+ * - Progressive infinite pagination: first paint waits for page 1 only,
+ *   sentinel-driven load-more up to 1000 items with cross-page id dedup
  */
-import { useEffect, useMemo, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { useInfiniteQuery } from '@tanstack/react-query'
 import { Cloud } from 'lucide-react'
 import { itemsApi } from '../api/items'
 import { queryKeys } from '../api/queryKeys'
@@ -147,55 +148,75 @@ function getSiteName(url: string): string {
 }
 
 /**
- * Fetch all items across multiple pages (backend caps at 100 per page)
+ * 渐进分页：首屏只等第 1 页，触底自动续页。
+ * 上限 1000：无模糊卡 + content-visibility 跳渲染下可承受的量级，
+ * 同时防止结果云无限膨胀拖垮内存。
  */
-interface CloudItemsResult {
+const PER_PAGE = 100
+const MAX_ITEMS = 1000
+
+interface CloudPageResult {
   items: Item[]
   total: number
-  truncated: boolean
 }
 
-async function fetchAllCloudItems(): Promise<CloudItemsResult> {
-  const MAX_TOTAL = 500 // Cap at 500 for performance
-  const PER_PAGE = 100
-  let allItems: Item[] = []
-  let total = 0
-  let page = 1
-
-  while (allItems.length < MAX_TOTAL) {
-    try {
-      const response = await itemsApi.list({ page, per_page: PER_PAGE })
-      total = response.total || allItems.length
-      if (!response.items.length) break
-      allItems = [...allItems, ...response.items]
-      // PaginatedResponse has total/page/per_page but no has_more; use total to decide stop
-      if (allItems.length >= response.total) break
-      page++
-    } catch (err) {
-      // 部分数据降级：如果已有数据则返回已获取部分，否则抛出
-      if (allItems.length > 0) {
-        console.warn(`[CloudPage] 分页获取在第 ${page} 页中断，返回已获取的 ${allItems.length} 条数据`, err)
-        break
-      }
-      throw err
-    }
-  }
-
-  const items = allItems.slice(0, MAX_TOTAL)
-  return { items, total: Math.max(total, items.length), truncated: total > items.length }
+async function fetchCloudPage({ pageParam }: { pageParam: number }): Promise<CloudPageResult> {
+  const response = await itemsApi.list({ page: pageParam, per_page: PER_PAGE })
+  return { items: response.items, total: response.total }
 }
 
 
 export function CloudPage() {
   usePageTitle('结果云')
-  const { data, isLoading, isError, refetch } = useQuery({
+  const query = useInfiniteQuery({
     queryKey: queryKeys.items.cloud(),
-    queryFn: fetchAllCloudItems,
+    queryFn: fetchCloudPage,
+    initialPageParam: 1,
+    getNextPageParam: (lastPage, allPages) => {
+      const loaded = allPages.reduce((sum, page) => sum + page.items.length, 0)
+      if (!lastPage.items.length) return undefined
+      if (loaded >= MAX_ITEMS) return undefined
+      if (loaded >= lastPage.total) return undefined
+      return allPages.length + 1
+    },
     staleTime: 30_000, // 30s cache
   })
-  const items = data?.items ?? []
-  const cloudTotal = data?.total ?? 0
-  const cloudTruncated = data?.truncated ?? false
+  const { isLoading, isError, refetch, hasNextPage, isFetchingNextPage, fetchNextPage } = query
+
+  /**
+   * 跨页按 id 去重：created_at DESC 分页在滚动窗口期间有新条目插入时，
+   * 页与页之间会出现窗口漂移，同一条目可能落在相邻两页里。
+   */
+  const { items, cloudTotal, cloudTruncated } = useMemo(() => {
+    const seen = new Set<string>()
+    const deduped: Item[] = []
+    const pages = query.data?.pages ?? []
+    for (const page of pages) {
+      for (const item of page.items) {
+        if (deduped.length >= MAX_ITEMS) break
+        if (seen.has(item.id)) continue
+        seen.add(item.id)
+        deduped.push(item)
+      }
+    }
+    const total = pages.length ? pages[pages.length - 1].total : 0
+    return { items: deduped, cloudTotal: total, cloudTruncated: total > deduped.length }
+  }, [query.data])
+
+  /** 触底自动续页：提前 600px 预取，衔接滑动节奏 */
+  const sentinelRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const el = sentinelRef.current
+    if (!el) return
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && hasNextPage && !isFetchingNextPage) fetchNextPage()
+      },
+      { rootMargin: '600px' },
+    )
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage])
 
   /** 全局 index 保持稳定，色板/动画不随列数变化跳变 */
   const columnCount = useColumnCount()
@@ -213,7 +234,7 @@ export function CloudPage() {
     )
   }
 
-  if (isError) {
+  if (isError && !items.length) {
     return (
       <div className="flex items-center justify-center h-full">
         <Empty
@@ -306,6 +327,16 @@ export function CloudPage() {
             })}
           </div>
         ))}
+      </div>
+
+      {/* 触底续页哨兵：失败时保留已加载内容，点击重试 */}
+      <div ref={sentinelRef} className="relative py-6 flex justify-center">
+        {isFetchingNextPage && <Spinner />}
+        {!isFetchingNextPage && isError && items.length > 0 && (
+          <button onClick={() => fetchNextPage()} className="btn-primary">
+            加载更多失败，重试
+          </button>
+        )}
       </div>
 
       {/* Stats overlay：跟随视口右下角，移动端让开底部导航 */}
