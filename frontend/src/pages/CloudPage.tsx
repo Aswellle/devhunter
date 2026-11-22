@@ -9,6 +9,7 @@
  * - Glassmorphism cards with soft pastel palette
  * - Handles pagination to fetch all available items (up to 500)
  */
+import { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Cloud } from 'lucide-react'
 import { itemsApi } from '../api/items'
@@ -76,6 +77,35 @@ const FLOAT_ANIMATIONS = `
 
 /** Animation names for variety */
 const FLOAT_FNS = ['float-drift-1', 'float-drift-2', 'float-drift-3', 'float-drift-4', 'float-drift-5']
+
+/**
+ * 断点与 Tailwind sm/lg/xl 对齐的均衡列数。
+ * 固定高度容器里的 CSS 多列会横向溢出（新列向右生成），
+ * 这里改用 JS 均衡列瀑布流，让 <main> 天然纵向滚动。
+ */
+const COLUMN_BREAKPOINTS = [
+  { query: '(min-width: 1280px)', columns: 4 },
+  { query: '(min-width: 1024px)', columns: 3 },
+  { query: '(min-width: 640px)', columns: 2 },
+] as const
+
+function resolveColumnCount(): number {
+  for (const bp of COLUMN_BREAKPOINTS) {
+    if (window.matchMedia(bp.query).matches) return bp.columns
+  }
+  return 1
+}
+
+function useColumnCount(): number {
+  const [columns, setColumns] = useState(resolveColumnCount)
+  useEffect(() => {
+    const mqls = COLUMN_BREAKPOINTS.map((bp) => window.matchMedia(bp.query))
+    const update = () => setColumns(resolveColumnCount())
+    mqls.forEach((mql) => mql.addEventListener('change', update))
+    return () => mqls.forEach((mql) => mql.removeEventListener('change', update))
+  }, [])
+  return columns
+}
 
 /** Chinese domain → friendly Chinese name map */
 const SITE_NAME_MAP: Record<string, string> = {
@@ -167,6 +197,14 @@ export function CloudPage() {
   const cloudTotal = data?.total ?? 0
   const cloudTruncated = data?.truncated ?? false
 
+  /** 全局 index 保持稳定，色板/动画不随列数变化跳变 */
+  const columnCount = useColumnCount()
+  const columnEntries = useMemo(() => {
+    const buckets: { item: Item; index: number }[][] = Array.from({ length: columnCount }, () => [])
+    items.forEach((item, index) => buckets[index % columnCount].push({ item, index }))
+    return buckets
+  }, [items, columnCount])
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-full">
@@ -205,7 +243,7 @@ export function CloudPage() {
   }
 
   return (
-    <div className="relative w-full h-full overflow-hidden bg-sky-50/50">
+    <div className="relative w-full overflow-hidden bg-sky-50/50">
       {/* Inject floating animation keyframes */}
       <style>{FLOAT_ANIMATIONS}</style>
 
@@ -215,64 +253,63 @@ export function CloudPage() {
         <div className="absolute bottom-0 right-1/4 w-72 h-72 bg-sky-100/40 rounded-full blur-3xl" />
       </div>
 
-      {/* Masonry cloud layout using CSS columns */}
-      <div
-        className="absolute inset-0 overflow-auto p-6 columns-1 sm:columns-2 lg:columns-3 xl:columns-4"
-        style={{ columnGap: '16px' }}
-      >
-        {items.map((item, index) => {
-          const palette = CLOUD_PALETTES[index % CLOUD_PALETTES.length]
-          const animName = FLOAT_FNS[index % FLOAT_FNS.length]
-          const animDuration = `${18 + (index % 12)}s`
-          const animDelay = `${-(index * 1.3)}s`
-          const depthZ = 10 + (index % 15)
-          // 爬取内容的外链只放行 http(s)（纵深防御，后端已有校验）
-          const safeHref = /^https?:\/\//i.test(item.url) ? item.url : undefined
+      {/* Masonry cloud layout：均衡列瀑布流，交给 <main> 纵向滚动 */}
+      <div className="relative p-6 flex items-start gap-4">
+        {columnEntries.map((column, columnIndex) => (
+          <div key={columnIndex} className="flex-1 min-w-0 flex flex-col">
+            {column.map(({ item, index }) => {
+              const palette = CLOUD_PALETTES[index % CLOUD_PALETTES.length]
+              const animName = FLOAT_FNS[index % FLOAT_FNS.length]
+              const animDuration = `${18 + (index % 12)}s`
+              const animDelay = `${-(index * 1.3)}s`
+              // 爬取内容的外链只放行 http(s)（纵深防御，后端已有校验）
+              const safeHref = /^https?:\/\//i.test(item.url) ? item.url : undefined
 
-          return (
-            <div
-              key={item.id}
-              className={`
-                break-inside-avoid mb-4 rounded-2xl px-4 py-3
-                border backdrop-blur-md shadow-sm
-                transition-all duration-300 ease-out
-                ${palette.bg} ${palette.border} ${palette.text} ${palette.hover}
-              `}
-              style={{
-                animation: `${animName} ${animDuration} ease-in-out infinite`,
-                animationDelay: animDelay,
-                zIndex: depthZ,
-                transformOrigin: 'center top',
-                contentVisibility: 'auto',
-                containIntrinsicSize: '0 200px',
-              } as React.CSSProperties}
-            >
+              return (
+                <div
+                  key={item.id}
+                  className={`
+                    mb-4 rounded-2xl px-4 py-3
+                    border backdrop-blur-md shadow-sm
+                    transition-all duration-300 ease-out
+                    ${palette.bg} ${palette.border} ${palette.text} ${palette.hover}
+                  `}
+                  style={{
+                    animation: `${animName} ${animDuration} ease-in-out infinite`,
+                    animationDelay: animDelay,
+                    transformOrigin: 'center top',
+                    contentVisibility: 'auto',
+                    containIntrinsicSize: '0 120px',
+                  } as React.CSSProperties}
+                >
 
-              <a
-                href={safeHref}
-                target={safeHref ? '_blank' : undefined}
-                rel="noopener noreferrer"
-                className={`font-medium ${getTitleSize(item.title)} leading-relaxed hover:underline block`}
-                style={{ wordBreak: 'break-word' }}
-              >
-                {item.title}
-              </a>
+                  <a
+                    href={safeHref}
+                    target={safeHref ? '_blank' : undefined}
+                    rel="noopener noreferrer"
+                    className={`font-medium ${getTitleSize(item.title)} leading-relaxed hover:underline block`}
+                    style={{ wordBreak: 'break-word' }}
+                  >
+                    {item.title}
+                  </a>
 
-              {/* Metadata row */}
-              <div className="flex items-center gap-2 mt-2 text-xs opacity-60">
-                <span className="font-medium truncate max-w-[140px]">{getSiteName(item.url)}</span>
-                <span className="opacity-40">|</span>
-                <time dateTime={item.fetched_at} className="whitespace-nowrap">
-                  {formatDateTime(item.fetched_at)}
-                </time>
-              </div>
-            </div>
-          )
-        })}
+                  {/* Metadata row */}
+                  <div className="flex items-center gap-2 mt-2 text-xs opacity-60">
+                    <span className="font-medium truncate max-w-[140px]">{getSiteName(item.url)}</span>
+                    <span className="opacity-40">|</span>
+                    <time dateTime={item.fetched_at} className="whitespace-nowrap">
+                      {formatDateTime(item.fetched_at)}
+                    </time>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        ))}
       </div>
 
-      {/* Stats overlay */}
-      <div className="absolute bottom-4 right-4 text-xs text-gray-700 bg-white/80 px-3 py-1.5 rounded-full backdrop-blur-sm shadow-sm">
+      {/* Stats overlay：跟随视口右下角，移动端让开底部导航 */}
+      <div className="fixed bottom-20 md:bottom-4 right-4 z-10 text-xs text-gray-700 bg-white/80 px-3 py-1.5 rounded-full backdrop-blur-sm shadow-sm">
         {cloudTruncated
           ? `共 ${cloudTotal} 条采集结果 · 展示最近 ${items.length} 条`
           : `共 ${cloudTotal} 条采集结果`}
