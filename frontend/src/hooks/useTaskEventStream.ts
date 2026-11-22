@@ -78,6 +78,21 @@ function pushEvent(prev: StreamEvent[], evt: StreamEvent): StreamEvent[] {
 // 无活动的卡住警告阈值（毫秒），文案直接引用同一常量避免两处数字漂移
 const STUCK_TIMEOUT_MS = 25_000
 
+/**
+ * 事件时间 → 服务器端 epoch 毫秒。步骤耗时以此为唯一真相：
+ * performance.now() 只能测到"事件到达本机"的间隔——SSE 在一次快速执行
+ * 结束后把全部事件一口气送达（断线重放更是整批到达），客户端测出的
+ * 步骤耗时全是网络突发延迟（表现为一排 0ms），与真实抓取流程无关。
+ * 服务端时间戳（毫秒精度）在实时与重放两条路径下是同一份数据。
+ */
+function serverEventMs(evt: StreamEvent): number {
+  if (evt.timestamp) {
+    const parsed = Date.parse(evt.timestamp)
+    if (!Number.isNaN(parsed)) return parsed
+  }
+  return Date.now()
+}
+
 // E1: 安全提取 hint 字段（避免 any）
 function extractHint(data: Record<string, unknown> | undefined): string | undefined {
   if (data && typeof data === "object" && "hint" in data) {
@@ -120,18 +135,19 @@ export function useTaskEventStream({ taskId, active }: { taskId: string | null; 
     const mapping = EVENT_TO_STEP[evt.type]
     if (!mapping) return
 
-    const now    = performance.now()
+    const eventMs = serverEventMs(evt)
     const next   = cloneSteps(stepsRef.current)
     const target = next.find((s) => s.id === mapping.step)
     if (!target) return
 
     if (mapping.activate && target.status === 'pending') {
       target.status    = 'active'
-      target.startedAt = now
+      target.startedAt = eventMs
       target.detail    = evt.message
     } else if (mapping.done) {
       if (target.status === 'active' && target.startedAt != null) {
-        target.durationMs = Math.round(now - target.startedAt)
+        // 同一事件时间戳既是开始也是结束参照——耗时 = 服务端相邻边界差
+        target.durationMs = Math.max(0, eventMs - target.startedAt)
       }
       target.status = 'done'
       target.detail = evt.message

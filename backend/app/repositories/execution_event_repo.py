@@ -38,10 +38,17 @@ class ExecutionEventRepository:
         event_type: str,
         message: str | None = None,
         data: dict[str, Any] | None = None,
+        created_at: str | None = None,
     ) -> dict[str, Any]:
-        """记录一条执行事件"""
+        """
+        记录一条执行事件。
+
+        created_at：事件的真实发生时间（毫秒精度，由 event_bus 传入）。
+        实时流与断线重放共用同一份时间戳——重放路径若在入库时重新取
+        now，重放出的时间线会比实时流整体后移，步骤耗时随之失真。
+        """
         event_id = str(uuid.uuid4())
-        now = _now_iso()
+        now = created_at or _now_iso()
         data_json = json.dumps(data or {}, ensure_ascii=False)
 
         with get_db() as conn:

@@ -12,15 +12,25 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
+def _now_iso_ms() -> str:
+    """
+    毫秒精度 UTC 时间戳。
+
+    执行流的时间线以事件时间戳为唯一真相：秒级精度会让同一次
+    快速执行（数百 ms）的全部事件共享同一秒（原始日志里 8 行都是
+    16:13:35），前端也无法用相邻事件的时间差还原真实步骤耗时。
+    """
+    now = datetime.now(timezone.utc)
+    return now.strftime("%Y-%m-%dT%H:%M:%S.") + f"{now.microsecond // 1000:03d}Z"
+
+
 @dataclass
 class ExecutionEvent:
     task_id: str
     event_type: str   # start|fetch|parse|dedup|save|success|failure|warning|step
     message: str
     data: dict[str, Any] = field(default_factory=dict)
-    timestamp: str = field(
-        default_factory=lambda: datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    )
+    timestamp: str = field(default_factory=_now_iso_ms)
 
 
 class EventBus:
@@ -66,6 +76,7 @@ class EventBus:
                 event_type=event.event_type,
                 message=event.message,
                 data=event.data,
+                created_at=event.timestamp,
             )
             # E1: 将持久化 ID 存回 event.data，供 SSE 端点作为 Last-Event-ID 游标。
             # 必须发生在入队之前——入队后事件对象随时会被消费线程读走
