@@ -8,8 +8,8 @@ import { queryKeys } from '../api/queryKeys'
 import { tasksApi } from '../api/tasks'
 import { threadsApi } from '../api/threads'
 import { errorMessage } from '../api/client'
-import { ItemCard } from '../components/items/ItemCard'
 import { ItemsFilterBar } from '../components/items/ItemsFilterBar'
+import { ItemTimeline } from '../components/items/ItemTimeline'
 import { ThreadCard } from '../components/items/ThreadCard'
 import { Spinner } from '../components/ui/Spinner'
 import { Empty } from '../components/ui/Empty'
@@ -759,49 +759,11 @@ export function ItemsPage() {
                             </button>
                           </div>
                         )}
-                        <div className="divide-y divide-gray-100">
-                          {group.items.map(item => (
-                            <div key={item.id} className="flex items-start gap-0">
-                              <div
-                                role="checkbox"
-                                aria-checked={selectedIds.has(item.id)}
-                                aria-label={`${selectedIds.has(item.id) ? '取消选择' : '选择'}: ${item.title}`}
-                                tabIndex={0}
-                                onClick={() => toggleSelect(item.id)}
-                                onKeyDown={(e) => {
-                                  if (e.key === 'Enter' || e.key === ' ') {
-                                    e.preventDefault()
-                                    toggleSelect(item.id)
-                                  }
-                                }}
-                                className={clsx(
-                                  'p-3 shrink-0 transition-colors cursor-pointer rounded',
-                                  selectedIds.has(item.id)
-                                    ? 'text-primary-600 bg-primary-50 hover:bg-primary-100'
-                                    : 'text-gray-300 hover:text-primary-500 hover:bg-gray-50',
-                                  'focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-1'
-                                )}
-                              >
-                                <div className={clsx(
-                                  'h-4 w-4 rounded border-2 flex items-center justify-center transition-colors',
-                                  selectedIds.has(item.id)
-                                    ? 'border-primary-600 bg-primary-600'
-                                    : 'border-current'
-                                )}>
-                                  {selectedIds.has(item.id) && (
-                                    <svg className="h-2.5 w-2.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-                                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                                    </svg>
-                                  )}
-                                </div>
-                              </div>
-
-                              <div className="flex-1 min-w-0 pl-0">
-                                <ItemCard item={item} />
-                              </div>
-                            </div>
-                          ))}
-                        </div>
+                        <ItemTimeline
+                          items={group.items}
+                          selectedIds={selectedIds}
+                          onToggleSelect={toggleSelect}
+                        />
                       </div>
                     )}
                   </div>
