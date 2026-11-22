@@ -3,10 +3,10 @@
  * Floating word cloud display of scraped items.
  *
  * Design approach - Masonry cloud layout:
- * - CSS columns create natural flow without grid alignment
+ * - JS balanced columns (vertical page scroll, no sideways column overflow)
  * - Each element floats gently with randomized CSS keyframe animations
+ * - Solid pastel cards (no backdrop blur: 500+ blur layers tank scroll FPS)
  * - Titles determine their own size (no truncation)
- * - Glassmorphism cards with soft pastel palette
  * - Handles pagination to fetch all available items (up to 500)
  */
 import { useEffect, useMemo, useState } from 'react'
@@ -270,8 +270,8 @@ export function CloudPage() {
                   key={item.id}
                   className={`
                     mb-4 rounded-2xl px-4 py-3
-                    border backdrop-blur-md shadow-sm
-                    transition-all duration-300 ease-out
+                    border shadow-sm
+                    transition-colors duration-300 ease-out
                     ${palette.bg} ${palette.border} ${palette.text} ${palette.hover}
                   `}
                   style={{
@@ -309,7 +309,7 @@ export function CloudPage() {
       </div>
 
       {/* Stats overlay：跟随视口右下角，移动端让开底部导航 */}
-      <div className="fixed bottom-20 md:bottom-4 right-4 z-10 text-xs text-gray-700 bg-white/80 px-3 py-1.5 rounded-full backdrop-blur-sm shadow-sm">
+      <div className="fixed bottom-20 md:bottom-4 right-4 z-10 text-xs text-gray-700 bg-white/80 px-3 py-1.5 rounded-full shadow-sm">
         {cloudTruncated
           ? `共 ${cloudTotal} 条采集结果 · 展示最近 ${items.length} 条`
           : `共 ${cloudTotal} 条采集结果`}
