@@ -72,6 +72,15 @@ export interface LabelSummary {
 }
 
 // ── Source Discovery ──────────────────────────────────────
+/** 发现失败的结构化分类：编码 + 文案 + 行动提示 + 推荐改用地址 */
+export interface DiscoveryFailure {
+  code: string
+  message: string
+  hint: string
+  url: string
+  suggested_url: string
+}
+
 export interface DiscoveryResult {
   url: string
   source_type: 'rss' | 'json' | 'html' | 'unknown'
@@ -87,6 +96,10 @@ export interface DiscoveryResult {
   candidate_count: number
   sample_items: Array<{ title: string; url: string; summary: string }>
   errors: string[]
+  /** 结构化失败（成功时为 null）；errors 同步携带人读文案 */
+  failure: DiscoveryFailure | null
+  /** 归一化与探测过程中实际请求过的地址 */
+  tried_urls?: string[]
 }
 
 export interface PreviewResult {

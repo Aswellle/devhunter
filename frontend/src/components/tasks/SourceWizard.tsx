@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { Globe, Search, Eye, Check, Loader2, AlertCircle } from 'lucide-react'
+import { Globe, Search, Eye, Check, Loader2, AlertCircle, Lightbulb, ArrowRightLeft } from 'lucide-react'
 import { sourcesApi } from '../../api/sources'
 import { tasksApi } from '../../api/tasks'
 import { queryKeys } from '../../api/queryKeys'
@@ -8,7 +8,7 @@ import { errorMessage } from '../../api/client'
 import { useModalA11y } from '../../hooks/useModalA11y'
 import { ConfirmDialog } from '../ui/ConfirmDialog'
 import { SchedulePicker } from './SchedulePicker'
-import type { DiscoveryResult, PreviewResult } from '../../types'
+import type { DiscoveryFailure, DiscoveryResult, PreviewResult } from '../../types'
 
 interface SourceWizardProps {
   onClose: () => void
@@ -16,6 +16,32 @@ interface SourceWizardProps {
 }
 
 type Step = 1 | 2 | 3
+
+/**
+ * 失败分类的展示文案：后端 FailureCode → 分类名 + 配色。
+ * 技术上根本无法解析的情况（DNS/登录墙/反爬/SPA/非网页…）各自独立成类，
+ * 用户能看到"为什么不行"而不是一句笼统的访问失败。
+ */
+const FAILURE_META: Record<string, { label: string; cls: string }> = {
+  INVALID_URL: { label: '地址无效', cls: 'bg-gray-50 border-gray-200 text-gray-700' },
+  UNSUPPORTED_SCHEME: { label: '协议不支持', cls: 'bg-gray-50 border-gray-200 text-gray-700' },
+  SSRF_BLOCKED: { label: '安全策略拦截', cls: 'bg-gray-50 border-gray-200 text-gray-700' },
+  DNS_NOT_FOUND: { label: '域名不存在', cls: 'bg-gray-50 border-gray-200 text-gray-700' },
+  CONNECTION_FAILED: { label: '无法连接', cls: 'bg-gray-50 border-gray-200 text-gray-700' },
+  TIMEOUT: { label: '连接超时', cls: 'bg-gray-50 border-gray-200 text-gray-700' },
+  TLS_ERROR: { label: '证书异常', cls: 'bg-gray-50 border-gray-200 text-gray-700' },
+  REDIRECT_LIMIT: { label: '重定向异常', cls: 'bg-gray-50 border-gray-200 text-gray-700' },
+  HTTP_NOT_FOUND: { label: '页面不存在', cls: 'bg-gray-50 border-gray-200 text-gray-700' },
+  AUTH_REQUIRED: { label: '需要登录权限', cls: 'bg-amber-50 border-amber-200 text-amber-800' },
+  BLOCKED_BY_WAF: { label: '反爬人机验证', cls: 'bg-amber-50 border-amber-200 text-amber-800' },
+  RATE_LIMITED: { label: '访问限流', cls: 'bg-amber-50 border-amber-200 text-amber-800' },
+  SERVER_ERROR: { label: '站点故障', cls: 'bg-gray-50 border-gray-200 text-gray-700' },
+  RESPONSE_TOO_LARGE: { label: '内容过大', cls: 'bg-gray-50 border-gray-200 text-gray-700' },
+  NOT_A_WEBPAGE: { label: '非网页内容', cls: 'bg-gray-50 border-gray-200 text-gray-700' },
+  JS_RENDERED_PAGE: { label: '动态渲染页面', cls: 'bg-sky-50 border-sky-200 text-sky-800' },
+  NO_LIST_STRUCTURE: { label: '不是列表页', cls: 'bg-sky-50 border-sky-200 text-sky-800' },
+  FETCH_FAILED: { label: '获取失败', cls: 'bg-gray-50 border-gray-200 text-gray-700' },
+}
 
 export function SourceWizard({ onClose, onCreated }: SourceWizardProps) {
   const qc = useQueryClient()
@@ -27,6 +53,9 @@ export function SourceWizard({ onClose, onCreated }: SourceWizardProps) {
   const [keywords, setKeywords] = useState('')
   const [cronExpression, setCronExpression] = useState('0 9 * * *')
   const [error, setError] = useState('')
+  // 结构化失败（后端失败分类体系）与探测透明度
+  const [failure, setFailure] = useState<DiscoveryFailure | null>(null)
+  const [triedUrls, setTriedUrls] = useState<string[]>([])
   // 脏数据保护：走到第 2/3 步或已输入任何内容时，退出需确认（与
   // TaskFormModal 同一标准——此前误点遮罩/Esc 会静默丢掉全部进度）
   const [confirmDiscardOpen, setConfirmDiscardOpen] = useState(false)
@@ -43,11 +72,25 @@ export function SourceWizard({ onClose, onCreated }: SourceWizardProps) {
   const modalRef = useModalA11y(requestClose)
 
   const discoverMutation = useMutation({
-    mutationFn: () => sourcesApi.discover(url),
+    // target：可选的显式目标（"改用推荐 Feed"按钮会用推荐地址重新发现）
+    mutationFn: (target?: string) => sourcesApi.discover(target ?? url),
     onSuccess: (data) => {
-      // 发现接口对"抓不到/被拦截/结构识别失败"返回 200 + errors 清单：
-      // 有错误时留在第一步并显示原因，否则用户会在第二步面对一排 N/A 选择器不知所措
+      // 后端会归一化输入，并可能在回退探测中改用可抓取地址（www 变体 /
+      // 常见 Feed 路径 / 页面内声明的 Feed）——把最终地址回填输入框，
+      // 后续预览与保存都基于它
+      if (data.url) {
+        setUrl(data.url)
+      }
+      if (data.failure) {
+        setFailure(data.failure)
+        setTriedUrls(data.tried_urls || [])
+        setDiscoveryResult(null)
+        return
+      }
+      setFailure(null)
+      setTriedUrls([])
       if (data.errors?.length) {
+        // 兜底：后端返回了 errors 但没有结构化 failure（理论上不发生）
         setError(data.errors.join('；'))
         setDiscoveryResult(null)
         return
@@ -104,10 +147,15 @@ export function SourceWizard({ onClose, onCreated }: SourceWizardProps) {
     },
   })
 
+  const runDiscover = (target?: string) => {
+    setError('')
+    setFailure(null)
+    discoverMutation.mutate(target)
+  }
+
   const handleDiscover = () => {
     if (!url) return
-    setError('')
-    discoverMutation.mutate()
+    runDiscover()
   }
 
   const handlePreview = () => {
@@ -156,7 +204,58 @@ export function SourceWizard({ onClose, onCreated }: SourceWizardProps) {
         </div>
 
         <div className="px-6 py-4">
-          {error && (
+          {failure && step === 1 && (
+            <div
+              role="alert"
+              className={`mb-4 p-3 border rounded-lg ${FAILURE_META[failure.code]?.cls ?? FAILURE_META.FETCH_FAILED.cls}`}
+            >
+              <div className="flex items-center gap-2 mb-1">
+                <AlertCircle className="h-4 w-4 shrink-0" />
+                <span className="text-sm font-medium">
+                  {FAILURE_META[failure.code]?.label ?? '发现失败'}
+                </span>
+                <code className="text-[10px] px-1.5 py-0.5 bg-white/70 rounded text-current opacity-70">
+                  {failure.code}
+                </code>
+              </div>
+              <p className="text-sm ml-6">{failure.message}</p>
+              {failure.hint && (
+                <p className="text-xs ml-6 mt-1.5 flex items-start gap-1.5 text-current opacity-90">
+                  <Lightbulb className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                  <span>{failure.hint}</span>
+                </p>
+              )}
+              {failure.suggested_url && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setUrl(failure.suggested_url)
+                    runDiscover(failure.suggested_url)
+                  }}
+                  disabled={discoverMutation.isPending}
+                  className="mt-2 ml-6 inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 bg-white/80 border border-current/30 rounded hover:bg-white transition-colors"
+                >
+                  <ArrowRightLeft className="h-3.5 w-3.5" />
+                  改用探测到的内容源并重新发现：
+                  <span className="font-medium break-all">{failure.suggested_url}</span>
+                </button>
+              )}
+              {triedUrls.length > 1 && (
+                <details className="ml-6 mt-2 text-xs opacity-80">
+                  <summary className="cursor-pointer select-none">
+                    已自动尝试 {triedUrls.length} 个地址
+                  </summary>
+                  <ul className="mt-1 space-y-0.5 break-all">
+                    {triedUrls.map((u) => (
+                      <li key={u}>· {u}</li>
+                    ))}
+                  </ul>
+                </details>
+              )}
+            </div>
+          )}
+
+          {error && !failure && (
             <div role="alert" className="mb-4 p-3 bg-danger-light border border-danger/20 rounded-lg flex items-center gap-2 text-danger">
               <AlertCircle className="h-4 w-4" />
               <span className="text-sm">{error}</span>
@@ -173,10 +272,11 @@ export function SourceWizard({ onClose, onCreated }: SourceWizardProps) {
                   <div className="relative flex-1">
                     <Globe className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
                     <input
-                      type="url"
+                      type="text"
+                      inputMode="url"
                       value={url}
                       onChange={(e) => setUrl(e.target.value)}
-                      placeholder="https://example.com"
+                      placeholder="example.com 或 https://example.com/feed"
                       className="w-full pl-10 pr-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                       autoFocus
                     />
@@ -196,7 +296,8 @@ export function SourceWizard({ onClose, onCreated }: SourceWizardProps) {
                 </div>
               </div>
               <p className="text-sm text-gray-500">
-                输入网站 URL，系统将自动检测其内容结构。
+                输入站点根、栏目页或 Feed 地址，scheme 可省略（自动按 https 尝试）；
+                站点根会自动探测常见 Feed 路径与页面内声明的订阅源。
               </p>
             </div>
           )}
