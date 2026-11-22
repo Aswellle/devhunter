@@ -406,3 +406,5 @@ SQLite，WAL 模式。关键表：
 13. **JWT 响应体不含 token**：登录响应不包含 `access_token`（XSS 缓解）。JWT 仅通过 httpOnly cookie 传递。
 14. **无暗色模式切换**：侧边栏始终深色（`#0F1117`），内容始终浅色。`DESIGN.md` 提到暗色模式但未实现为切换。
 15. **前端端口为 5200**：非标准，非 Vite 默认 5173。
+16. **ItemsPage 的 URL 同步 effect 勿依赖 `setSearchParams`**：其身份随 URL 变化，会让 effect 在每次跳转（含分页点击）后重跑并丢掉 `page`——分页立即弹回第 1 页。经 routerRef（渲染后同步的 effect）取用，深链接 page 仅在首次挂载保留。
+17. **Thread 聚类的 content_kind 映射必须覆盖全部任务**：`task_repo.list_active()` 漏掉 paused/软删除任务，其条目会按默认 discussion 聚类——已暂停的条目型任务的历史条目会在重建重放中被错误聚成 Thread（用 `list_all_tasks()`）。

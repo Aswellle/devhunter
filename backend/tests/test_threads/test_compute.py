@@ -246,6 +246,61 @@ class TestCatalogKindGating:
         assert linked == 0, "条目型条目重建后不应再挂载 Thread"
         assert result["items"] >= 2
 
+    def test_paused_catalog_task_items_never_thread(self):
+        """回归：已暂停的条目型任务，其历史条目在重建重放中不得被聚类。
+
+        content_kind 映射此前来自 list_active()（只含 active 任务），
+        暂停任务的条目按默认 discussion 聚类——暂停的 GitHub Trending
+        （catalog）在重建中被批量聚成仓库 Thread。
+        """
+        task_id = task_repo.insert({
+            "name": "已暂停条目型任务",
+            "source_url": "https://github.com/trending",
+            "template_id": None,
+            "selector_list": "div.item",
+            "selector_title": "h2",
+            "selector_link": "a",
+            "selector_summary": None,
+            "selector_next_page": None,
+            "keywords": [],
+            "cron_expression": "0 9 * * *",
+            "content_kind": "catalog",
+        })["id"]
+        # insert 硬编码 status='active'，暂停通过 update 设置
+        task_repo.update(task_id, {"status": "paused"})
+        token = uuid.uuid4().hex[:8]
+        now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        item_repo.bulk_insert([
+            {
+                "task_id": task_id,
+                "title": f"paused repo {token}-{i}",
+                "url": f"https://example.com/paused-catalog/{token}/{i}",
+                "url_hash": f"paused-catalog-hash-{token}-{i}",
+                "summary": "s",
+                "fetched_at": now,
+            }
+            for i in range(2)
+        ])
+        items, _ = item_repo.query(task_id=task_id)
+
+        thread_service.recompute_all_threads(window_hours=24)
+
+        with get_db() as conn:
+            linked = conn.execute(
+                """
+                SELECT COUNT(*) FROM thread_items ti
+                JOIN items i ON i.id = ti.item_id
+                WHERE i.task_id = ?
+                """,
+                (task_id,),
+            ).fetchone()[0]
+            for item in items:
+                row = conn.execute(
+                    "SELECT thread_id FROM items WHERE id = ?", (item["id"],)
+                ).fetchone()
+                assert row["thread_id"] is None
+        assert linked == 0, "暂停条目型任务的条目不应产生任何 Thread 关联"
+
 
 class TestRecomputeOrphanSweep:
     """重建期间到达的采集批次：让位被跳过 → 重建末尾兜底扫描补聚。

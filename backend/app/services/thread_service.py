@@ -63,8 +63,11 @@ class ThreadService:
         if not new_items:
             return 0
 
-        # 获取各 task_id -> (platform 名称, content_kind) 的映射
-        tasks = {t["id"]: t for t in task_repo.list_active()}
+        # 获取各 task_id -> (platform 名称, content_kind) 的映射。
+        # 必须覆盖全部任务（含 paused/软删除）：映射缺失的任务条目会按
+        # 默认 discussion 聚类——已暂停的条目型任务的历史条目会在重建
+        # 重放中被错误聚成 Thread（见 task_repo.list_all_tasks）
+        tasks = {t["id"]: t for t in task_repo.list_all_tasks()}
         item_id_to_platform = {
             item["id"]: tasks.get(item.get("task_id"), {}).get("name", "unknown")
             for item in new_items

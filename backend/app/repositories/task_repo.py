@@ -148,6 +148,19 @@ class TaskRepository:
             ).fetchall()
         return [_row_to_dict(r) for r in rows]
 
+    def list_all_tasks(self) -> list[dict]:
+        """
+        全部任务（含 paused 与软删除，个人规模全量取回无压力）。
+
+        Thread 聚类的 content_kind 映射必须覆盖 paused/软删除任务：
+        list_active 漏掉它们时，其条目在 compute_threads_for_items 里
+        按默认 discussion 处理——已暂停的条目型（catalog）任务的历史
+        条目会被错误聚成 Thread（重建重放时批量出现）。
+        """
+        with get_db() as conn:
+            rows = conn.execute("SELECT * FROM tasks").fetchall()
+        return [_row_to_dict(r) for r in rows]
+
     def update(self, task_id: str, data: dict) -> dict | None:
         """部分更新任务字段，返回更新后的记录"""
         if not data:
