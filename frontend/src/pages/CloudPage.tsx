@@ -132,19 +132,39 @@ const SITE_NAME_MAP: Record<string, string> = {
   'indiehackers.com': 'Indie Hackers',
 }
 
-/** Extract clean site name from URL (domain only, Chinese name preferred) */
+/** 站点名解析结果按 host 缓存，避免 500+ 卡片每次渲染重复解析 */
+const SITE_NAME_CACHE = new Map<string, string>()
+
+/** Extract clean site name from URL (longest known domain suffix wins, Chinese name preferred) */
 function getSiteName(url: string): string {
+  let host: string
   try {
-    const u = new URL(url)
-    const host = u.hostname.replace(/^www\./, '')
-    if (SITE_NAME_MAP[host]) return SITE_NAME_MAP[host]
-    // Fallback: capitalize first letter of main domain
-    const parts = host.split('.')
-    if (parts[0]) parts[0] = parts[0].charAt(0).toUpperCase() + parts[0].slice(1)
-    return parts.join('.')
+    host = new URL(url).hostname.replace(/^www\./, '')
   } catch {
     return '未知站点'
   }
+  const cached = SITE_NAME_CACHE.get(host)
+  if (cached) return cached
+
+  let name = SITE_NAME_MAP[host]
+  if (!name) {
+    const parts = host.split('.')
+    // 后缀匹配：让 blog.zhihu.com、m.sspai.com 命中主域的友好名
+    for (let i = 1; i < parts.length - 1; i++) {
+      const mapped = SITE_NAME_MAP[parts.slice(i).join('.')]
+      if (mapped) {
+        name = mapped
+        break
+      }
+    }
+    if (!name) {
+      // Fallback: capitalize first letter of main domain
+      if (parts[0]) parts[0] = parts[0].charAt(0).toUpperCase() + parts[0].slice(1)
+      name = parts.join('.')
+    }
+  }
+  SITE_NAME_CACHE.set(host, name)
+  return name
 }
 
 /**
@@ -194,6 +214,8 @@ export function CloudPage() {
     for (const page of pages) {
       for (const item of page.items) {
         if (deduped.length >= MAX_ITEMS) break
+        // 脏数据不过云：无标题渲染空卡，无链接的卡片可交互性为零
+        if (!item.title?.trim() || !item.url) continue
         if (seen.has(item.id)) continue
         seen.add(item.id)
         deduped.push(item)
