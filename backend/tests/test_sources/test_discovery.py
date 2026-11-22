@@ -31,10 +31,11 @@ class TestURLDiscoverer:
 
 
 class _FakeResponse:
-    """discover() 只用到 headers / text，这里给个够用的 httpx.Response 替身。"""
+    """discover() 内容分类用到 headers / text / content，给个够用的替身。"""
 
     def __init__(self, text: str, content_type: str = "text/html") -> None:
         self.text = text
+        self.content = text.encode("utf-8")
         self.headers = {"content-type": content_type}
 
 
@@ -48,8 +49,11 @@ class TestDiscoveryProducesEngineReadyConfig:
 
     def _discover(self, monkeypatch, body: str, content_type: str):
         from app.sources import discovery as m
-        monkeypatch.setattr(m.URLDiscoverer, "_fetch",
-                            lambda self, _url: _FakeResponse(body, content_type))
+        fake = _FakeResponse(body, content_type)
+        monkeypatch.setattr(
+            m.URLDiscoverer, "_fetch_with_classification",
+            lambda self, _url, timeout=None, max_bytes=None: (fake, None),
+        )
         return m.url_discoverer.discover("https://example.com/source")
 
     def test_rss_source_fills_all_required_selectors(self, monkeypatch):
