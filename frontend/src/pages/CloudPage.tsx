@@ -6,7 +6,7 @@
  * - JS balanced columns (vertical page scroll, no sideways column overflow)
  * - Each element floats gently with randomized CSS keyframe animations
  * - Solid pastel cards (no backdrop blur: 500+ blur layers tank scroll FPS)
- * - Titles determine their own size (no truncation)
+ * - Same-title items cluster into one card: cluster count drives font size (+ ×N badge)
  * - Progressive infinite pagination: first paint waits for page 1 only,
  *   sentinel-driven load-more up to 1000 items with cross-page id dedup
  */
@@ -21,13 +21,18 @@ import { Empty } from '../components/ui/Empty'
 import type { Item } from '../types'
 import { usePageTitle } from '../hooks/usePageTitle'
 
-/** Font size based on title character count - fluid scaling */
-function getTitleSize(title: string): string {
+/**
+ * 字号阶梯：以标题长度定基档，热度（同题聚簇大小）向上加档封顶。
+ * 长标题即使在热簇里也只升到可读上限，避免撑爆卡片。
+ */
+const SIZE_LADDER = ['text-xs', 'text-sm', 'text-base', 'text-lg', 'text-xl'] as const
+
+function getTitleSize(title: string, clusterSize: number): string {
   const len = title.length
-  if (len <= 20) return 'text-lg'
-  if (len <= 35) return 'text-base'
-  if (len <= 55) return 'text-sm'
-  return 'text-xs'
+  let tier = len <= 20 ? 3 : len <= 35 ? 2 : len <= 55 ? 1 : 0
+  if (clusterSize >= 5) tier = Math.min(tier + 2, SIZE_LADDER.length - 1)
+  else if (clusterSize >= 2) tier = Math.min(tier + 1, SIZE_LADDER.length - 1)
+  return SIZE_LADDER[tier]
 }
 
 /** Pastel palette with glassmorphism for cloud aesthetic */
@@ -240,13 +245,38 @@ export function CloudPage() {
     return () => observer.disconnect()
   }, [hasNextPage, isFetchingNextPage, fetchNextPage])
 
+  /**
+   * 词云语义：同题归簇。重爬产生的同题条目只渲染一条代表卡，
+   * 聚簇大小作为热度权重驱动字号，并以 ×N 徽标示众。
+   */
+  const displayEntries = useMemo(() => {
+    const normTitle = (t: string) => t.trim().toLowerCase().replace(/\s+/g, '')
+    const counts = new Map<string, number>()
+    for (const item of items) {
+      const key = normTitle(item.title)
+      counts.set(key, (counts.get(key) ?? 0) + 1)
+    }
+    const seen = new Set<string>()
+    const entries: { item: Item; clusterSize: number }[] = []
+    for (const item of items) {
+      const key = normTitle(item.title)
+      if (seen.has(key)) continue
+      seen.add(key)
+      entries.push({ item, clusterSize: counts.get(key) ?? 1 })
+    }
+    return entries
+  }, [items])
+
   /** 全局 index 保持稳定，色板/动画不随列数变化跳变 */
   const columnCount = useColumnCount()
   const columnEntries = useMemo(() => {
-    const buckets: { item: Item; index: number }[][] = Array.from({ length: columnCount }, () => [])
-    items.forEach((item, index) => buckets[index % columnCount].push({ item, index }))
+    const buckets: { item: Item; clusterSize: number; index: number }[][] = Array.from(
+      { length: columnCount },
+      () => [],
+    )
+    displayEntries.forEach((entry, index) => buckets[index % columnCount].push({ ...entry, index }))
     return buckets
-  }, [items, columnCount])
+  }, [displayEntries, columnCount])
 
   if (isLoading) {
     return (
@@ -300,7 +330,7 @@ export function CloudPage() {
       <div className="relative p-6 flex items-start gap-4">
         {columnEntries.map((column, columnIndex) => (
           <div key={columnIndex} className="flex-1 min-w-0 flex flex-col">
-            {column.map(({ item, index }) => {
+            {column.map(({ item, clusterSize, index }) => {
               const palette = CLOUD_PALETTES[index % CLOUD_PALETTES.length]
               const animName = FLOAT_FNS[index % FLOAT_FNS.length]
               const animDuration = `${18 + (index % 12)}s`
@@ -330,15 +360,29 @@ export function CloudPage() {
                     href={safeHref}
                     target={safeHref ? '_blank' : undefined}
                     rel="noopener noreferrer"
-                    className={`font-medium ${getTitleSize(item.title)} leading-relaxed hover:underline block`}
+                    className={`font-medium ${getTitleSize(item.title, clusterSize)} leading-relaxed hover:underline block`}
                     style={{ wordBreak: 'break-word' }}
                   >
                     {item.title}
                   </a>
 
+                  {item.summary?.trim() && (
+                    <p className="mt-1.5 text-xs leading-relaxed opacity-70 line-clamp-2">
+                      {item.summary}
+                    </p>
+                  )}
+
                   {/* Metadata row */}
                   <div className="flex items-center gap-2 mt-2 text-xs opacity-60">
                     <span className="font-medium truncate max-w-[140px]">{getSiteName(item.url)}</span>
+                    {clusterSize > 1 && (
+                      <span
+                        className="rounded-full bg-white/60 px-1.5 py-0.5 font-medium"
+                        title={`共 ${clusterSize} 条相同标题`}
+                      >
+                        ×{clusterSize}
+                      </span>
+                    )}
                     <span className="opacity-40">|</span>
                     <time dateTime={item.fetched_at} className="whitespace-nowrap">
                       {formatDateTime(item.fetched_at)}
@@ -364,8 +408,10 @@ export function CloudPage() {
       {/* Stats overlay：跟随视口右下角，移动端让开底部导航 */}
       <div className="fixed bottom-20 md:bottom-4 right-4 z-10 text-xs text-gray-700 bg-white/80 px-3 py-1.5 rounded-full shadow-sm">
         {cloudTruncated
-          ? `共 ${cloudTotal} 条采集结果 · 展示最近 ${items.length} 条`
-          : `共 ${cloudTotal} 条采集结果`}
+          ? `共 ${cloudTotal} 条采集结果 · 已加载 ${items.length} 条`
+          : cloudTotal > displayEntries.length
+            ? `共 ${cloudTotal} 条采集结果 · 聚合为 ${displayEntries.length} 组`
+            : `共 ${cloudTotal} 条采集结果`}
       </div>
     </div>
   )
