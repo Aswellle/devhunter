@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect } from 'react'
+import { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
 import { ChevronDown, ChevronRight, CheckCheck, Check, Star, Rss, Trash2, X, Layers, RefreshCw } from 'lucide-react'
@@ -62,8 +62,17 @@ export function ItemsPage() {
     else params.delete('page')
     setSearchParams(params, { replace: true })
   }, [searchParams, setSearchParams])
-  // Sync filter state to URL
+  // 同步筛选/视图/排序到 URL。不直接依赖 setSearchParams——它的身份随
+  // URL 变化，会让本 effect 在每次跳转（含分页点击）后重跑，重建参数时
+  // 丢掉 page，分页立刻弹回第 1 页。routerRef 在每次渲染后同步最新值
+  // （无依赖 effect），本 effect 只在真实状态变化时执行
+  const routerRef = useRef({ setSearchParams, searchParams })
   useEffect(() => {
+    routerRef.current = { setSearchParams, searchParams }
+  })
+  const mountedRef = useRef(false)
+  useEffect(() => {
+    const { setSearchParams, searchParams } = routerRef.current
     const params = new URLSearchParams()
     if (filters.search) params.set('search', filters.search)
     if (filters.task_id) params.set('task_id', filters.task_id)
@@ -71,8 +80,15 @@ export function ItemsPage() {
     if (filters.is_read !== undefined) params.set('is_read', String(filters.is_read))
     if (viewMode !== 'source') params.set('view', viewMode)
     if (threadSort !== 'first_seen') params.set('sort', threadSort)
+    // 首次挂载时 URL 是源：保留深链接携带的 page；此后的筛选/视图/排序
+    // 变化按既定语义归 1（分页本身由 updatePage 独立维护）
+    if (!mountedRef.current) {
+      mountedRef.current = true
+      const deepLinkedPage = searchParams.get('page')
+      if (deepLinkedPage && deepLinkedPage !== '1') params.set('page', deepLinkedPage)
+    }
     setSearchParams(params, { replace: true })
-  }, [filters, viewMode, threadSort, setSearchParams])
+  }, [filters, viewMode, threadSort])
 
   // Thread 列表不支持搜索/已读/收藏（只作用于条目接口）；切到 Thread 视图时
   // 一并清掉这三类失效筛选，避免"控件隐藏了但筛选还在暗中生效"的错觉
