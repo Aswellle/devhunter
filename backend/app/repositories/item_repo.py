@@ -283,6 +283,32 @@ class ItemRepository:
             ).fetchall()
         return [dict(r) for r in rows]
 
+    def list_thread_orphans(self, limit: int = 2000) -> list[dict]:
+        """
+        未挂载 Thread 的讨论型条目（created_at 正序，聚类所需字段）。
+
+        用于 Thread 重建结束后的兜底补聚：重建期间到达的采集批次会让位于
+        重建被跳过聚类（compute_threads_for_items 的锁语义），且重放快照
+        取自重建开始前，同样不含它们。条目型（catalog）任务的条目按设计
+        不参与聚合、thread_id 恒为 NULL，不在此列。
+        """
+        with get_db() as conn:
+            rows = conn.execute(
+                """
+                SELECT i.id, i.task_id, i.title, i.url, i.summary,
+                       i.fetched_at, i.created_at
+                FROM items i
+                JOIN tasks t ON i.task_id = t.id
+                WHERE i.thread_id IS NULL
+                  AND t.content_kind = 'discussion'
+                  AND t.deleted_at IS NULL
+                ORDER BY i.created_at ASC, i.id ASC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
     def get(self, item_id: str) -> dict | None:
         with get_db() as conn:
             row = conn.execute(

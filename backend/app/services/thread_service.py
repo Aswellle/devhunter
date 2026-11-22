@@ -85,13 +85,16 @@ class ThreadService:
 
         if not self._recompute_lock.acquire(blocking=False):
             # RLock 对持有线程可重入：走到这里说明是重建线程之外
-            # 的采集批次——让位于整体重建，避免交错写
+            # 的采集批次——让位于整体重建，避免交错写。
+            # 本批条目暂不聚类；重建结束时的兜底扫描（recompute_all_threads
+            # 末尾按 list_thread_orphans 补聚）会把它们聚进来，
+            # 不会成为永久孤儿
             logger.warning(
                 "Thread compute: skipped %d items (recompute in progress); "
-                "they will be clustered on the next run",
+                "the running recompute's final sweep will cluster them",
                 len(clusterable),
             )
-            return len(clusterable)
+            return 0
         try:
             matched_count = 0
             from app.core.database import transaction
@@ -329,10 +332,24 @@ class ThreadService:
                     window_hours=window_hours,
                 )
 
+            # 兜底扫描：重建期间到达的采集批次让位于重建被跳过（见
+            # compute_threads_for_items 的锁语义），且重放快照取自重建
+            # 开始前——按"thread_id 仍为 NULL 的讨论型条目"补聚一轮，
+            # 保证重建结束后讨论型条目没有永久孤儿。本线程持有锁，
+            # compute 内部的重入获取直接通过
+            orphans = item_repo.list_thread_orphans()
+            if orphans:
+                logger.info(
+                    "Thread recompute: sweeping %d orphan item(s) that arrived mid-recompute",
+                    len(orphans),
+                )
+                self.compute_threads_for_items(orphans, window_hours=window_hours)
+
             duration_ms = int((time.monotonic() - started) * 1000)
             result = {
                 "items": len(items),
                 "threads": thread_repo.count_all(),
+                "orphans_swept": len(orphans),
                 "duration_ms": duration_ms,
                 "window_hours": window_hours,
             }

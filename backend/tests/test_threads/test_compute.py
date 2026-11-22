@@ -11,6 +11,7 @@ Thread 计算服务的回归测试。
    get_candidate_threads 直接返回近期活跃 Thread，并用真实数据验证
    同批次与跨批次的 join 都能发生。
 """
+import threading
 import uuid
 from datetime import datetime, timezone
 
@@ -244,3 +245,98 @@ class TestCatalogKindGating:
         assert remaining == 0, "条目型任务的旧 Thread 应回收"
         assert linked == 0, "条目型条目重建后不应再挂载 Thread"
         assert result["items"] >= 2
+
+
+class TestRecomputeOrphanSweep:
+    """重建期间到达的采集批次：让位被跳过 → 重建末尾兜底扫描补聚。
+
+    重建持有 _recompute_lock（RLock），采集批次在该锁被占时跳过聚类。
+    RLock 对同线程可重入，因此跳过场景必须从另一个线程触发才真实。
+    """
+
+    def _insert_late_item(self, task_id: str, title: str) -> dict:
+        token = uuid.uuid4().hex[:8]
+        now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        item_repo.bulk_insert([{
+            "task_id": task_id,
+            "title": f"{title} {token}",
+            "url": f"https://example.com/sweep/{token}",
+            "url_hash": f"sweep-hash-{token}",
+            "summary": "s",
+            "fetched_at": now,
+        }])
+        items, _ = item_repo.query(task_id=task_id)
+        return next(i for i in items if i["title"] == f"{title} {token}")
+
+    def test_skip_reports_zero_and_leaves_item_threadless(self):
+        """让位重建的批次必须如实报告 0（不得谎报成功），条目暂为孤儿"""
+        task_id = _task_id()
+        items = _items(task_id, 1, title_prefix="skip base")
+        thread_service.compute_threads_for_items(items)
+
+        late = self._insert_late_item(task_id, "mid-recompute arrival")
+
+        lock = thread_service._recompute_lock
+        assert lock.acquire(blocking=False), "前置条件：测试线程应能取得重建锁"
+        try:
+            # 模拟采集工作线程：另一线程调用 → 跳过分支
+            outcome: dict = {}
+
+            def _worker():
+                outcome["clustered"] = thread_service.compute_threads_for_items([late])
+
+            worker = threading.Thread(target=_worker)
+            worker.start()
+            worker.join(timeout=30)
+            assert outcome.get("clustered") == 0, "让位重建的批次应返回 0"
+        finally:
+            lock.release()
+
+        with get_db() as conn:
+            row = conn.execute(
+                "SELECT thread_id FROM items WHERE id = ?", (late["id"],),
+            ).fetchone()
+        assert row["thread_id"] is None, "被跳过的条目此刻应仍是孤儿（待兜底扫描）"
+
+    def test_recompute_final_sweep_clusters_late_arrivals(self, monkeypatch):
+        """重建结束的兜底扫描必须补聚重建期间到达的条目，不留永久孤儿"""
+        task_id = _task_id()
+        items = _items(task_id, 2, title_prefix="sweep base")
+        thread_service.compute_threads_for_items(items)
+
+        # 第二批在"重建快照取得之后"才到达：快照只含第一批
+        late = self._insert_late_item(task_id, "late arrival")
+        all_items, _ = item_repo.query(task_id=task_id)
+        snapshot = [i for i in all_items if i["id"] != late["id"]]
+
+        # 先模拟重建进行中 → 采集批次被跳过
+        lock = thread_service._recompute_lock
+        assert lock.acquire(blocking=False)
+        try:
+            outcome: dict = {}
+
+            def _worker():
+                outcome["clustered"] = thread_service.compute_threads_for_items([late])
+
+            worker = threading.Thread(target=_worker)
+            worker.start()
+            worker.join(timeout=30)
+            assert outcome.get("clustered") == 0
+        finally:
+            lock.release()
+
+        # 重建：重放快照（不含 late），末尾兜底扫描应把 late 聚进来
+        monkeypatch.setattr(item_repo, "list_all_chronological", lambda: snapshot)
+        result = thread_service.recompute_all_threads(window_hours=24)
+
+        with get_db() as conn:
+            row = conn.execute(
+                "SELECT thread_id FROM items WHERE id = ?", (late["id"],),
+            ).fetchone()
+        assert row["thread_id"], "兜底扫描必须补聚重建期间到达的条目"
+        assert result["orphans_swept"] >= 1
+        with get_db() as conn:
+            links = conn.execute(
+                "SELECT COUNT(*) FROM thread_items WHERE item_id = ?", (late["id"],)
+            ).fetchone()[0]
+        assert links == 1, "补聚后的条目应恰好归属一个 Thread"

@@ -314,49 +314,58 @@ def _run_task(
              {"saved": items_new})
 
         # ── Step 5.5: 计算 Thread 归属 ─────────────────────
-        _pub(task_id, "thread_start", "正在计算多平台聚合…")
-        try:
-            from app.services.thread_service import thread_service
-            # 重新获取刚插入的 items（带 DB ID）
-            recent = item_repo.query(
-                task_id=task_id,
-                search=None,
-                starred=None,
-                is_read=None,
-                page=1,
-                per_page=items_new,
-            )[0]
-            # 只取当前批次刚插入的（按 fetched_at 匹配）
-            new_records = [
-                r for r in recent
-                if r.get("fetched_at", "") == executed_at_iso
-            ]
-            if new_records:
-                thread_service.compute_threads_for_items(new_records)
-                _pub(task_id, "thread_done",
-                     f"Thread 聚合完成")
-                # AI 综述：为本次批次涉及的多来源 Thread 生成（LLM 不可用时静默跳过）
-                touched_thread_ids = {
-                    r.get("thread_id") for r in new_records if r.get("thread_id")
-                }
-                digest_deadline = time.monotonic() + DIGEST_BUDGET_SECONDS
-                digest_done = 0
-                for tid in touched_thread_ids:
-                    if time.monotonic() > digest_deadline:
-                        logger.warning(
-                            "Digest budget (%ss) exhausted after %d thread(s); %d skipped",
-                            DIGEST_BUDGET_SECONDS, digest_done,
-                            len(touched_thread_ids) - digest_done,
-                        )
-                        break
-                    try:
-                        digest.generate_digest(tid)
-                        digest_done += 1
-                    except Exception as digest_err:  # noqa: BLE001
-                        logger.warning("Digest generation failed for %s: %s", tid, digest_err)
-        except Exception as e:
-            logger.warning("Thread compute failed: %s", e)
-            _pub(task_id, "thread_skip", "Thread 聚合跳过")
+        # 条目型（catalog）任务按设计不参与聚合，直接不发聚合事件，
+        # 避免每次执行都出现"正在计算多平台聚合…→跳过"的噪声
+        if items_new and task.get("content_kind", "discussion") == "discussion":
+            _pub(task_id, "thread_start", "正在计算多平台聚合…")
+            try:
+                from app.services.thread_service import thread_service
+                # 重新获取刚插入的 items（带 DB ID）
+                recent = item_repo.query(
+                    task_id=task_id,
+                    search=None,
+                    starred=None,
+                    is_read=None,
+                    page=1,
+                    per_page=items_new,
+                )[0]
+                # 只取当前批次刚插入的（按 fetched_at 匹配）
+                new_records = [
+                    r for r in recent
+                    if r.get("fetched_at", "") == executed_at_iso
+                ]
+                if new_records:
+                    # 返回值 = 本批实际参与聚类的条目数；0 = 全部让位于
+                    # 重建（重建结束时的兜底扫描会补聚）或无讨论型条目
+                    clustered = thread_service.compute_threads_for_items(new_records)
+                    if clustered:
+                        _pub(task_id, "thread_done",
+                             f"Thread 聚合完成")
+                    else:
+                        _pub(task_id, "thread_skip",
+                             "Thread 聚合让位于重建进行中，重建结束后自动补聚")
+                    # AI 综述：为本次批次涉及的多来源 Thread 生成（LLM 不可用时静默跳过）
+                    touched_thread_ids = {
+                        r.get("thread_id") for r in new_records if r.get("thread_id")
+                    }
+                    digest_deadline = time.monotonic() + DIGEST_BUDGET_SECONDS
+                    digest_done = 0
+                    for tid in touched_thread_ids:
+                        if time.monotonic() > digest_deadline:
+                            logger.warning(
+                                "Digest budget (%ss) exhausted after %d thread(s); %d skipped",
+                                DIGEST_BUDGET_SECONDS, digest_done,
+                                len(touched_thread_ids) - digest_done,
+                            )
+                            break
+                        try:
+                            digest.generate_digest(tid)
+                            digest_done += 1
+                        except Exception as digest_err:  # noqa: BLE001
+                            logger.warning("Digest generation failed for %s: %s", tid, digest_err)
+            except Exception as e:
+                logger.warning("Thread compute failed: %s", e)
+                _pub(task_id, "thread_skip", "Thread 聚合跳过")
 
         # 推送前 3 条新条目预览
         preview = [
