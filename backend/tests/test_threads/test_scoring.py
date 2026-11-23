@@ -94,6 +94,44 @@ class TestThreadScorer:
         score = thread_scorer._calc_source_score("hackernews", ["hackernews", "github"])
         assert score == 0.3
 
+    def test_source_score_falls_back_to_task_name(self):
+        """items 表无 source_id 时用任务名比较（回归：旧实现恒取 0.5）"""
+        item = {
+            "title": "OpenAI launches GPT-5",
+            "task_name": "v2ex",
+            "published_at": "2026-09-15T10:00:00Z",
+        }
+        thread = {
+            "title": "OpenAI launches GPT-5",
+            "last_seen_at": "2026-09-15T10:00:00Z",
+            "platforms": ["v2ex"],
+        }
+        score = thread_scorer.score(
+            item, thread,
+            {"entities": {}, "fingerprint": ""},
+            {"entities": {}, "fingerprint": ""},
+        )
+        assert score.source_score == 0.3
+
+    def test_source_score_task_name_cross_source(self):
+        """任务名不同 → 跨来源共识 1.0"""
+        item = {
+            "title": "OpenAI launches GPT-5",
+            "task_name": "少数派",
+            "published_at": "2026-09-15T10:00:00Z",
+        }
+        thread = {
+            "title": "OpenAI launches GPT-5",
+            "last_seen_at": "2026-09-15T10:00:00Z",
+            "platforms": ["Lobsters"],
+        }
+        score = thread_scorer.score(
+            item, thread,
+            {"entities": {}, "fingerprint": ""},
+            {"entities": {}, "fingerprint": ""},
+        )
+        assert score.source_score == 1.0
+
     def test_confidence_high(self):
         """高分 → high confidence"""
         item = {

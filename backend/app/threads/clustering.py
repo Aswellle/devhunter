@@ -12,6 +12,7 @@ from typing import Any
 
 from app.features.extractor import feature_extractor
 from app.threads.scoring import thread_scorer, ThreadScore
+from app.utils.similarity import jaccard_similarity
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +32,11 @@ STORYLINE_RATIO = 0.67
 
 # T1: 候选召回最大数量（精确评分前的预过滤）
 MAX_CANDIDATES_FOR_SCORING = 20
+
+# 标题内容支持下限：实体/来源分数可以抬高总分，但"只共用 GPT-5 这类
+# 泛化实体、标题本身完全不同"的报道不是同一事件。要求词级或字符级
+# 相似度至少达到该值，避免跨来源加成把不同故事硬并进一个 Thread
+MIN_CONTENT_SIMILARITY = 0.18
 
 
 class ThreadClusteringResult:
@@ -106,17 +112,33 @@ class ThreadClusterer:
                 best_thread = thread
 
         if best_score and best_score.total_score >= threshold and best_thread:
-            return ThreadClusteringResult(
-                action="join",
-                thread_id=best_thread.get("id"),
-                score=best_score,
-                match_reason=f"score={best_score.total_score:.2f},confidence={best_score.confidence}",
+            content_supported = (
+                max(best_score.lexical_score, best_score.semantic_score)
+                >= MIN_CONTENT_SIMILARITY
             )
+            if content_supported:
+                return ThreadClusteringResult(
+                    action="join",
+                    thread_id=best_thread.get("id"),
+                    score=best_score,
+                    match_reason=f"score={best_score.total_score:.2f},confidence={best_score.confidence}",
+                )
 
         # 同一故事线 near-miss：未达合并阈值但评分明显高于噪声，
-        # 照常创建新 Thread，由调用方记录与最佳候选的关联
+        # 照常创建新 Thread，由调用方记录与最佳候选的关联。
+        # 同样要求标题内容支持：只共用泛化实体的"伪相似"不建立故事线
+        content_supported = bool(
+            best_score
+            and max(best_score.lexical_score, best_score.semantic_score)
+            >= MIN_CONTENT_SIMILARITY
+        )
         storyline_floor = threshold * STORYLINE_RATIO
-        if best_score and best_thread and best_score.total_score >= storyline_floor:
+        if (
+            best_score
+            and best_thread
+            and content_supported
+            and best_score.total_score >= storyline_floor
+        ):
             return ThreadClusteringResult(
                 action="create",
                 score=best_score,
@@ -143,21 +165,20 @@ class ThreadClusterer:
         if len(candidates) <= max_candidates:
             return candidates
 
-        new_title = new_item.get("title", "").lower()
-        new_words = set(new_title.split()) if new_title else set()
+        from app.features.semantic import semantic_similarity
 
+        new_title = new_item.get("title", "")
         scored_candidates: list[tuple[float, dict[str, Any]]] = []
 
         for thread in candidates:
-            thread_title = thread.get("title", "").lower()
-            thread_words = set(thread_title.split()) if thread_title else set()
-
-            # 快速关键词重叠评分（比完整评分快很多）
-            if new_words and thread_words:
-                overlap = len(new_words & thread_words) / max(len(new_words), 1)
-            else:
-                overlap = 0.0
-
+            thread_title = thread.get("title", "")
+            # 关键词重叠（词级）与字符 bigram 相似度取较大者：
+            # 中文标题没有空格，词级 Jaccard 会把整句当成一个 token，
+            # 只看它会让真正同事件的候选在 top-K 预过滤阶段被丢掉
+            overlap = max(
+                jaccard_similarity(new_title, thread_title),
+                semantic_similarity.compute(new_title, thread_title),
+            )
             scored_candidates.append((overlap, thread))
 
         # 按重叠度排序，取 top-K

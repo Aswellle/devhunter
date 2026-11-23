@@ -414,6 +414,27 @@ def _run_task(
                 extra={"task_id": task_id, "execution_id": exec_id})
 
 
+def consolidate_threads_job() -> None:
+    """
+    系统任务：每小时做一次热点增量合并（补聚孤儿 + 合并可归并的单条 Thread）。
+
+    与采集执行解耦：单次失败只落日志，不影响任何数据源任务；
+    与重建/采集聚类共用进程锁，锁被占用时本轮直接跳过。
+    """
+    from app.core.exceptions import ConflictError
+    from app.services.thread_service import thread_service
+
+    try:
+        result = thread_service.consolidate_threads(trigger="scheduled")
+        logger.info("Scheduled thread consolidation: %s", result)
+    except ConflictError:
+        logger.info(
+            "Scheduled thread consolidation skipped: another thread job is running"
+        )
+    except Exception:  # noqa: BLE001 — 系统任务必须自己兜底
+        logger.exception("Scheduled thread consolidation failed")
+
+
 def _record_failure(task_id: str, exec_id: str, executed_at: str,
                     error: str, duration_ms: int, preset_exec: bool = False) -> None:
     try:

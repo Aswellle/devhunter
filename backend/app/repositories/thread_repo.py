@@ -111,9 +111,10 @@ class ThreadRepository:
         page: int = 1,
         per_page: int = 20,
         sort: str = "first_seen",
+        min_items: int = 1,
     ) -> tuple[list[dict], int]:
         """
-        分页列出 Threads，支持按 task_id 过滤。
+        分页列出 Threads，支持按 task_id 与最小报道数过滤。
 
         sort:
         - "first_seen"（默认）：按 first_seen_at DESC，SQL 分页
@@ -123,7 +124,9 @@ class ThreadRepository:
         offset = (page - 1) * per_page
 
         if sort == "hotness":
-            return self._list_all_by_hotness(task_id=task_id, page=page, per_page=per_page)
+            return self._list_all_by_hotness(
+                task_id=task_id, page=page, per_page=per_page, min_items=min_items,
+            )
 
         if task_id:
             base_from = """
@@ -131,8 +134,9 @@ class ThreadRepository:
                 JOIN thread_items ti ON th.id = ti.thread_id
                 JOIN items i ON ti.item_id = i.id
                 WHERE i.task_id = ?
+                  AND th.item_count >= ?
             """
-            params: list[Any] = [task_id]
+            params: list[Any] = [task_id, min_items]
             with get_db() as conn:
                 total = conn.execute(
                     f"SELECT COUNT(DISTINCT th.id) {base_from}",
@@ -159,8 +163,9 @@ class ThreadRepository:
                     JOIN items i ON i.id = ti.item_id
                     WHERE ti.thread_id = th.id
                 )
+                  AND th.item_count >= ?
             """
-            params = []
+            params: list[Any] = [min_items]
             with get_db() as conn:
                 total = conn.execute(
                     f"SELECT COUNT(*) {base_from}",
@@ -189,11 +194,13 @@ class ThreadRepository:
         task_id: str | None,
         page: int,
         per_page: int,
+        min_items: int = 1,
     ) -> tuple[list[dict], int]:
         """
         热度排序路径：全量取回（个人规模，数百行）后内存排序分页。
 
-        与默认路径一样只保留仍有存活条目的 Thread；task_id 过滤语义一致。
+        与默认路径一样只保留仍有存活条目的 Thread；task_id / min_items
+        过滤语义一致。
         """
         if task_id:
             sql = """
@@ -203,8 +210,9 @@ class ThreadRepository:
                 JOIN thread_items ti ON th.id = ti.thread_id
                 JOIN items i ON ti.item_id = i.id
                 WHERE i.task_id = ?
+                  AND th.item_count >= ?
             """
-            params: list[Any] = [task_id]
+            params: list[Any] = [task_id, min_items]
         else:
             sql = """
                 SELECT th.id, th.title, th.first_seen_at, th.last_seen_at,
@@ -215,8 +223,9 @@ class ThreadRepository:
                     JOIN items i ON i.id = ti.item_id
                     WHERE ti.thread_id = th.id
                 )
+                  AND th.item_count >= ?
             """
-            params = []
+            params = [min_items]
         with get_db() as conn:
             rows = conn.execute(sql, params).fetchall()
 
@@ -684,6 +693,94 @@ class ThreadRepository:
             return
         with get_db() as c:
             _run(c)
+
+    def get_thread_item_map(self, thread_ids: list[str]) -> dict[str, list[dict]]:
+        """
+        批量取多个 Thread 的成员条目（按 fetched_at 正序），用于增量合并时
+        以首条报道代表单条 Thread，避免逐 Thread 查询的 N+1。
+        """
+        if not thread_ids:
+            return {}
+        placeholders = ",".join(["?"] * len(thread_ids))
+        with get_db() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT ti.thread_id, i.id, i.task_id, i.title, i.summary,
+                       i.fetched_at, i.created_at, t.name AS task_name
+                FROM thread_items ti
+                JOIN items i ON i.id = ti.item_id
+                LEFT JOIN tasks t ON t.id = i.task_id
+                WHERE ti.thread_id IN ({placeholders})
+                ORDER BY i.fetched_at ASC
+                """,
+                thread_ids,
+            ).fetchall()
+
+        result: dict[str, list[dict]] = {}
+        for row in rows:
+            result.setdefault(row["thread_id"], []).append(dict(row))
+        return result
+
+    def count_live_threads(self) -> dict[str, int]:
+        """按实际存活成员数统计 Thread：总数 / 多来源（≥2 条）/ 单条。"""
+        with get_db() as conn:
+            row = conn.execute(
+                """
+                SELECT COUNT(*) AS total,
+                       SUM(CASE WHEN cnt >= 2 THEN 1 ELSE 0 END) AS multi,
+                       SUM(CASE WHEN cnt = 1 THEN 1 ELSE 0 END) AS single
+                FROM (
+                    SELECT th.id, COUNT(i.id) AS cnt
+                    FROM threads th
+                    JOIN thread_items ti ON ti.thread_id = th.id
+                    JOIN items i ON i.id = ti.item_id
+                    GROUP BY th.id
+                )
+                """
+            ).fetchone()
+        return {
+            "total": int(row["total"] or 0),
+            "multi": int(row["multi"] or 0),
+            "single": int(row["single"] or 0),
+        }
+
+    def count_orphan_discussion_items(self) -> int:
+        """未挂载 Thread 的讨论型条目数（待补聚）。"""
+        with get_db() as conn:
+            row = conn.execute(
+                """
+                SELECT COUNT(*) FROM items i
+                JOIN tasks t ON i.task_id = t.id
+                WHERE i.thread_id IS NULL
+                  AND t.content_kind = 'discussion'
+                  AND t.deleted_at IS NULL
+                """
+            ).fetchone()
+        return int(row[0] or 0)
+
+    def count_recent_discussion(self, window_hours: int) -> tuple[int, int]:
+        """
+        近 N 小时有产出的讨论型来源数与条目数。
+
+        用于聚合概览提示"当前只有几个来源在产出"——热点需要多个来源
+        讨论同一事件，单来源数据不可能形成跨平台聚合。
+        """
+        boundary = (
+            datetime.now(timezone.utc) - timedelta(hours=window_hours)
+        ).strftime("%Y-%m-%dT%H:%M:%SZ")
+        with get_db() as conn:
+            row = conn.execute(
+                """
+                SELECT COUNT(DISTINCT i.task_id) AS sources, COUNT(*) AS items
+                FROM items i
+                JOIN tasks t ON i.task_id = t.id
+                WHERE t.content_kind = 'discussion'
+                  AND t.deleted_at IS NULL
+                  AND i.fetched_at >= ?
+                """,
+                (boundary,),
+            ).fetchone()
+        return int(row["sources"] or 0), int(row["items"] or 0)
 
     # ── T3: 人工纠错 ────────────────────────────────────────────
 

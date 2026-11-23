@@ -8,6 +8,7 @@ import logging
 import threading
 import time
 
+from app.core.config import settings
 from app.core.exceptions import ConflictError
 from app.repositories.thread_repo import thread_repo
 from app.repositories.task_repo import task_repo
@@ -22,6 +23,10 @@ logger = logging.getLogger(__name__)
 
 # Thread 重建批次大小：候选池随批次刷新，批次过大窗口内候选会过期
 _RECOMPUTE_BATCH_SIZE = 200
+# 默认候选活动窗口（可在 .env 用 THREAD_CLUSTER_WINDOW_HOURS 调整）
+DEFAULT_WINDOW_HOURS = settings.thread_cluster_window_hours
+# 单次增量合并的上限，避免异常数据把一次扫描拖成长事务
+_MAX_CONSOLIDATE_MERGES = 200
 
 
 class ThreadService:
@@ -34,11 +39,15 @@ class ThreadService:
     _recompute_state_lock = threading.Lock()
     _recompute_state: dict = {"running": False, "result": None, "error": None}
 
+    # 最近一次增量合并（定时任务 / 手动"立即聚合"）的结果，供概览展示
+    _consolidation_state_lock = threading.Lock()
+    _last_consolidation: dict | None = None
+
     def compute_threads_for_items(
         self,
         new_items: list[dict],
         threshold: float = DEFAULT_THRESHOLD,
-        window_hours: int = 24,
+        window_hours: int = DEFAULT_WINDOW_HOURS,
     ) -> int:
         """
         为一批新采集的 Items 计算 Thread 归属。
@@ -114,8 +123,19 @@ class ThreadService:
                         hours=window_hours, conn=conn,
                     )
 
+                    # source_id/source_name 在 items 表中不存在，评分器改用任务名
+                    # 与候选 Thread 的 platforms 比较，跨来源共识才会真正加分
+                    scoring_item = {
+                        **item,
+                        "source_id": platform,
+                        "source_name": platform,
+                        "task_name": platform,
+                    }
+
                     # 使用多因素聚类
-                    result = thread_clusterer.cluster(item, candidate_threads, threshold=threshold)
+                    result = thread_clusterer.cluster(
+                        scoring_item, candidate_threads, threshold=threshold,
+                    )
 
                     if result.action == "join" and result.thread_id:
                         # 加入已有 Thread
@@ -194,9 +214,13 @@ class ThreadService:
         page: int = 1,
         per_page: int = 20,
         sort: str = "first_seen",
+        min_items: int = 1,
     ) -> tuple[list[dict], int]:
-        """列出 Threads（sort: first_seen | hotness）"""
-        return thread_repo.list_all(task_id=task_id, page=page, per_page=per_page, sort=sort)
+        """列出 Threads（sort: first_seen | hotness；min_items 过滤单条 Thread）"""
+        return thread_repo.list_all(
+            task_id=task_id, page=page, per_page=per_page,
+            sort=sort, min_items=min_items,
+        )
 
     def get_thread(self, thread_id: str) -> dict | None:
         """获取 Thread 详情（包含 Items、聚合画像 stats 与同一故事线关联层）"""
@@ -265,7 +289,7 @@ class ThreadService:
         updated = thread_repo.get(thread_id) or {}
         return {"digest": text, "digest_at": updated.get("digest_at")}
 
-    def start_recompute(self, window_hours: int = 24) -> None:
+    def start_recompute(self, window_hours: int = DEFAULT_WINDOW_HOURS) -> None:
         """
         在后台线程中启动全量重建（API 立即返回 202）。
 
@@ -301,7 +325,7 @@ class ThreadService:
         with self._recompute_state_lock:
             return dict(self._recompute_state)
 
-    def recompute_all_threads(self, window_hours: int = 24) -> dict:
+    def recompute_all_threads(self, window_hours: int = DEFAULT_WINDOW_HOURS) -> dict:
         """
         重建全部 Thread：清空后按 created_at 时间正序重放所有条目的聚类。
 
@@ -363,6 +387,314 @@ class ThreadService:
             return result
         finally:
             self._recompute_lock.release()
+
+    def consolidation_status(self) -> dict | None:
+        """最近一次增量合并的结果（定时任务或手动触发）。"""
+        with self._consolidation_state_lock:
+            return dict(self._last_consolidation) if self._last_consolidation else None
+
+    def consolidate_threads(
+        self,
+        window_hours: int = DEFAULT_WINDOW_HOURS,
+        trigger: str = "manual",
+    ) -> dict:
+        """
+        增量合并：不删除、不重放全部历史，只做两件真实收敛动作。
+
+        1. 补聚孤儿：讨论型但 thread_id 为 NULL 的条目（重建期间让位、
+           采集批次被锁跳过等）按与采集管线相同的算法归位；
+        2. 合并单条 Thread：把"只有 1 条报道"的 Thread 与窗口内更早的
+           单条 Thread 或多条 Thread 比较，达到阈值就并入后者。
+
+        为什么需要第 2 步：采集管线只让**新条目**去找候选 Thread，两个
+        在不同批次各自创建的单条 Thread 永远不会互相比较——即使它们
+        讲的是同一件事。定时任务每小时跑一次本方法，热点会随报道增多
+        自动收敛，而不是永久停在 1 条。
+
+        与重建一样持有进程内聚类锁：合并与采集管线的 add_item 交错会
+        产生半合并状态。被让位的采集批次在末尾的兜底扫描里补聚。
+
+        Returns:
+            {window_hours, orphans_clustered, merged_threads, orphans_swept,
+             threads_before, threads_after, duration_ms}
+        """
+        if not self._recompute_lock.acquire(blocking=False):
+            raise ConflictError("Thread 聚合正在运行，请稍后再试")
+        try:
+            from datetime import datetime, timezone
+
+            from app.repositories.item_repo import item_repo
+
+            started = time.monotonic()
+            orphans = item_repo.list_thread_orphans()
+            orphans_clustered = 0
+            if orphans:
+                orphans_clustered = self.compute_threads_for_items(
+                    orphans, window_hours=window_hours,
+                )
+
+            threads = thread_repo.get_candidate_threads(
+                hours=window_hours, limit=1000,
+            )
+            by_id = {t["id"]: dict(t) for t in threads}
+            singles = [t for t in threads if (t.get("item_count") or 0) == 1]
+            item_map = thread_repo.get_thread_item_map([t["id"] for t in singles])
+            before = thread_repo.count_live_threads()
+
+            merged = 0
+            for source in singles:
+                if merged >= _MAX_CONSOLIDATE_MERGES:
+                    logger.warning(
+                        "Thread consolidate: merge cap (%d) reached, stopping",
+                        _MAX_CONSOLIDATE_MERGES,
+                    )
+                    break
+                if source["id"] not in by_id:
+                    continue
+                # 已在本次扫描中吸收过其他单条 Thread 的目标不再作为源
+                # （否则会把刚合并出的多条 Thread 再次搬走，方向失控）
+                if (by_id[source["id"]].get("item_count") or 0) != 1:
+                    continue
+                items = item_map.get(source["id"]) or []
+                if not items:
+                    continue
+
+                item = dict(items[0])
+                platform = item.get("task_name") or "unknown"
+                item.update({
+                    "source_id": platform,
+                    "source_name": platform,
+                    "task_name": platform,
+                })
+                targets = [
+                    t for t in by_id.values()
+                    if t["id"] != source["id"]
+                    and self._eligible_merge_target(source, t)
+                ]
+                if not targets:
+                    continue
+
+                result = thread_clusterer.cluster(
+                    item, targets, threshold=DEFAULT_THRESHOLD,
+                )
+                if result.action != "join" or not result.thread_id:
+                    continue
+                if thread_repo.is_pair_rejected(source["id"], result.thread_id):
+                    continue
+
+                target = by_id.get(result.thread_id)
+                if not target:
+                    continue
+                merged_target = thread_merger.merge(
+                    source["id"], target["id"], reason="auto_consolidate",
+                )
+                if not merged_target:
+                    continue
+                merged += 1
+                by_id.pop(source["id"], None)
+                target["item_count"] = (
+                    (target.get("item_count") or 0)
+                    + (source.get("item_count") or 0)
+                )
+                target["last_seen_at"] = max(
+                    target.get("last_seen_at") or "",
+                    source.get("last_seen_at") or "",
+                )
+                target["title"] = merged_target.get("title") or target.get("title")
+                target["platforms"] = (
+                    merged_target.get("platforms") or target.get("platforms")
+                )
+
+            # 合并期间到达的采集批次被锁让位，这里补聚，避免永久孤儿
+            swept_items = item_repo.list_thread_orphans()
+            orphans_swept = 0
+            if swept_items:
+                orphans_swept = self.compute_threads_for_items(
+                    swept_items, window_hours=window_hours,
+                )
+
+            after = thread_repo.count_live_threads()
+            result = {
+                "window_hours": window_hours,
+                "orphans_clustered": orphans_clustered,
+                "merged_threads": merged,
+                "orphans_swept": orphans_swept,
+                "threads_before": before["total"],
+                "threads_after": after["total"],
+                "threads_multi": after["multi"],
+                "threads_single": after["single"],
+                "duration_ms": int((time.monotonic() - started) * 1000),
+            }
+            now = datetime.now(timezone.utc).strftime(
+                "%Y-%m-%dT%H:%M:%S.%f"
+            )[:-3] + "Z"
+            with self._consolidation_state_lock:
+                self._last_consolidation = {
+                    "at": now,
+                    "trigger": trigger,
+                    "result": result,
+                }
+            logger.info(
+                "Thread consolidate (%s): %d orphan(s) clustered, %d thread(s) merged, "
+                "%d -> %d threads in %dms (window=%dh)",
+                trigger, orphans_clustered, merged,
+                before["total"], after["total"], result["duration_ms"], window_hours,
+            )
+            return result
+        finally:
+            self._recompute_lock.release()
+
+    @staticmethod
+    def _eligible_merge_target(source: dict, target: dict) -> bool:
+        """
+        单条 Thread 的合并方向：只能并入多条 Thread，或并入更早创建的单条
+        Thread（同时间按 id 定序）。保证一次扫描内方向确定，不会来回搬。
+        """
+        if (target.get("item_count") or 0) >= 2:
+            return True
+        s_first = source.get("first_seen_at") or ""
+        t_first = target.get("first_seen_at") or ""
+        if t_first < s_first:
+            return True
+        return t_first == s_first and (target.get("id") or "") < (source.get("id") or "")
+
+    def aggregate_items(
+        self,
+        item_ids: list[str],
+        title: str | None = None,
+        target_thread_id: str | None = None,
+    ) -> dict:
+        """
+        手动聚合：把用户勾选的条目收进同一个 Thread。
+
+        - target_thread_id 为空 → 新建 Thread（标题取最长条目标题或用户输入）
+        - 提供 target_thread_id → 把这些条目并入既有 Thread
+        - 条目原先所在的 Thread 会被重新统计；变空的 Thread 自动删除
+
+        这是"自动聚类没认出来、但用户知道是同一事件"的兜底入口，
+        与自动聚类共用 thread_items/items.thread_id 数据模型。
+        """
+        from app.core.database import transaction
+        from app.core.exceptions import (
+            BadRequestError,
+            ItemNotFoundError,
+            NotFoundError,
+        )
+        from app.repositories.item_repo import item_repo
+
+        unique_ids = list(dict.fromkeys(item_ids))
+        if len(unique_ids) < 2:
+            raise BadRequestError("至少选择两条内容才能聚合为热点")
+
+        items: list[dict] = []
+        for item_id in unique_ids:
+            item = item_repo.get(item_id)
+            if not item:
+                raise ItemNotFoundError(f"条目 {item_id} 不存在")
+            items.append(item)
+
+        target = None
+        if target_thread_id:
+            target = thread_repo.get(target_thread_id)
+            if not target:
+                raise NotFoundError("目标 Thread 不存在")
+
+        tasks = {t["id"]: t for t in task_repo.list_all_tasks()}
+
+        def _platform(item: dict) -> str:
+            return tasks.get(item.get("task_id"), {}).get("name") or "unknown"
+
+        default_title = max((i["title"] for i in items), key=len)
+        new_title = " ".join((title or "").split()) or default_title
+        new_title = new_title[:300]
+
+        with transaction() as conn:
+            old_thread_ids = {
+                it.get("thread_id") for it in items
+                if it.get("thread_id")
+            } - {target_thread_id}
+            if old_thread_ids:
+                item_placeholders = ",".join(["?"] * len(unique_ids))
+                thread_placeholders = ",".join(["?"] * len(old_thread_ids))
+                conn.execute(
+                    f"DELETE FROM thread_items WHERE item_id IN ({item_placeholders}) "
+                    f"AND thread_id IN ({thread_placeholders})",
+                    [*unique_ids, *old_thread_ids],
+                )
+
+            if target:
+                thread_id = target["id"]
+                for item in items:
+                    thread_repo.add_item(
+                        thread_id=thread_id,
+                        item_id=item["id"],
+                        similarity=1.0,
+                        title=item["title"],
+                        platform=_platform(item),
+                        match_reason="manual_aggregate",
+                        conn=conn,
+                    )
+                rebuild = thread_id
+            else:
+                first = items[0]
+                thread_id = thread_repo.create(
+                    title=new_title,
+                    item_id=first["id"],
+                    platform=_platform(first),
+                    algorithm_version="manual",
+                    similarity_threshold=1.0,
+                    match_reason="manual_aggregate",
+                    conn=conn,
+                )
+                for item in items[1:]:
+                    thread_repo.add_item(
+                        thread_id=thread_id,
+                        item_id=item["id"],
+                        similarity=1.0,
+                        title=item["title"],
+                        platform=_platform(item),
+                        match_reason="manual_aggregate",
+                        conn=conn,
+                    )
+                rebuild = thread_id
+
+            thread_repo.rebuild_thread_stats(rebuild, conn=conn)
+            # rebuild_thread_stats 会把标题改成"最长成员标题"；手动聚合
+            # 指定了标题时必须保留用户输入（否则用户命名的热点会被静默改名）
+            if title:
+                conn.execute(
+                    "UPDATE threads SET title = ? WHERE id = ?",
+                    (new_title, thread_id),
+                )
+            for old_thread_id in old_thread_ids - {thread_id}:
+                thread_repo.rebuild_thread_stats(old_thread_id, conn=conn)
+
+        thread_repo.record_override(
+            thread_id, "force_join", reason="manual_aggregate",
+        )
+        logger.info(
+            "Manual aggregation: %d item(s) -> thread %s", len(unique_ids), thread_id,
+        )
+        return self.get_thread(thread_id) or {}
+
+    def aggregation_overview(self, window_hours: int = DEFAULT_WINDOW_HOURS) -> dict:
+        """
+        聚合概览：给前端一个"为什么现在没有多来源热点 / 还剩多少待补聚"
+        的可解释面板，不依赖前端自行拼装多个接口。
+        """
+        counts = thread_repo.count_live_threads()
+        sources, items_in_window = thread_repo.count_recent_discussion(window_hours)
+        return {
+            "window_hours": window_hours,
+            "threads_total": counts["total"],
+            "threads_multi": counts["multi"],
+            "threads_single": counts["single"],
+            "active_discussion_sources": sources,
+            "discussion_items_in_window": items_in_window,
+            "orphan_items": thread_repo.count_orphan_discussion_items(),
+            "recompute": self.recompute_status(),
+            "last_consolidation": self.consolidation_status(),
+        }
 
 # 全局单例
 thread_service = ThreadService()

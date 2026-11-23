@@ -96,6 +96,21 @@ class SchedulerManager:
         except Exception as e:
             logger.error("Failed to register cleanup job: %s", e)
 
+        # 注册热点增量合并 Job：每小时第 17 分钟执行一次。
+        # 采集管线只在写入新条目时聚类，两个不同批次各自创建的单条
+        # Thread 不会互相比较；定时合并让热点随报道增多持续收敛。
+        try:
+            from app.scheduler.jobs import consolidate_threads_job
+            self._scheduler.add_job(
+                consolidate_threads_job,
+                trigger=CronTrigger(minute=17, hour="*", timezone=datetime.timezone.utc),
+                id="__system_thread_consolidate__",
+                replace_existing=True,
+                name="Thread Consolidation (hourly)",
+            )
+        except Exception as e:
+            logger.error("Failed to register thread consolidation job: %s", e)
+
         logger.info("Restored %d scheduler jobs from DB", len(active_tasks))
 
     def add_job(self, task_id: str, cron_expression: str) -> None:

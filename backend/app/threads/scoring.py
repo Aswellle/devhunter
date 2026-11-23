@@ -119,8 +119,17 @@ class ThreadScorer:
         score.temporal_score = temporal_score(new_date, thread_date, window_hours)
 
         # 5. Source score (来源独立性)
+        # items 表没有 source_id 列（采集入库不写），回退到任务名：
+        # 候选 Thread 的 platforms 存的也是任务名，二者必须同源比较，
+        # 否则所有条目都被当作"未知来源"拿固定 0.5，跨来源共识永远不生效
+        new_source_id = (
+            new_item.get("source_id")
+            or new_item.get("task_name")
+            or new_item.get("source_name")
+            or ""
+        )
         score.source_score = self._calc_source_score(
-            new_item.get("source_id", ""),
+            new_source_id,
             candidate_thread.get("platforms", []),
         )
 

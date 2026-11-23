@@ -57,6 +57,9 @@ class Settings(BaseSettings):
     # ── 调度器 ──────────────────────────────────
     scheduler_max_workers: int = 3
     scheduler_misfire_grace_time: int = 300
+    # Thread 聚类候选活动窗口：跨来源同一事件常常相隔超过 24h，
+    # 窗口过窄会让先出现的报道永远等不到后续报道
+    thread_cluster_window_hours: int = 72
 
     # ── 日志 ────────────────────────────────────
     log_level: str = "INFO"

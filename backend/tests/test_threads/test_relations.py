@@ -211,12 +211,18 @@ class TestNearMissClustering:
     """聚类 near-miss：阈值之下的明显相关候选带出关联信号"""
 
     class _StubScorer:
-        def __init__(self, total: float):
+        def __init__(self, total: float, lexical: float = 0.5, semantic: float = 0.5):
             self.total = total
+            self.lexical = lexical
+            self.semantic = semantic
 
         def score(self, *args, **kwargs) -> ThreadScore:
             s = ThreadScore()
             s.total_score = self.total
+            # 标题内容支持是 join / near-miss 的前置条件（见
+            # MIN_CONTENT_SIMILARITY）；纯分数桩也要给出内容分
+            s.lexical_score = self.lexical
+            s.semantic_score = self.semantic
             return s
 
     def _candidates(self) -> list[dict]:
