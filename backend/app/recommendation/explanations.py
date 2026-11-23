@@ -49,12 +49,19 @@ class ExplanationGenerator:
                     "label": f"你最近常看 {task_name}",
                 })
 
-        # 3. 新鲜度
-        if score_details.get("recency_score", 0) > 0.8:
-            reasons.append({
-                "type": "recency",
-                "label": "刚刚发布",
-            })
+        # 3. 新鲜度：按条目真实年龄出标签，与卡片上的时间戳保持同一口径。
+        #    旧实现用 recency_score > 0.8 判定"刚刚发布"，而当时的分数在
+        #    24 小时内恒为 1.0——"刚刚发布"会挂在"3 小时前""20 小时前"
+        #    的条目上，徽章与时间戳自相矛盾。
+        recency_hours = score_details.get("recency_hours")
+        if recency_hours is not None:
+            if recency_hours < 1:
+                reasons.append({"type": "recency", "label": "刚刚发布"})
+            elif recency_hours < 24:
+                reasons.append({"type": "recency", "label": "今日发布"})
+        elif score_details.get("recency_score", 0) > 0.8:
+            # 兼容未提供 recency_hours 的调用方：不给任何时间断言
+            reasons.append({"type": "recency", "label": "新鲜内容"})
 
         # 4. 参与度
         if score_details.get("engagement_score", 0) > 0.5:
@@ -70,8 +77,12 @@ class ExplanationGenerator:
                 "label": "多平台热议事件",
             })
 
-        # 6. 探索
-        if score_details.get("exploration_score", 0) > 0.5:
+        # 6. 探索：只在探索对总分的加权贡献足够大时展示（探索模式或
+        #    高新奇度），避免把"没交互过的来源"全标成探索徽章
+        if (
+            score_details.get("exploration_contribution", 0) >= 0.08
+            and score_details.get("exploration_score", 0) > 0.5
+        ):
             reasons.append({
                 "type": "exploration",
                 "label": "探索新领域",

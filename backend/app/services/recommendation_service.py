@@ -27,10 +27,11 @@ _MAX_HOURS_AGE = 999.0
 
 # 默认推荐配置
 DEFAULT_CONFIG = {
-    "topic_match_weight": 0.4,
+    "topic_match_weight": 0.35,
     "affinity_weight": 0.3,
     "recency_weight": 0.2,
     "engagement_weight": 0.1,
+    "exploration_weight": 0.05,
     "min_score_threshold": 0.1,
     "max_items": 20,
     "dwell_time_decay": 0.95,
@@ -93,6 +94,7 @@ class RecommendationService:
             "affinity_weight": _get_config("affinity_weight"),
             "recency_weight": _get_config("recency_weight"),
             "engagement_weight": _get_config("engagement_weight"),
+            "exploration_weight": _get_config("exploration_weight"),
             "min_score_threshold": _get_config("min_score_threshold"),
         }
 
@@ -102,6 +104,15 @@ class RecommendationService:
 
         # 2. 获取亲缘度映射
         affinity_map = user_affinity_repo.get_all_affinities_map()
+
+        # 2.5 负反馈：用户明确拒绝过的内容不再推荐。
+        #     旧实现只把反馈写进 user_negative_feedback 表，打分循环从不读取，
+        #     前端也没有入口——"不感兴趣"保存后完全不起作用。
+        #     语义：not_interested / mute_topic 隐藏该条目本身；
+        #     hide_source 隐藏该条目所属来源（任务/平台）的全部条目。
+        dismissed_ids, hidden_task_ids, hidden_source_names = (
+            self._load_negative_feedback()
+        )
 
         # 3. 获取亲缘任务列表（得分 > 0.5 的任务优先）
         task_affinities = {
@@ -132,6 +143,11 @@ class RecommendationService:
         scored_items: list[tuple[float, dict]] = []
         for item in items:
             if exclude_read and item.get("is_read"):
+                continue
+            if item.get("id") in dismissed_ids:
+                continue
+            if (item.get("task_id") in hidden_task_ids
+                    or (item.get("task_name") or "") in hidden_source_names):
                 continue
 
             score, score_details = self._compute_item_score_details(
@@ -294,25 +310,81 @@ class RecommendationService:
                 affinity_score += plat_score * 0.4
 
         # ── 3. 新鲜度得分 ───────────────────────────────
-        recency_score = self._calc_recency_score(fetched_at)
+        recency_hours = _hours_since(fetched_at)
+        recency_score = self._calc_recency_score(recency_hours)
 
         # ── 4. 参与度得分 ───────────────────────────────
         engagement_score = self._calc_engagement_score(item, engagement_stats_map)
 
-        # ── 综合得分 ───────────────────────────────────
+        # ── 5. 探索得分（未接触过的来源/平台 → 新奇度高）────
+        exploration_score = self._calc_exploration_score(
+            task_id=task_id,
+            task_name=task_name,
+            task_affinities=task_affinities,
+            platform_affinities=platform_affinities,
+        )
+
+        # ── 综合得分：归一化加权平均 ─────────────────────
+        # 各模式预设权重之和可能不同（如探索模式的探索权重挤占了兴趣
+        # 权重），若直接求和，切换模式会让所有条目的分数整体缩放——用户
+        # 看到推荐分集体跳水、且低于 min_score_threshold 的条目会被整批
+        # 过滤掉。按权重总和归一化后，分数始终是 [0,1] 的加权平均，
+        # 换配置只改变排序含义，不改变分数量纲。
+        weights = {
+            "topic_match": (config["topic_match_weight"], topic_score),
+            "affinity": (config["affinity_weight"], affinity_score),
+            "recency": (config["recency_weight"], recency_score),
+            "engagement": (config["engagement_weight"], engagement_score),
+            "exploration": (config["exploration_weight"], exploration_score),
+        }
+        total_weight = sum(w for w, _ in weights.values())
         total = (
-            config["topic_match_weight"] * topic_score
-            + config["affinity_weight"] * affinity_score
-            + config["recency_weight"] * recency_score
-            + config["engagement_weight"] * engagement_score
+            sum(w * s for w, s in weights.values()) / total_weight
+            if total_weight > 0 else 0.0
         )
 
         return min(1.0, total), {
             "preference_score": topic_score,
             "affinity_score": affinity_score,
             "recency_score": recency_score,
+            "recency_hours": round(recency_hours, 2),
             "engagement_score": engagement_score,
+            "exploration_score": exploration_score,
+            # 探索对总分的加权贡献（解释器据此决定是否展示"探索"徽章，
+            # 避免仅凭新奇度把"没交互过的来源"全标成探索）
+            "exploration_contribution": (
+                weights["exploration"][0] * exploration_score / total_weight
+                if total_weight > 0 else 0.0
+            ),
         }
+
+    def _load_negative_feedback(
+        self,
+    ) -> tuple[set[str], set[str], set[str]]:
+        """
+        读取负反馈并解析为 (隐藏条目 id, 隐藏任务 id, 隐藏来源名)。
+
+        反馈表的 target_value 统一存 item_id（见 API 层约定），
+        hide_source 需要再解析到该条目的任务/平台，才能隐藏同源内容。
+        """
+        try:
+            feedback = user_interaction_repo.get_negative_feedback_map()
+        except Exception as e:  # 反馈表缺失等异常不应阻断推荐主链路
+            logger.warning("Failed to load negative feedback: %s", e)
+            return set(), set(), set()
+
+        dismissed = feedback.get("not_interested", set()) | feedback.get("mute_topic", set())
+        hidden_task_ids: set[str] = set()
+        hidden_source_names: set[str] = set()
+        for item_id in feedback.get("hide_source", set()):
+            item = item_repo.get(item_id)
+            if not item:
+                continue
+            if item.get("task_id"):
+                hidden_task_ids.add(item["task_id"])
+            if item.get("task_name"):
+                hidden_source_names.add(item["task_name"])
+        return dismissed, hidden_task_ids, hidden_source_names
 
     def _calc_topic_score(self, text: str, topic_tokens_map: dict[str, float]) -> float:
         """计算文本与用户主题偏好的匹配程度"""
@@ -345,14 +417,49 @@ class RecommendationService:
             return 0.0
         return matched_weight / total_weight
 
-    def _calc_recency_score(self, fetched_at: str) -> float:
-        """新鲜度衰减得分：24h内为1.0，之后指数衰减"""
-        hours = _hours_since(fetched_at)
-        if hours <= 24:
+    def _calc_recency_score(self, hours: float) -> float:
+        """
+        新鲜度得分：自发布起按 24 小时半衰期连续衰减。
+
+        旧实现「24 小时内恒为 1.0，之后每 6 小时减半」有两个问题：
+        1. 一天内的条目全部满新鲜度，同一批采集的条目得分完全并列
+           （用户看到的推荐分全部相同，个性化信号被淹没）；
+        2. 解释器以 recency_score > 0.8 判定"刚刚发布"，实际覆盖到
+           ~26 小时内的条目——与"3 小时前""20 小时前"的时间戳自相矛盾。
+        连续衰减让分钟级的新旧差异真实反映在分数里。
+        """
+        if hours <= 0:
             return 1.0
-        # 24h后每6小时衰减一半
-        decay = math.pow(0.5, (hours - 24) / 6)
-        return max(0.0, decay)
+        if hours >= _MAX_HOURS_AGE:
+            return 0.0
+        return max(0.0, math.pow(0.5, hours / 24.0))
+
+    def _calc_exploration_score(
+        self,
+        task_id: str,
+        task_name: str,
+        task_affinities: dict[str, float],
+        platform_affinities: dict[str, float],
+    ) -> float:
+        """
+        探索得分：来源越陌生，新奇度越高（1 - 熟悉度）。
+
+        "探索发现"模式此前只是把四项权重整体调低（和为 0.6），既没有
+        探索因子、也没有任何实际探索行为——模式名义存在、语义为空。
+        这里以用户已积累的任务/平台亲缘度为熟悉度代理：从未交互过的
+        来源新奇度为 1，随亲缘度累积线性下降。
+
+        用户尚无任何交互足迹时返回 0（没有画像时"探索"无意义，
+        不应把全部条目都标成探索）。
+        """
+        if not task_affinities and not platform_affinities:
+            return 0.0
+        task_known = min(1.0, task_affinities.get(task_id, 0.0)) if task_id else 0.0
+        platform_known = (
+            min(1.0, platform_affinities.get(task_name, 0.0)) if task_name else 0.0
+        )
+        familiarity = max(task_known, platform_known)
+        return max(0.0, 1.0 - familiarity)
 
     def _calc_engagement_score(
         self, item: dict, engagement_stats_map: dict[str, dict] | None = None

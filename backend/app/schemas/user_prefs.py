@@ -110,15 +110,17 @@ class AffinityResponse(BaseModel):
 
 class RecommendationWeights(BaseModel):
     """
-    推荐四因子权重（可只提交其中若干项，其余沿用模式预设）。
+    推荐五因子权重（可只提交其中若干项，其余沿用模式预设）。
 
     字段名与前端保持一致，落库时映射为
-    topic_match_weight / affinity_weight / recency_weight / engagement_weight。
+    topic_match_weight / affinity_weight / recency_weight /
+    engagement_weight / exploration_weight。
     """
     topic_match: float | None = Field(None, ge=0.0, le=1.0)
     affinity: float | None = Field(None, ge=0.0, le=1.0)
     recency: float | None = Field(None, ge=0.0, le=1.0)
     engagement: float | None = Field(None, ge=0.0, le=1.0)
+    exploration: float | None = Field(None, ge=0.0, le=1.0)
 
 
 class RecommendationConfigUpdate(BaseModel):

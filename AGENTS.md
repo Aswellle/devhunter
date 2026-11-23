@@ -409,3 +409,7 @@ SQLite，WAL 模式。关键表：
 16. **ItemsPage 的 URL 同步 effect 勿依赖 `setSearchParams`**：其身份随 URL 变化，会让 effect 在每次跳转（含分页点击）后重跑并丢掉 `page`——分页立即弹回第 1 页。经 routerRef（渲染后同步的 effect）取用，深链接 page 仅在首次挂载保留。
 17. **Thread 聚类的 content_kind 映射必须覆盖全部任务**：`task_repo.list_active()` 漏掉 paused/软删除任务，其条目会按默认 discussion 聚类——已暂停的条目型任务的历史条目会在重建重放中被错误聚成 Thread（用 `list_all_tasks()`）。
 18. **发现器的伪列表复读门与 SPA 组合信号**：列表判定通过后还要求样本标题互异（≥3 个不同标题）——文章详情页的导航/推荐位伪容器会产出同标题复读样本，伪列表比诚实失败更有害。SPA 判定用组合信号（挂载点/打包脚本 + 内容级锚点 `<8` 字符的数量），不能拿正文长度做硬性短路——客户端渲染页的导航/页脚文字量可以很高（少数派标签页实例）。
+19. **推荐配置"保存—生效"闭环**：保存后必须同时失效 `queryKeys.userPrefs.recommendationConfig()` **和** `queryKeys.recommendations.all`——只失效前者的实现让列表在 staleTime（30s）内继续显示旧分数，用户无从确认是否生效。手调权重须独立于高级面板显隐（`weightsDirty`），否则"调权重→收起高级→保存"会静默退回模式预设。
+20. **推荐分的量纲**：总分是五因子的**归一化加权平均**（分母为权重和）。旧实现直接求和，各模式权重和不同（探索模式曾为 0.6）会让切换模式时全部条目分数整体缩水，并被 `min_score_threshold` 整批过滤。新增因子必须同步更新默认配置、模式预设、Schema、前端滑杆与解释器。
+21. **解释徽章不得与时间戳矛盾**："刚刚发布" 只能用于真实年龄 < 1h 的条目（用 `recency_hours` 分档），不能用分数阈值反推时间；否则 20 小时前的条目也挂"刚刚发布"。
+22. **负反馈必须被打分路径消费**：`user_negative_feedback` 表与 `POST /api/user-prefs/feedback` 存在不代表生效——`score_candidates` 必须读取 `get_negative_feedback_map()`（not_interested / mute_topic 排除条目，hide_source 排除该条目所属来源）。当前"为你推荐"每条都带「不感兴趣」按钮，负反馈是唯一的人工负向调节信号。

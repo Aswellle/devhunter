@@ -151,15 +151,18 @@ _WEIGHT_KEYS: dict[str, str] = {
     "affinity": "affinity_weight",
     "recency": "recency_weight",
     "engagement": "engagement_weight",
+    "exploration": "exploration_weight",
 }
 
-# preference_mode → 四因子权重预设（与前端 RecommendationSettings 一致）。
+# preference_mode → 五因子权重预设（与前端 RecommendationSettings 一致）。
 # 客户端只提交模式时由服务端展开成实际权重，避免"模式存了但权重没生效"。
+# 每个预设权重之和均为 1.0，且"探索发现"确实把主要权重给到探索因子
+# （旧预设只是把四项整体调低、和为 0.6，探索语义为空）。
 _MODE_WEIGHTS: dict[str, dict[str, float]] = {
-    "interest_first":    {"topic_match": 0.5, "affinity": 0.3, "recency": 0.1, "engagement": 0.1},
-    "balanced":          {"topic_match": 0.4, "affinity": 0.3, "recency": 0.2, "engagement": 0.1},
-    "fresh_first":       {"topic_match": 0.2, "affinity": 0.1, "recency": 0.5, "engagement": 0.2},
-    "exploration_first": {"topic_match": 0.2, "affinity": 0.1, "recency": 0.2, "engagement": 0.1},
+    "interest_first":    {"topic_match": 0.45, "affinity": 0.30, "recency": 0.10, "engagement": 0.10, "exploration": 0.05},
+    "balanced":          {"topic_match": 0.35, "affinity": 0.30, "recency": 0.20, "engagement": 0.10, "exploration": 0.05},
+    "fresh_first":       {"topic_match": 0.20, "affinity": 0.10, "recency": 0.50, "engagement": 0.15, "exploration": 0.05},
+    "exploration_first": {"topic_match": 0.15, "affinity": 0.10, "recency": 0.20, "engagement": 0.10, "exploration": 0.45},
 }
 
 # 从未保存过配置时打分引擎使用的默认权重（services/recommendation_service.py）
@@ -272,8 +275,9 @@ def record_feedback(body: FeedbackRequest, _: str = Depends(require_auth)):
     """
     记录负反馈（not_interested / hide_source / mute_topic）。
 
-    目标统一取 item_id：推荐引擎后续会依据 `get_negative_feedback_map()`
-    把对应条目标记为已反馈，避免重复推荐用户已经明确拒绝的内容。
+    目标统一取 item_id：推荐引擎在 score_candidates 中通过
+    `get_negative_feedback_map()` 读取反馈，not_interested / mute_topic
+    排除条目本身，hide_source 排除该条目所属来源的全部内容。
     """
     if not item_repo.get(body.item_id):
         raise HTTPException(
