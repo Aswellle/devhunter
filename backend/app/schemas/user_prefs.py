@@ -54,6 +54,9 @@ class RecommendedTopicResponse(BaseModel):
     topic: str
     category: str
     score: float
+    # 候选来源说明（"来自你的阅读关键词" / "来自常读来源「X」的标题"），
+    # 让用户知道这条推荐从哪来、添加后会匹配什么
+    reason: str = ""
 
 
 class RecommendationReason(BaseModel):

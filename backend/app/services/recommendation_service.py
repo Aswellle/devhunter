@@ -613,35 +613,140 @@ class RecommendationService:
 
     def get_recommended_topics(self, limit: int = 10) -> list[dict]:
         """
-        根据用户阅读历史，推荐可能感兴趣的主题。
-        从用户高亲缘度的任务/平台中提取关键词作为推荐。
+        根据阅读历史推荐可能感兴趣的主题。
+
+        候选来源（都可读且添加后真实参与「兴趣匹配」打分）：
+        1. 阅读关键词亲缘——交互时从标题提取的关键词（英文词为主）
+        2. 常读来源的**标题短语**——高频复现的标题分段（中文标题无空格，
+           分词器拿不到词，改按 |｜:：-·、，《》 等分隔符拆段；
+           同一短语在 ≥2 条标题出现才算主题候选）
+
+        历史缺陷：task 类型亲缘的 affinity_value 是任务 UUID，旧实现直接
+        对它分词，于是"推荐主题"是一堆 8 位十六进制编号（64da59ff…），
+        用户既看不懂、添加后也匹配不到任何内容。这里彻底不再把 ID 当主题。
         """
-        affinities = user_affinity_repo.get_top_affinities(limit=20)
+        from collections import Counter
+
+        affinities = user_affinity_repo.get_top_affinities(limit=30)
         if not affinities:
             return []
 
-        # 从高亲缘度任务名提取推荐
-        recommended: list[tuple[str, str, float]] = []
+        existing = {str(t.get("topic", "")).strip().lower()
+                    for t in user_topics_repo.list_all()}
+
+        # topic(lower) → {"topic", "score", "reason"}
+        candidates: dict[str, dict] = {}
+
+        def _add(topic: str, score: float, reason: str) -> None:
+            text = (topic or "").strip()
+            if not self._is_meaningful_topic(text):
+                return
+            key = text.lower()
+            if key in existing:
+                return
+            prev = candidates.get(key)
+            if prev is None or score > prev["score"]:
+                candidates[key] = {"topic": text, "score": score, "reason": reason}
+
+        # 1) 阅读关键词（真实词，直接可匹配标题）。
+        #    极低分关键词多为一次性的用户名/随机串，不进入候选
         for aff in affinities:
-            if aff["affinity_type"] == "task":
-                # 从任务名提取词作为推荐主题
-                tokens = tokenize(aff["affinity_value"].lower())
-                for token in tokens:
-                    if len(token) > 2:
-                        recommended.append((token, "ai" if any(k in token for k in ["ai", "ml", "gpt", "llm"]) else "custom", aff["affinity_score"]))
-            elif aff["affinity_type"] == "keyword":
-                recommended.append((aff["affinity_value"], "custom", aff["affinity_score"]))
+            if aff.get("affinity_type") != "keyword":
+                continue
+            score = float(aff.get("affinity_score") or 0.0)
+            if score < 0.05:
+                continue
+            _add(
+                str(aff.get("affinity_value", "")),
+                score,
+                "来自你的阅读关键词",
+            )
 
-        # 去重并按得分排序
-        seen = set()
-        unique_recs = []
-        for topic, category, score in recommended:
-            if topic not in seen:
-                seen.add(topic)
-                unique_recs.append({"topic": topic, "category": category, "score": round(score, 2)})
+        # 2) 常读来源的标题短语（中文标题按分隔符拆段，高频复现才采纳）
+        top_task_ids = [
+            a["affinity_value"] for a in affinities
+            if a.get("affinity_type") == "task" and a.get("affinity_value")
+        ][:3]
+        # platform 亲缘存的是任务名称，用于给标题短语标注来源
+        platform_names = {
+            str(a.get("affinity_value", "")): float(a.get("affinity_score") or 0.0)
+            for a in affinities
+            if a.get("affinity_type") == "platform"
+        }
 
-        unique_recs.sort(key=lambda x: x["score"], reverse=True)
-        return unique_recs[:limit]
+        phrase_counter: Counter[str] = Counter()
+        phrase_source: dict[str, str] = {}
+        for task_id in top_task_ids:
+            try:
+                items, _ = item_repo.query(task_id=task_id, page=1, per_page=30)
+            except Exception:  # 候选生成失败不应影响推荐主链路
+                continue
+            task_name = (items[0].get("task_name") if items else None) or ""
+            for it in items:
+                for seg in self._split_title_phrases(it.get("title") or ""):
+                    phrase_counter[seg] += 1
+                    if task_name and seg not in phrase_source:
+                        phrase_source[seg] = task_name
+
+        if phrase_counter:
+            top_count = max(phrase_counter.values())
+            for phrase, count in phrase_counter.most_common(40):
+                if count < 2:
+                    break
+                source = phrase_source.get(phrase, "")
+                reason = f"来自常读来源「{source}」的标题" if source else "来自你常读内容的标题"
+                _add(phrase, count / top_count * 0.8, reason)
+
+        ranked = sorted(candidates.values(), key=lambda c: c["score"], reverse=True)[:limit]
+        return [
+            {
+                "topic": c["topic"],
+                "category": self._guess_topic_category(c["topic"]),
+                "score": round(c["score"], 2),
+                "reason": c["reason"],
+            }
+            for c in ranked
+        ]
+
+    # UUID / 长十六进制串：绝不作为主题候选
+    _UUID_RE = re.compile(
+        r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+        re.IGNORECASE,
+    )
+    _HEX_TOKEN_RE = re.compile(r"^[0-9a-f]{6,}$", re.IGNORECASE)
+    _TITLE_SPLIT_RE = re.compile(r"[|｜:：\-—–·、,，;；()（）\[\]【】《》<>/\\]+")
+    _TOPIC_MAX_LEN = 24
+    _TOPIC_MIN_LEN = 2
+
+    def _is_meaningful_topic(self, text: str) -> bool:
+        """主题候选过滤：剔除编号/纯数字/过长或过短片段"""
+        if not (self._TOPIC_MIN_LEN <= len(text) <= self._TOPIC_MAX_LEN):
+            return False
+        if text.isdigit():
+            return False
+        if self._UUID_RE.match(text) or self._HEX_TOKEN_RE.match(text):
+            return False
+        # 纯符号/纯标点
+        if not any(ch.isalnum() or "\u4e00" <= ch <= "\u9fff" for ch in text):
+            return False
+        return True
+
+    def _split_title_phrases(self, title: str) -> list[str]:
+        """标题按常见分隔符拆段，返回可读短语（中文标题的轻量分词替代）"""
+        out: list[str] = []
+        for seg in self._TITLE_SPLIT_RE.split(title):
+            seg = seg.strip(" 　.。!！?？\"'“”…")
+            if self._is_meaningful_topic(seg):
+                out.append(seg)
+        return out
+
+    @staticmethod
+    def _guess_topic_category(topic: str) -> str:
+        """粗分类（仅存储用；界面已不暴露分类选择）"""
+        lowered = topic.lower()
+        if any(k in lowered for k in ("ai", "gpt", "llm", "ml", "模型", "智能")):
+            return "ai"
+        return "custom"
 
 
 # 全局单例
