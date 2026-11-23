@@ -4,7 +4,7 @@
  * 简单模式：兴趣/平衡/最新/探索
  * 高级模式：权重调整
  */
-import { useState } from 'react'
+import { useCallback, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import { Settings, Sliders, X } from 'lucide-react'
@@ -12,6 +12,7 @@ import { errorMessage } from '../../api/client'
 import { queryKeys } from '../../api/queryKeys'
 import { userPrefsApi } from '../../api/user_prefs'
 import { useModalA11y } from '../../hooks/useModalA11y'
+import { ConfirmDialog } from '../ui/ConfirmDialog'
 
 interface RecommendationSettingsProps {
   onClose: () => void
@@ -44,8 +45,6 @@ const WEIGHT_SLIDERS = [
 
 export function RecommendationSettings({ onClose }: RecommendationSettingsProps) {
   const queryClient = useQueryClient()
-  // 焦点陷阱 + Escape 关闭（组件随模态打开条件挂载，无需 isOpen 参数）
-  const modalRef = useModalA11y(onClose)
   const [mode, setMode] = useState<PreferenceMode>('balanced')
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [weights, setWeights] = useState({
@@ -62,6 +61,21 @@ export function RecommendationSettings({ onClose }: RecommendationSettingsProps)
   // 回填逻辑不得覆盖刚做的选择——否则"打开设置立刻点一个模式"会被
   // 随后到达的已存配置静默重置回原模式
   const [userTouched, setUserTouched] = useState(false)
+  // 有未保存修改时，关闭前必须让用户显式决定是否放弃
+  const [confirmDiscardOpen, setConfirmDiscardOpen] = useState(false)
+
+  // 关闭守卫：改过设置就弹丢弃确认，未改才直接关。
+  // 保存成功走 onClose 直接退出（职责已完成），不经过这里。
+  const requestClose = useCallback(() => {
+    if (userTouched) {
+      setConfirmDiscardOpen(true)
+      return
+    }
+    onClose()
+  }, [userTouched, onClose])
+
+  // 焦点陷阱 + Escape 经 requestClose（有未保存修改时先确认丢弃）
+  const modalRef = useModalA11y(requestClose)
 
   const configQuery = useQuery({
     queryKey: queryKeys.userPrefs.recommendationConfig(),
@@ -137,10 +151,9 @@ export function RecommendationSettings({ onClose }: RecommendationSettingsProps)
   }
 
   return (
-    <div
-      className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50"
-      onClick={(e) => { if (e.target === e.currentTarget) onClose() }}
-    >
+    // 遮罩点击不关闭：本弹窗的职责是产出保存后的推荐配置，
+    // 误点背景会让刚调的权重无声作废；退出只走关闭/取消/Esc（均带未保存确认）
+    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50">
       <div
         ref={modalRef}
         role="dialog"
@@ -153,7 +166,7 @@ export function RecommendationSettings({ onClose }: RecommendationSettingsProps)
             <Settings className="h-5 w-5" />
             推荐设置
           </h2>
-          <button onClick={onClose} className="btn-ghost p-1" aria-label="关闭">
+          <button onClick={requestClose} className="btn-ghost p-1" aria-label="关闭">
             <X className="h-5 w-5" />
           </button>
         </div>
@@ -234,7 +247,7 @@ export function RecommendationSettings({ onClose }: RecommendationSettingsProps)
         </div>
 
         <div className="flex justify-end gap-3 px-6 py-4 border-t border-subtle">
-          <button type="button" onClick={onClose} className="btn-ghost">
+          <button type="button" onClick={requestClose} className="btn-ghost">
             取消
           </button>
           <button
@@ -248,6 +261,17 @@ export function RecommendationSettings({ onClose }: RecommendationSettingsProps)
           </button>
         </div>
       </div>
+
+      {confirmDiscardOpen && (
+        <ConfirmDialog
+          title="放弃未保存的推荐设置？"
+          message="你对偏好模式或权重的修改还没有保存，关闭后这些修改会丢失。"
+          confirmText="放弃修改"
+          cancelText="继续编辑"
+          onConfirm={onClose}
+          onCancel={() => setConfirmDiscardOpen(false)}
+        />
+      )}
     </div>
   )
 }
