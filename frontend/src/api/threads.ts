@@ -1,10 +1,23 @@
 import client from './client'
-import type { PaginatedResponse, Thread, ThreadWithItems, ThreadRecomputeAccepted, ThreadRecomputeStatus, ThreadDigestResult } from '../types'
+import type {
+  PaginatedResponse,
+  Thread,
+  ThreadAggregatePayload,
+  ThreadAggregationOverview,
+  ThreadConsolidateResult,
+  ThreadDigestResult,
+  ThreadRecomputeAccepted,
+  ThreadRecomputeStatus,
+  ThreadWithItems,
+} from '../types'
+
 export interface ThreadsQuery {
   task_id?: string
   page?: number
   per_page?: number
   sort?: 'first_seen' | 'hotness'
+  /** 最小报道数：2 = 只看多来源热点 */
+  min_items?: number
 }
 
 export const threadsApi = {
@@ -14,8 +27,28 @@ export const threadsApi = {
   get: (threadId: string) =>
     client.get<ThreadWithItems>(`/items/threads/${threadId}`).then((r) => r.data),
 
+  /** 聚合概览：来源数、多来源/单条 Thread、待补聚条目、最近合并结果 */
+  overview: (windowHours: number = 72) =>
+    client
+      .get<ThreadAggregationOverview>('/items/threads/overview', {
+        params: { window_hours: windowHours },
+      })
+      .then((r) => r.data),
+
+  /** 立即聚合（增量）：补聚孤儿 + 合并可归并的单条 Thread，不删除历史 */
+  consolidate: (windowHours: number = 72) =>
+    client
+      .post<ThreadConsolidateResult>('/items/threads/consolidate', {
+        window_hours: windowHours,
+      })
+      .then((r) => r.data),
+
+  /** 手动聚合：把勾选条目收进新热点或既有热点 */
+  aggregate: (payload: ThreadAggregatePayload) =>
+    client.post<ThreadWithItems>('/items/threads/aggregate', payload).then((r) => r.data),
+
   /** 重建全部 Thread（后台执行，返回 202；进度经 recomputeStatus 轮询） */
-  recompute: (windowHours: number = 24) =>
+  recompute: (windowHours: number = 72) =>
     client
       .post<ThreadRecomputeAccepted>('/items/threads/recompute', { window_hours: windowHours })
       .then((r) => r.data),

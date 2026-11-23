@@ -1,16 +1,19 @@
 import { useState, useEffect } from 'react'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { useSearchParams } from 'react-router-dom'
-import { Rss, Sparkles, TrendingUp } from 'lucide-react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Link, useSearchParams } from 'react-router-dom'
+import { Rss, Sparkles, TrendingUp, Layers, RefreshCw } from 'lucide-react'
 import { clsx } from 'clsx'
+import { toast } from 'react-hot-toast'
 import { threadsApi } from '../api/threads'
 import { userPrefsApi } from '../api/user_prefs'
 import { queryKeys } from '../api/queryKeys'
+import { errorMessage } from '../api/client'
 import { formatDistanceToNow } from '../utils/time'
 import { isSafeExternalUrl } from '../utils/url'
 import { ThreadCard } from '../components/items/ThreadCard'
 import { ReasonBadges } from '../components/recommend/ReasonBadges'
 import { ClampText } from '../components/ui/ClampText'
+import { Pagination } from '../components/ui/Pagination'
 import { PullToRefresh } from '../components/ui/PullToRefresh'
 import { ScorePill } from '../components/ui/ScorePill'
 import { Spinner } from '../components/ui/Spinner'
@@ -221,48 +224,245 @@ function RecommendedItemCard({ item }: { item: RecommendedItem }) {
 }
 
 // ── 热点聚合 Tab ─────────────────────────────────────────────
+function StatChip({ label, tone = 'muted' }: { label: string; tone?: 'muted' | 'success' | 'warn' }) {
+  return (
+    <span
+      className={clsx(
+        'inline-flex items-center rounded-full px-2 py-0.5 text-xs ring-1',
+        tone === 'success' && 'bg-emerald-50 text-emerald-700 ring-emerald-200',
+        tone === 'warn' && 'bg-amber-50 text-amber-700 ring-amber-200',
+        tone === 'muted' && 'bg-white text-gray-600 ring-gray-200',
+      )}
+    >
+      {label}
+    </span>
+  )
+}
+
 function ThreadsTab() {
-  // F2: 使用规范化的 query key
-  const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: queryKeys.threads.list({ per_page: 20 }),
-    queryFn: () => threadsApi.list({ per_page: 20 }),
+  const qc = useQueryClient()
+  const [page, setPage] = useState(1)
+  const [multiOnly, setMultiOnly] = useState(false)
+  const [windowHours, setWindowHours] = useState(72)
+
+  const { data, isLoading, isError, refetch, isFetching } = useQuery({
+    queryKey: queryKeys.threads.list({
+      page,
+      per_page: 20,
+      min_items: multiOnly ? 2 : 1,
+    }),
+    queryFn: () =>
+      threadsApi.list({
+        page,
+        per_page: 20,
+        min_items: multiOnly ? 2 : 1,
+      }),
     staleTime: 30_000,
     placeholderData: (prev) => prev,
   })
 
-  if (isLoading) {
-    return <div className="flex justify-center py-16"><Spinner /></div>
-  }
+  // 聚合概览：解释"为什么现在只有单条报道"以及还剩多少待补聚
+  const { data: overview } = useQuery({
+    queryKey: queryKeys.threads.overview(windowHours),
+    queryFn: () => threadsApi.overview(windowHours),
+    staleTime: 30_000,
+  })
 
-  if (isError) {
-    return (
-      <Empty
-        title="加载失败"
-        description="热点聚合加载出错，请检查网络连接后重试"
-        action={
-          <button onClick={() => refetch()} className="btn-primary">
-            重试
-          </button>
-        }
-      />
-    )
-  }
-
-  if (!data?.items.length) {
-    return (
-      <Empty
-        icon={Rss}
-        title="暂无热点聚合"
-        description="多平台讨论同一事件的内容将自动聚合为热点话题"
-      />
-    )
-  }
+  const consolidateMutation = useMutation({
+    mutationFn: () => threadsApi.consolidate(windowHours),
+    onSuccess: (result) => {
+      qc.invalidateQueries({ queryKey: queryKeys.threads.all })
+      qc.invalidateQueries({ queryKey: queryKeys.items.all })
+      const swept = result.orphans_clustered + result.orphans_swept
+      if (result.merged_threads > 0 || swept > 0) {
+        toast.success(
+          `聚合完成：合并 ${result.merged_threads} 个单条热点、补聚 ${swept} 条内容，` +
+            `当前 ${result.threads_multi} 个多来源热点`,
+        )
+      } else {
+        toast(
+          '本轮没有可归并的报道：热点需要至少两个来源讨论同一事件；也可以在采集结果中勾选多条手动聚合。',
+          { duration: 6000 },
+        )
+      }
+    },
+    onError: (e: unknown) => toast.error(errorMessage(e, '聚合失败，请稍后重试')),
+  })
+  const busy = consolidateMutation.isPending
 
   return (
-    <div className="space-y-3">
-      {data.items.map((thread) => (
-        <ThreadCard key={thread.id} thread={thread} defaultExpanded={false} />
-      ))}
+    <div className="space-y-4">
+      {/* 聚合概览与执行入口 */}
+      <div className="card p-4">
+        <div className="flex items-start justify-between gap-3 flex-wrap">
+          <div className="min-w-0">
+            <h2 className="text-sm font-semibold text-gray-900 flex items-center gap-1.5">
+              <Layers className="h-4 w-4 text-primary-500" aria-hidden="true" />
+              聚合概览
+            </h2>
+            <p className="text-xs text-gray-500 mt-1 leading-relaxed">
+              每次采集后自动聚类；另有每小时一次的增量合并，把仍单独成条的报道与相近热点归并。
+            </p>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <label className="text-xs text-gray-500 inline-flex items-center gap-1">
+              窗口
+              <select
+                value={windowHours}
+                onChange={(e) => {
+                  setWindowHours(Number(e.target.value))
+                  setPage(1)
+                }}
+                className="rounded border border-gray-200 bg-white px-1.5 py-1 text-xs text-gray-600 focus:border-primary-500 focus:outline-none"
+                aria-label="聚合候选窗口"
+              >
+                <option value={24}>24 小时</option>
+                <option value={72}>72 小时</option>
+                <option value={168}>7 天</option>
+              </select>
+            </label>
+            <button
+              type="button"
+              onClick={() => consolidateMutation.mutate()}
+              disabled={busy}
+              className="btn-primary btn-sm"
+            >
+              <RefreshCw
+                className={clsx('h-3.5 w-3.5', busy && 'animate-spin')}
+                aria-hidden="true"
+              />
+              {busy ? '聚合中…' : '立即聚合'}
+            </button>
+          </div>
+        </div>
+
+        {overview && (
+          <>
+            <div className="mt-3 flex flex-wrap items-center gap-1.5 text-xs">
+              <StatChip
+                label={`近 ${windowHours}h ${overview.active_discussion_sources} 个讨论来源`}
+              />
+              <StatChip label={`${overview.discussion_items_in_window} 条内容`} />
+              <StatChip
+                label={`多来源热点 ${overview.threads_multi}`}
+                tone="success"
+              />
+              <StatChip
+                label={`单条待聚合 ${overview.threads_single}`}
+                tone={overview.threads_single > 0 ? 'warn' : 'muted'}
+              />
+              {overview.orphan_items > 0 && (
+                <StatChip label={`待补聚 ${overview.orphan_items}`} tone="warn" />
+              )}
+              {overview.last_consolidation && (
+                <span className="text-gray-400">
+                  上次聚合：{formatDistanceToNow(overview.last_consolidation.at)}
+                  （{overview.last_consolidation.trigger === 'scheduled' ? '自动' : '手动'}）
+                </span>
+              )}
+              {overview.recompute.running && (
+                <span className="text-primary-600">全量重建进行中…</span>
+              )}
+            </div>
+
+            {overview.active_discussion_sources < 2 && (
+              <p className="mt-2.5 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800 leading-relaxed">
+                近 {windowHours} 小时只有 {overview.active_discussion_sources} 个讨论型来源在产出内容。
+                热点需要至少两个来源讨论同一事件；可到
+                <Link to="/tasks" className="mx-0.5 font-medium underline">
+                  任务管理
+                </Link>
+                添加讨论型来源（HN、V2EX、少数派等），或等待现有来源后续产出。
+              </p>
+            )}
+            <p className="mt-2 text-xs text-gray-400 leading-relaxed">
+              自动聚类认不出跨语种/表述差异的报道时，可到
+              <Link to="/" className="mx-0.5 text-primary-600 hover:underline">
+                采集结果
+              </Link>
+              勾选两条以上 →「聚合为热点」手动建立热点。
+            </p>
+          </>
+        )}
+      </div>
+
+      <div className="flex items-center justify-between gap-2">
+        <label className="inline-flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={multiOnly}
+            onChange={(e) => {
+              setMultiOnly(e.target.checked)
+              setPage(1)
+            }}
+            className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+          />
+          只看多来源热点（≥2 条报道）
+        </label>
+        <span className="text-xs text-gray-400">
+          {data ? `共 ${data.total} 个` : isFetching ? '加载中…' : ''}
+        </span>
+      </div>
+
+      {isLoading ? (
+        <div className="flex justify-center py-16"><Spinner /></div>
+      ) : isError ? (
+        <Empty
+          title="加载失败"
+          description="热点聚合加载出错，请检查网络连接后重试"
+          action={
+            <button onClick={() => refetch()} className="btn-primary">
+              重试
+            </button>
+          }
+        />
+      ) : !data?.items.length ? (
+        multiOnly ? (
+          <Empty
+            icon={Layers}
+            title="还没有多来源热点"
+            description="自动聚类与每小时增量合并仍在运行；也可以先查看全部热点，或去采集结果手动聚合。"
+            action={
+              <button onClick={() => setMultiOnly(false)} className="btn-ghost">
+                查看全部热点
+              </button>
+            }
+          />
+        ) : (
+          <Empty
+            icon={Rss}
+            title="暂无热点聚合"
+            description="多个来源讨论同一事件的内容会自动聚合为热点。先添加讨论型数据源并完成一次采集，或点击上方「立即聚合」补聚现有内容。"
+            action={
+              <div className="flex items-center gap-2">
+                <Link to="/tasks" className="btn-primary">添加数据源</Link>
+                <button
+                  type="button"
+                  onClick={() => consolidateMutation.mutate()}
+                  disabled={busy}
+                  className="btn-ghost"
+                >
+                  立即聚合
+                </button>
+              </div>
+            }
+          />
+        )
+      ) : (
+        <div className={isFetching ? 'opacity-70 transition-opacity' : 'transition-opacity'}>
+          <div className="space-y-3">
+            {data.items.map((thread) => (
+              <ThreadCard key={thread.id} thread={thread} defaultExpanded={false} />
+            ))}
+          </div>
+          <Pagination
+            page={page}
+            total={data.total}
+            perPage={data.per_page}
+            onChange={setPage}
+          />
+        </div>
+      )}
     </div>
   )
 }

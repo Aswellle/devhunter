@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'react-hot-toast'
 import { ChevronDown, ChevronRight, ExternalLink, Flame, Gauge, GitBranch, Globe, Link2, RefreshCw, Rss, Sparkles, Star, TrendingDown, TrendingUp, X } from 'lucide-react'
@@ -57,7 +58,7 @@ function ThreadStatusBadge({ lastSeenAt }: { lastSeenAt: string }) {
         'inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[11px] font-medium shrink-0',
         meta.cls,
       )}
-      title={`最近更新：${formatDistanceToNow(lastSeenAt)}`}
+      title={`最近更新：${formatDistanceToNow(lastSeenAt)}（表示最近有报道加入，不代表正在抓取）`}
     >
       <span className={clsx('inline-block h-1.5 w-1.5 rounded-full', meta.dotCls)} aria-hidden="true" />
       {meta.label}
@@ -110,7 +111,18 @@ function ThreadStatsBand({ stats }: { stats: ThreadStats }) {
         <Flame className="h-3.5 w-3.5 text-orange-500" aria-hidden="true" />
         为什么聚为一个 Thread？
       </div>
-      <p className="text-xs text-gray-500 leading-relaxed mb-2">{caption}</p>
+      <p className="text-xs text-gray-500 leading-relaxed mb-2">
+        {caption}
+        {stats.item_count <= 1 && (
+          <>
+            {' '}如果你已看到其他来源的同类报道，可去
+            <Link to="/" className="mx-0.5 text-primary-600 hover:underline">
+              采集结果
+            </Link>
+            勾选两条以上 →「聚合为热点」手动建立热点。
+          </>
+        )}
+      </p>
       <div className="flex flex-wrap gap-2">
         <span
           className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-white ring-1 ring-gray-200 text-gray-600"

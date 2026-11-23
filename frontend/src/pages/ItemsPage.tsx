@@ -11,6 +11,7 @@ import { errorMessage } from '../api/client'
 import { ItemsFilterBar } from '../components/items/ItemsFilterBar'
 import { ItemTimeline } from '../components/items/ItemTimeline'
 import { ThreadCard } from '../components/items/ThreadCard'
+import { AggregateThreadDialog } from '../components/items/AggregateThreadDialog'
 import { Spinner } from '../components/ui/Spinner'
 import { Empty } from '../components/ui/Empty'
 import { SkeletonList } from '../components/ui/Skeleton'
@@ -110,6 +111,8 @@ export function ItemsPage() {
   // inline confirm: first click arms it, second click within the window
   // actually deletes; clicking elsewhere or 8s of inactivity disarms it.
   const [confirmingDelete, setConfirmingDelete] = useState(false)
+  // 手动聚合：把勾选的多条内容收进一个新热点 Thread
+  const [aggregateOpen, setAggregateOpen] = useState(false)
 
   // U9: 8s inactivity timer — disarms the confirm state so a half-finished
   // batch action can't linger. Reset on every state change via the effect's
@@ -171,7 +174,7 @@ export function ItemsPage() {
   const [confirmRecompute, setConfirmRecompute] = useState(false)
   const [recomputeRunning, setRecomputeRunning] = useState(false)
   const recomputeMutation = useMutation({
-    mutationFn: () => threadsApi.recompute(24),
+    mutationFn: () => threadsApi.recompute(72),
     onSuccess: () => {
       toast.success('重新聚合已在后台开始，完成后列表自动刷新')
       setRecomputeRunning(true)
@@ -449,6 +452,33 @@ export function ItemsPage() {
   const handleBatchMarkRead = () => {
     batchMarkReadMutation.mutate(Array.from(selectedUnreadIds))
   }
+
+  // 手动聚合：标题默认取选中条目的最长标题（后端同样兜底）
+  const aggregateMutation = useMutation({
+    mutationFn: (title: string) =>
+      threadsApi.aggregate({
+        item_ids: Array.from(selectedIds),
+        title: title || undefined,
+      }),
+    onSuccess: (thread) => {
+      toast.success(`已聚合为热点「${thread.title}」`)
+      setAggregateOpen(false)
+      setSelectedIds(new Set())
+      qc.invalidateQueries({ queryKey: queryKeys.threads.all })
+      qc.invalidateQueries({ queryKey: queryKeys.items.all })
+      // 聚合结果属于热点视图：直接切过去让用户看到产出
+      updatePage(1)
+      handleViewModeChange('thread')
+    },
+    onError: (e: unknown) => toast.error(errorMessage(e, '聚合失败')),
+  })
+  const selectedItemsForAggregate = (data?.items ?? []).filter((item) =>
+    selectedIds.has(item.id),
+  )
+  const aggregateDefaultTitle = selectedItemsForAggregate.reduce(
+    (longest, item) => (item.title.length > longest.length ? item.title : longest),
+    '',
+  )
 
   // 移动端下拉刷新：两个视图的查询都重取（未启用的查询 refetch 立即返回）
   const handlePullRefresh = () => Promise.allSettled([refetch(), refetchThreads()])
@@ -797,6 +827,21 @@ export function ItemsPage() {
                   )}
 
                   <button
+                    onClick={() => setAggregateOpen(true)}
+                    disabled={totalSelected < 2 || aggregateMutation.isPending}
+                    title={
+                      totalSelected < 2
+                        ? '至少选择两条内容才能聚合为热点'
+                        : '把选中的内容聚合为一个热点 Thread'
+                    }
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-emerald-900 hover:bg-emerald-800 text-emerald-200 transition-colors disabled:opacity-40"
+                  >
+                    <Layers className="h-4 w-4" />
+                    聚合为热点
+                  </button>
+                  <div className="w-px h-5 bg-gray-700" />
+
+                  <button
                     onClick={handleBatchStar}
                     disabled={batchStarMutation.isPending}
                     className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-gray-800 hover:bg-gray-700 transition-colors disabled:opacity-50"
@@ -843,6 +888,21 @@ export function ItemsPage() {
             )}
           </>
         )
+      )}
+
+      {aggregateOpen && (
+        <AggregateThreadDialog
+          itemCount={selectedIds.size}
+          defaultTitle={aggregateDefaultTitle}
+          pending={aggregateMutation.isPending}
+          error={
+            aggregateMutation.error
+              ? errorMessage(aggregateMutation.error, '聚合失败')
+              : null
+          }
+          onCancel={() => setAggregateOpen(false)}
+          onSubmit={(title) => aggregateMutation.mutate(title)}
+        />
       )}
     </div>
     </PullToRefresh>
