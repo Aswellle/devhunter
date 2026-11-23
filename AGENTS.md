@@ -86,7 +86,7 @@ devhunter/
 │   │   ├── execution/      # 执行状态机
 │   │   ├── features/       # 实体提取、语义相似度、时间特征
 │   │   └── utils/          # 哈希、URL、相似度工具
-│   ├── migrations/         # 18 个纯 SQL 迁移文件（001–018）
+│   ├── migrations/         # 28 个纯 SQL 迁移文件（001–028）
 │   ├── templates/          # 预设爬取模板（JSON）
 │   ├── tests/              # 26 个测试文件，跨 8 个领域模块 + 1 个空目录 + 1 个独立 E2E 脚本
 │   ├── run.py              # 本地开发入口
@@ -301,6 +301,7 @@ SQLite，WAL 模式。关键表：
 | `threads` | 跨平台事件聚类 |
 | `thread_items` | M:N 关联，含相似度评分 |
 | `user_topics` | 用户定义的关注主题 |
+| `star_folders` | 收藏自定义文件夹（`items.star_folder_id` 归属；删夹回落到未分类） |
 | `user_interactions` | 行为追踪（view/click/dwell/star/share） |
 | `user_topic_affinity` | 计算的主题亲和度分数 |
 | `recommendation_config` | 推荐算法配置 |
@@ -329,6 +330,12 @@ SQLite，WAL 模式。关键表：
 | `/items/threads/{id}` | GET | Thread 详情含条目 |
 | `/items/threads/recompute` | POST | 全量重建 Thread（202 后台执行） |
 | `/items/threads/recompute/status` | GET | 后台重建进度 |
+| `/items/threads/overview` | GET | 聚合概览（来源数/多来源/待补聚） |
+| `/items/threads/consolidate` | POST | 立即聚合（增量合并单条 Thread） |
+| `/items/threads/aggregate` | POST | 手动聚合选中条目 |
+| `/star-folders` | GET/POST | 收藏文件夹列表/创建 |
+| `/star-folders/{id}` | PATCH/DELETE | 重命名/删除收藏文件夹 |
+| `/star-folders/assign` | PATCH | 单个或批量移入文件夹 |
 | `/items/threads/{id}/merge` | POST | 人工合并 Thread |
 | `/items/threads/{id}/split` | POST | 人工拆分 Thread |
 | `/sources/discover` | POST | 自动发现来源结构 |
@@ -434,3 +441,6 @@ SQLite，WAL 模式。关键表：
 23. **推荐主题候选不得把 ID 当主题**：`user_topic_affinity` 的 task 行 `affinity_value` 是任务 UUID——旧实现直接分词，产生 `64da59ff` 这类编号主题。候选只能来自阅读关键词与**常读来源标题的高频短语**（中文按分隔符拆段，≥2 次复现），并带 `reason` 说明来源；纯数字/UUID/长十六进制一律过滤。
 24. **调用记录分页用 keyset + 毫秒时间戳**：offset 分页在"边翻页边有新调用"时会重复/漏项；`model_receipts.created_at` 必须毫秒精度（秒级下同秒记录只能靠随机 UUID 排序，锚点不稳定），`utc_day_start_iso()` 同步用毫秒边界（否则 `'00:00:00Z' > '00:00:00.500Z'` 会漏计零点后消耗）。
 25. **LLM 预算需调用前硬闸**：只判"剩余 > 0"时，剩余 50 token 的一次调用仍可能烧掉数千 token。`chat()` 必须以「输入估算（len/2）+ max_tokens」与剩余预算比较，不足则不发请求；`status()` 暴露 `budget_breaker_open` 供界面显示预算熔断。
+26. **收藏文件夹的归属语义**：`items.star_folder_id` 在取消收藏后**保留**（文件夹视图只筛 `is_starred=1`，重新收藏自动回位）；删除文件夹走 `ON DELETE SET NULL` 回到未分类，不取消收藏。名称用 `COLLATE NOCASE` 唯一索引，批量归组走 `/api/star-folders/assign`（`folder_id=null` 表示移出）。
+27. **Thread 聚合不能只靠采集管线**：采集只让**新条目**找候选 Thread，两个不同批次各自创建的单条 Thread 永远不会互相比较。`consolidate_threads()`（每小时系统任务 + `POST /items/threads/consolidate`）负责补聚孤儿并合并可归并的单条 Thread；手动聚合用 `POST /items/threads/aggregate`。候选窗口默认 72h（`THREAD_CLUSTER_WINDOW_HOURS`），24h 会让跨天报道等不到后续报道。
+28. **Thread 评分需要标题内容支持**：`source_score` 必须用任务名比较（items 表没有 source_id），而跨来源加分 + 泛化实体（例如所有 GPT-5 新闻）足以把总分推过 0.35；`MIN_CONTENT_SIMILARITY=0.18` 要求词级或字符级相似度至少一项达标，避免"同一实体、不同故事"被合并。
