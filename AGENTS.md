@@ -413,3 +413,6 @@ SQLite，WAL 模式。关键表：
 20. **推荐分的量纲**：总分是五因子的**归一化加权平均**（分母为权重和）。旧实现直接求和，各模式权重和不同（探索模式曾为 0.6）会让切换模式时全部条目分数整体缩水，并被 `min_score_threshold` 整批过滤。新增因子必须同步更新默认配置、模式预设、Schema、前端滑杆与解释器。
 21. **解释徽章不得与时间戳矛盾**："刚刚发布" 只能用于真实年龄 < 1h 的条目（用 `recency_hours` 分档），不能用分数阈值反推时间；否则 20 小时前的条目也挂"刚刚发布"。
 22. **负反馈必须被打分路径消费**：`user_negative_feedback` 表与 `POST /api/user-prefs/feedback` 存在不代表生效——`score_candidates` 必须读取 `get_negative_feedback_map()`（not_interested / mute_topic 排除条目，hide_source 排除该条目所属来源）。当前"为你推荐"每条都带「不感兴趣」按钮，负反馈是唯一的人工负向调节信号。
+23. **推荐主题候选不得把 ID 当主题**：`user_topic_affinity` 的 task 行 `affinity_value` 是任务 UUID——旧实现直接分词，产生 `64da59ff` 这类编号主题。候选只能来自阅读关键词与**常读来源标题的高频短语**（中文按分隔符拆段，≥2 次复现），并带 `reason` 说明来源；纯数字/UUID/长十六进制一律过滤。
+24. **调用记录分页用 keyset + 毫秒时间戳**：offset 分页在"边翻页边有新调用"时会重复/漏项；`model_receipts.created_at` 必须毫秒精度（秒级下同秒记录只能靠随机 UUID 排序，锚点不稳定），`utc_day_start_iso()` 同步用毫秒边界（否则 `'00:00:00Z' > '00:00:00.500Z'` 会漏计零点后消耗）。
+25. **LLM 预算需调用前硬闸**：只判"剩余 > 0"时，剩余 50 token 的一次调用仍可能烧掉数千 token。`chat()` 必须以「输入估算（len/2）+ max_tokens」与剩余预算比较，不足则不发请求；`status()` 暴露 `budget_breaker_open` 供界面显示预算熔断。
