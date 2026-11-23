@@ -175,7 +175,9 @@ export function SourceWizard({ onClose, onCreated }: SourceWizardProps) {
   }
 
   return (
-    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50" onClick={(e) => { if (e.target === e.currentTarget) requestClose() }}>
+    // 遮罩点击不关闭：向导承载多步输入，误点背景会弹出丢弃确认、打断流程，
+    // 退出只能走「关闭 / 取消 / Esc」这些显式路径（均经 requestClose 的未保存保护）
+    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50">
       <div
         ref={modalRef}
         role="dialog"
