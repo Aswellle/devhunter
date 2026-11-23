@@ -178,7 +178,9 @@ export function TaskFormModal({ task, onClose }: TaskFormModalProps) {
   return (
     <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
       {/* Backdrop */}
-      <div className="absolute inset-0 bg-black/50" onClick={requestClose} />
+      {/* 遮罩只负责压暗背景，不接管关闭：误点遮罩不再触发 requestClose，
+          表单必须经「保存 / 取消（含未保存确认）」才退出 */}
+      <div className="absolute inset-0 bg-black/50" />
 
       {/* Modal */}
       <div
