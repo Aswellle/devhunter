@@ -61,6 +61,17 @@ Docker port mapping differs from local dev: the **backend container's 8000 is pu
 
 ---
 
+## Commit Messages
+
+Every commit must split languages; `.githooks/commit-msg` rejects violations. Enable it once per clone with `git config core.hooksPath .githooks`.
+
+- **Subject:** English, ASCII-only, at most 72 characters, e.g. `fix(items): keep the timeline order stable`.
+- **Body:** required after a blank line, written in Chinese; explain what changed and why. Code identifiers may be mixed in, but English-prose bodies are rejected.
+- Generated messages (`Merge `, `Revert `, `fixup!`, `squash!`, `amend!`) skip the body check; the subject must still be ASCII.
+- Never bypass with `--no-verify`; never add `Co-Authored-By` or AI-attribution trailers (the hook blocks these too).
+
+---
+
 ## Architecture
 
 ### Backend Layer Structure

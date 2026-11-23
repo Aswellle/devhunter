@@ -143,6 +143,11 @@ docker compose logs -f backend         # 查看后端日志
 start.bat                              # 一键启动：backend（:8000）+ frontend（:5200）
 ```
 
+### Git 钩子
+```bash
+git config core.hooksPath .githooks    # 克隆后执行一次：启用提交信息语言校验
+```
+
 ---
 
 ## 代码规范与通用模式
@@ -373,7 +378,20 @@ SQLite，WAL 模式。关键表：
 
 ### Git 提交规则
 
-  - commit message 中禁止包含任何 `Co-Authored-By` 署名（包括但不限于 Claude、Anthropic、noreply@anthropic.com 等任何 AI 相关署名）
+  - **提交信息语言（硬性约束，由 `.githooks/commit-msg` 强制）**：标题（首行）必须用英文书写、纯 ASCII、不超过 72 字符；空行后的正文（详情）必填，必须用中文说明改动内容与原因（可夹带代码标识符，但不得以英文句子为主）。
+
+    ```
+    fix(items): keep the timeline order stable
+
+    按分钟聚合同一分钟内的事件，避免同一分钟内节点顺序在刷新后抖动；
+    同分钟事件按 id 升序回退，保证渲染稳定。
+    ```
+
+  - 自动生成的提交（`Merge `、`Revert `、`fixup!`、`squash!`、`amend!`）豁免正文检查，标题仍须为 ASCII。
+
+  - 克隆仓库后执行一次 `git config core.hooksPath .githooks` 启用钩子；**禁止使用 `--no-verify` 绕过**。
+
+  - commit message 中禁止包含任何 `Co-Authored-By` 署名（包括但不限于 Claude、Anthropic、noreply@anthropic.com 等任何 AI 相关署名）——`commit-msg` 钩子同样会拦截
 
   - 所有提交仅保留用户本人的 git 作者信息（`用户名 <邮箱>`）
 
