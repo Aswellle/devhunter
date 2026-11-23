@@ -1,6 +1,6 @@
 import { useId, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { X, Plus, Sparkles, ThumbsUp } from 'lucide-react'
+import { X, Plus, Sparkles, ThumbsUp, Minus, Info } from 'lucide-react'
 import { clsx } from 'clsx'
 import { userPrefsApi } from '../../api/user_prefs'
 import { queryKeys } from '../../api/queryKeys'
@@ -9,14 +9,10 @@ import { toast } from 'react-hot-toast'
 import type { UserTopic, RecommendedTopic } from '../../types'
 import { useModalA11y } from '../../hooks/useModalA11y'
 
-const CATEGORY_LABELS: Record<string, string> = {
-  ai: 'AI / 大模型',
-  web: 'Web 开发',
-  mobile: '移动端',
-  devops: 'DevOps',
-  custom: '自定义',
-  other: '其他',
-}
+/** 主题权重步进与边界（权重参与「兴趣匹配」占比计算） */
+const WEIGHT_STEP = 0.25
+const WEIGHT_MIN = 0.25
+const WEIGHT_MAX = 3
 
 interface PreferenceModalProps {
   isOpen: boolean
@@ -25,7 +21,6 @@ interface PreferenceModalProps {
 
 export function PreferenceModal({ isOpen, onClose }: PreferenceModalProps) {
   const [newTopic, setNewTopic] = useState('')
-  const [selectedCategory, setSelectedCategory] = useState('custom')
   const qc = useQueryClient()
   const titleId = useId()
   // Hooks must run unconditionally every render (rules-of-hooks), so this
@@ -48,13 +43,19 @@ export function PreferenceModal({ isOpen, onClose }: PreferenceModalProps) {
     enabled: isOpen,
   })
 
+  const invalidateAll = () => {
+    qc.invalidateQueries({ queryKey: queryKeys.userPrefs.topics() })
+    // 主题变化会改变推荐排序（兴趣匹配因子），列表立即重取
+    qc.invalidateQueries({ queryKey: queryKeys.recommendations.all })
+    qc.invalidateQueries({ queryKey: queryKeys.items.all })
+  }
+
   const addTopicMutation = useMutation({
-    mutationFn: (data: { topic: string; category: string }) =>
+    mutationFn: (data: { topic: string; category: string; weight?: number }) =>
       userPrefsApi.addTopic(data),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: queryKeys.userPrefs.topics() })
-      qc.invalidateQueries({ queryKey: queryKeys.recommendations.all })
-      toast.success('已添加偏好主题')
+      invalidateAll()
+      toast.success('已添加，推荐列表已按新兴趣重排')
       setNewTopic('')
     },
     onError: (e: unknown) => toast.error(errorMessage(e, '添加失败')),
@@ -63,20 +64,27 @@ export function PreferenceModal({ isOpen, onClose }: PreferenceModalProps) {
   const removeTopicMutation = useMutation({
     mutationFn: (topic: string) => userPrefsApi.removeTopic(topic),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: queryKeys.userPrefs.topics() })
-      qc.invalidateQueries({ queryKey: queryKeys.recommendations.all })
+      invalidateAll()
       toast.success('已移除偏好主题')
     },
     onError: (e: unknown) => toast.error(errorMessage(e, '移除失败')),
   })
 
+  const weightMutation = useMutation({
+    mutationFn: (payload: { topic: string; weight: number }) =>
+      userPrefsApi.updateTopicWeight(payload.topic, payload.weight),
+    onSuccess: () => {
+      invalidateAll()
+    },
+    onError: (e: unknown) => toast.error(errorMessage(e, '权重调整失败')),
+  })
+
   const addRecommendedMutation = useMutation({
     mutationFn: (topic: RecommendedTopic) =>
       userPrefsApi.addTopic({ topic: topic.topic, category: topic.category, weight: 1.0 }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: queryKeys.userPrefs.topics() })
-      qc.invalidateQueries({ queryKey: queryKeys.recommendations.all })
-      toast.success('已添加推荐主题')
+    onSuccess: (_, topic) => {
+      invalidateAll()
+      toast.success(`已添加「${topic.topic}」，推荐列表已按新兴趣重排`)
     },
     onError: (e: unknown) => toast.error(errorMessage(e, '添加失败')),
   })
@@ -84,7 +92,8 @@ export function PreferenceModal({ isOpen, onClose }: PreferenceModalProps) {
   const handleAddTopic = () => {
     const topic = newTopic.trim()
     if (!topic) return
-    addTopicMutation.mutate({ topic, category: selectedCategory })
+    // 分类已不暴露给用户（对推荐无影响），统一存 custom
+    addTopicMutation.mutate({ topic, category: 'custom' })
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -133,6 +142,15 @@ export function PreferenceModal({ isOpen, onClose }: PreferenceModalProps) {
           </button>
         </div>
 
+        {/* 添加后到底有什么效果：把作用链路说清楚 */}
+        <div className="px-5 py-2 bg-blue-50/70 border-b border-blue-100 flex items-start gap-1.5">
+          <Info className="h-3.5 w-3.5 mt-0.5 shrink-0 text-blue-500" aria-hidden="true" />
+          <p className="text-xs text-blue-800 leading-relaxed">
+            添加的话题会参与「为你推荐」的<b>兴趣匹配</b>打分（权重可在「推荐设置」中调节）：
+            标题或摘要命中话题词的内容会得到更高推荐分并前置。权重越高，该话题对排序影响越大。
+          </p>
+        </div>
+
         {/* Content */}
         <div className="px-5 py-4 max-h-[60vh] overflow-y-auto">
           {/* 添加新话题 */}
@@ -147,15 +165,6 @@ export function PreferenceModal({ isOpen, onClose }: PreferenceModalProps) {
                 placeholder="例如：GPT-5、AI创业、React 18..."
                 className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
               />
-              <select
-                value={selectedCategory}
-                onChange={(e) => setSelectedCategory(e.target.value)}
-                className="px-2 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-              >
-                {Object.entries(CATEGORY_LABELS).map(([value, label]) => (
-                  <option key={value} value={value}>{label}</option>
-                ))}
-              </select>
               <button
                 onClick={handleAddTopic}
                 disabled={!newTopic.trim() || addTopicMutation.isPending}
@@ -172,28 +181,63 @@ export function PreferenceModal({ isOpen, onClose }: PreferenceModalProps) {
             </div>
           </div>
 
-          {/* 已添加的话题 */}
+          {/* 已添加的话题：可调权重 */}
           {topics.length > 0 && (
             <div className="mb-5">
-              <h3 className="text-xs font-medium text-gray-600 mb-2">我的话题</h3>
-              <div className="flex flex-wrap gap-2">
-                {topics.map((topic: UserTopic) => (
-                  <span
-                    key={topic.id}
-                    className={clsx(
-                      'inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium',
-                      'bg-primary-50 text-primary-700'
-                    )}
-                  >
-                    {topic.topic}
-                    <button
-                      onClick={() => removeTopicMutation.mutate(topic.topic)}
-                      className="ml-0.5 p-0.5 rounded-full hover:bg-primary-200 transition-colors"
+              <h3 className="text-xs font-medium text-gray-600 mb-2">
+                我的话题 <span className="font-normal text-gray-400">· 权重参与兴趣匹配占比</span>
+              </h3>
+              <div className="space-y-1.5">
+                {topics.map((topic: UserTopic) => {
+                  const weight = topic.weight ?? 1
+                  return (
+                    <div
+                      key={topic.id}
+                      className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-primary-50/60"
                     >
-                      <X className="h-3 w-3" />
-                    </button>
-                  </span>
-                ))}
+                      <span className="flex-1 min-w-0 truncate text-sm font-medium text-primary-800" title={topic.topic}>
+                        {topic.topic}
+                      </span>
+                      {/* 权重步进：直接对应后端 updateTopicWeight（此前 API 存在但界面无入口） */}
+                      <div className="flex items-center gap-0.5 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => weightMutation.mutate({
+                            topic: topic.topic,
+                            weight: Math.max(WEIGHT_MIN, Math.round((weight - WEIGHT_STEP) * 100) / 100),
+                          })}
+                          disabled={weight <= WEIGHT_MIN || weightMutation.isPending}
+                          className="p-1 rounded text-primary-600 hover:bg-primary-100 disabled:opacity-30"
+                          aria-label={`降低「${topic.topic}」权重`}
+                        >
+                          <Minus className="h-3 w-3" aria-hidden="true" />
+                        </button>
+                        <span className="w-9 text-center text-xs font-mono tabular-nums text-primary-700" title="主题权重">
+                          ×{weight.toFixed(2)}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => weightMutation.mutate({
+                            topic: topic.topic,
+                            weight: Math.min(WEIGHT_MAX, Math.round((weight + WEIGHT_STEP) * 100) / 100),
+                          })}
+                          disabled={weight >= WEIGHT_MAX || weightMutation.isPending}
+                          className="p-1 rounded text-primary-600 hover:bg-primary-100 disabled:opacity-30"
+                          aria-label={`提高「${topic.topic}」权重`}
+                        >
+                          <Plus className="h-3 w-3" aria-hidden="true" />
+                        </button>
+                      </div>
+                      <button
+                        onClick={() => removeTopicMutation.mutate(topic.topic)}
+                        className="p-1 rounded hover:bg-primary-200 transition-colors shrink-0"
+                        aria-label={`移除「${topic.topic}」`}
+                      >
+                        <X className="h-3 w-3 text-primary-700" />
+                      </button>
+                    </div>
+                  )
+                })}
               </div>
             </div>
           )}
@@ -203,10 +247,13 @@ export function PreferenceModal({ isOpen, onClose }: PreferenceModalProps) {
             <div className="py-4 text-center text-sm text-gray-400">加载推荐中...</div>
           ) : recommendedTopics.length > 0 ? (
             <div>
-              <div className="flex items-center gap-1 mb-2">
+              <div className="flex items-center gap-1 mb-1">
                 <ThumbsUp className="h-3.5 w-3.5 text-primary-500" />
                 <h3 className="text-xs font-medium text-gray-600">根据你的阅读历史推荐</h3>
               </div>
+              <p className="text-[11px] text-gray-400 mb-2">
+                从你常读来源的高频标题词与阅读关键词中提取，点选即添加
+              </p>
               <div className="flex flex-wrap gap-2">
                 {recommendedTopics.map((rec: RecommendedTopic) => {
                   const isAdded = existingTopicsSet.has(rec.topic.toLowerCase())
@@ -214,18 +261,24 @@ export function PreferenceModal({ isOpen, onClose }: PreferenceModalProps) {
                     <button
                       key={rec.topic}
                       onClick={() => !isAdded && addRecommendedMutation.mutate(rec)}
-                      disabled={isAdded}
+                      disabled={isAdded || addRecommendedMutation.isPending}
                       className={clsx(
-                        'inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium transition-colors',
+                        'inline-flex flex-col items-start gap-0.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors text-left',
                         isAdded
                           ? 'bg-gray-100 text-gray-400 cursor-default'
-                          : 'bg-gray-50 text-gray-600 hover:bg-primary-50 hover:text-primary-700'
+                          : 'bg-gray-50 text-gray-700 hover:bg-primary-50 hover:text-primary-700'
                       )}
-                      title={`推荐指数：${Math.round(rec.score * 100)}%`}
+                      title={`推荐指数 ${Math.round(rec.score * 100)}%${rec.reason ? ` · ${rec.reason}` : ''}`}
                     >
-                      {rec.topic}
-                      {!isAdded && <Plus className="h-3 w-3" />}
-                      {isAdded && <span className="text-[10px]">已添加</span>}
+                      <span className="inline-flex items-center gap-1">
+                        {rec.topic}
+                        {!isAdded && <Plus className="h-3 w-3" />}
+                        {isAdded && <span className="text-[10px]">已添加</span>}
+                      </span>
+                      {/* 来源说明：用户能看懂这条推荐从哪来 */}
+                      <span className="text-[10px] font-normal text-gray-400">
+                        {rec.reason || '来自你的阅读历史'}
+                      </span>
                     </button>
                   )
                 })}

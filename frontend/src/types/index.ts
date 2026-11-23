@@ -24,6 +24,8 @@ export interface RecommendedTopic {
   topic: string
   category: string
   score: number
+  /** 候选来源说明（来自阅读关键词 / 常读来源的标题） */
+  reason?: string
 }
 
 export interface Item {
@@ -289,6 +291,8 @@ export interface LLMUsageStatus {
   used_today: number
   budget: number
   remaining: number
+  /** 预算熔断：当日 token 用尽，引擎跳过一切调用，次日 UTC 恢复 */
+  budget_breaker_open?: boolean
   breaker_open: boolean
   consecutive_failures: number
   max_consecutive_failures: number
@@ -363,6 +367,8 @@ export interface LLMReceiptsOverview {
   today: LLMUsageSummary
   receipts: LLMReceipt[]
   total: number
+  /** 下一页游标（keyset）；null 表示已到末页 */
+  next_cursor?: string | null
 }
 
 // ── 阅读亲缘度（我的画像）─────────────────────────────────
