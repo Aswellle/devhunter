@@ -58,6 +58,10 @@ export function RecommendationSettings({ onClose }: RecommendationSettingsProps)
   // 用户是否手动调过滑杆：隐藏高级设置后保存时也要把手调值一并提交，
   // 否则"调了权重 → 收起高级 → 保存"会静默退回模式预设（改了却不生效）
   const [weightsDirty, setWeightsDirty] = useState(false)
+  // 用户是否已经动手改过（模式或滑杆）。配置请求比用户操作晚到时，
+  // 回填逻辑不得覆盖刚做的选择——否则"打开设置立刻点一个模式"会被
+  // 随后到达的已存配置静默重置回原模式
+  const [userTouched, setUserTouched] = useState(false)
 
   const configQuery = useQuery({
     queryKey: queryKeys.userPrefs.recommendationConfig(),
@@ -71,17 +75,19 @@ export function RecommendationSettings({ onClose }: RecommendationSettingsProps)
   if (config && config !== syncedConfig) {
     setSyncedConfig(config)
     const cfg = config
-    if (cfg.preference_mode && cfg.preference_mode in MODE_LABELS) {
-      setMode(cfg.preference_mode as PreferenceMode)
-    }
-    if (cfg.weights) {
-      setWeights((prev) => ({
-        topic_match: cfg.weights.topic_match ?? prev.topic_match,
-        affinity: cfg.weights.affinity ?? prev.affinity,
-        recency: cfg.weights.recency ?? prev.recency,
-        engagement: cfg.weights.engagement ?? prev.engagement,
-        exploration: cfg.weights.exploration ?? prev.exploration,
-      }))
+    if (!userTouched) {
+      if (cfg.preference_mode && cfg.preference_mode in MODE_LABELS) {
+        setMode(cfg.preference_mode as PreferenceMode)
+      }
+      if (cfg.weights) {
+        setWeights((prev) => ({
+          topic_match: cfg.weights.topic_match ?? prev.topic_match,
+          affinity: cfg.weights.affinity ?? prev.affinity,
+          recency: cfg.weights.recency ?? prev.recency,
+          engagement: cfg.weights.engagement ?? prev.engagement,
+          exploration: cfg.weights.exploration ?? prev.exploration,
+        }))
+      }
     }
   }
 
@@ -105,6 +111,7 @@ export function RecommendationSettings({ onClose }: RecommendationSettingsProps)
 
   const handleModeChange = (newMode: PreferenceMode) => {
     setMode(newMode)
+    setUserTouched(true)
     // 切模式即回到预设权重，清掉手调标记（否则会把上一模式的手调值叠上去）
     setWeightsDirty(false)
     switch (newMode) {
@@ -126,6 +133,7 @@ export function RecommendationSettings({ onClose }: RecommendationSettingsProps)
   const updateWeight = (key: keyof typeof weights, value: number) => {
     setWeights((prev) => ({ ...prev, [key]: value }))
     setWeightsDirty(true)
+    setUserTouched(true)
   }
 
   return (
