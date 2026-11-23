@@ -4,7 +4,7 @@
  * 展示用户兴趣分布，支持管理。
  */
 import { useQuery } from '@tanstack/react-query'
-import { Copy, Check, Settings } from 'lucide-react'
+import { Copy, Check, Settings, ExternalLink } from 'lucide-react'
 import { useState } from 'react'
 import { createPortal } from 'react-dom'
 import { toast } from 'react-hot-toast'
@@ -67,16 +67,29 @@ function FeedRow({ name, url }: { name: string; url: string }) {
           {url}
         </div>
       </div>
-      <button
-        type="button"
-        onClick={handleCopy}
-        aria-label={`复制 ${name} 的订阅地址`}
-        className="btn-ghost px-2 py-1.5 shrink-0"
-      >
-        {copied
-          ? <Check className="h-4 w-4 text-success" aria-hidden="true" />
-          : <Copy className="h-4 w-4" aria-hidden="true" />}
-      </button>
+      <div className="flex items-center gap-1.5 shrink-0">
+        {/* 打开订阅：直接在浏览器验证该地址可用（RSS 阅读器同样可订阅） */}
+        <a
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="btn-ghost px-2 py-1.5"
+          aria-label={`在浏览器打开 ${name} 的订阅地址`}
+          title="在新标签打开订阅源，确认内容可被读取"
+        >
+          <ExternalLink className="h-4 w-4" aria-hidden="true" />
+        </a>
+        <button
+          type="button"
+          onClick={handleCopy}
+          aria-label={`复制 ${name} 的订阅地址`}
+          className="btn-ghost px-2 py-1.5"
+        >
+          {copied
+            ? <Check className="h-4 w-4 text-success" aria-hidden="true" />
+            : <Copy className="h-4 w-4" aria-hidden="true" />}
+        </button>
+      </div>
     </div>
   )
 }

@@ -87,6 +87,6 @@ export const queryKeys = {
   llm: {
     all: ['llm'] as const,
     config: () => ['llm', 'config'] as const,
-    receipts: (page: number = 1) => ['llm', 'receipts', page] as const,
+    receipts: () => ['llm', 'receipts'] as const,
   },
 }

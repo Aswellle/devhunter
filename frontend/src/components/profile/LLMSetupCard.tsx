@@ -10,16 +10,17 @@
  * 字段自动回到新生效值，而普通重取（数据不变）不会打断输入。
  * 字段带脏标记：只提交用户实际改动的字段，避免把预填值写成无意义覆盖。
  */
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
+  Check,
   CheckCircle2,
   ChevronDown,
-  ChevronLeft,
   ChevronRight,
   Clock,
   Eye,
   EyeOff,
   ListCollapse,
+  Loader2,
   RefreshCw,
   XCircle,
 } from 'lucide-react'
@@ -45,12 +46,21 @@ import type {
 /** 服务商预设：一键填充协议、接口地址与常用模型（常用在前） */
 const PRESETS: Array<{ label: string; protocol: LLMProtocol; baseUrl: string; model: string }> = [
   { label: 'DeepSeek', protocol: 'openai', baseUrl: 'https://api.deepseek.com', model: 'deepseek-chat' },
+  { label: '通义千问', protocol: 'openai', baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'qwen-plus' },
   { label: 'Kimi', protocol: 'openai', baseUrl: 'https://api.moonshot.cn/v1', model: 'moonshot-v1-8k' },
   { label: '智谱', protocol: 'openai', baseUrl: 'https://open.bigmodel.cn/api/paas/v4', model: 'glm-4-flash' },
   { label: 'OpenAI', protocol: 'openai', baseUrl: 'https://api.openai.com/v1', model: 'gpt-4o-mini' },
+  { label: 'Anthropic', protocol: 'anthropic', baseUrl: 'https://api.anthropic.com', model: 'claude-3-5-haiku-latest' },
+  { label: '硅基流动', protocol: 'openai', baseUrl: 'https://api.siliconflow.cn/v1', model: 'deepseek-ai/DeepSeek-V3' },
+  { label: 'Groq', protocol: 'openai', baseUrl: 'https://api.groq.com/openai/v1', model: 'llama-3.3-70b-versatile' },
   { label: 'OpenRouter', protocol: 'openai', baseUrl: 'https://openrouter.ai/api/v1', model: '' },
   { label: 'LongCat', protocol: 'openai', baseUrl: 'https://api.longcat.chat/openai', model: 'LongCat-2.0' },
 ]
+
+/** 地址归一化：协议/域名大小写与末尾斜杠不参与服务商匹配 */
+function normalizeBaseUrl(url: string): string {
+  return url.trim().replace(/\/+$/, '').toLowerCase()
+}
 
 const PROTOCOL_OPTIONS: Array<{ value: LLMProtocol; label: string; hint: string }> = [
   { value: 'openai', label: 'OpenAI 兼容', hint: 'DeepSeek、Kimi、智谱、OpenAI、LongCat 等大多数服务商' },
@@ -113,7 +123,6 @@ function LLMSetupForm({ status }: { status: LLMConfigStatus }) {
   const [testResult, setTestResult] = useState<LLMTestResult | null>(null)
   const [confirmClear, setConfirmClear] = useState(false)
   const [showUsage, setShowUsage] = useState(false)
-  const [page, setPage] = useState(1)
 
   const invalidate = () => qc.invalidateQueries({ queryKey: queryKeys.llm.config() })
   const markDirty = (field: keyof typeof dirty) =>
@@ -183,15 +192,19 @@ function LLMSetupForm({ status }: { status: LLMConfigStatus }) {
     setModels([])
   }
 
-  // 调用记录（懒加载：展开才请求，按页取）
-  const receiptsQuery = useQuery({
-    queryKey: queryKeys.llm.receipts(page),
-    queryFn: () => llmApi.getReceipts(RECEIPTS_PAGE_SIZE, (page - 1) * RECEIPTS_PAGE_SIZE),
+  // 调用记录（懒加载：展开才请求；游标分页，"加载更多"追加）
+  const receiptsQuery = useInfiniteQuery({
+    queryKey: queryKeys.llm.receipts(),
+    queryFn: ({ pageParam }) => llmApi.getReceipts(RECEIPTS_PAGE_SIZE, pageParam),
+    initialPageParam: null as string | null,
+    getNextPageParam: (lastPage) => lastPage.next_cursor ?? undefined,
     enabled: showUsage,
     staleTime: 30_000,
   })
-  const total = receiptsQuery.data?.total ?? 0
-  const totalPages = Math.max(1, Math.ceil(total / RECEIPTS_PAGE_SIZE))
+  const receiptPages = receiptsQuery.data?.pages ?? []
+  const receipts = receiptPages.flatMap((p) => p.receipts)
+  const total = receiptPages[0]?.total ?? 0
+  const todaySummary = receiptPages[0]?.today
 
   const { configured, source, overrides, usage } = status
   const hasKeyOverride = overrides.includes('llm_api_key')
@@ -219,6 +232,9 @@ function LLMSetupForm({ status }: { status: LLMConfigStatus }) {
         {configured && usage.breaker_open && (
           <Badge color="yellow">已熔断（连续失败 {usage.consecutive_failures} 次）</Badge>
         )}
+        {configured && usage.budget_breaker_open && !usage.breaker_open && (
+          <Badge color="yellow">预算熔断（今日额度已用尽，次日恢复）</Badge>
+        )}
         <span className="text-xs text-gray-500">{sourceNote}</span>
         {configured && (
           <span className="text-xs text-gray-400 ml-auto">
@@ -228,21 +244,31 @@ function LLMSetupForm({ status }: { status: LLMConfigStatus }) {
         )}
       </div>
 
-      {/* 服务商预设 */}
+      {/* 服务商预设：选中态以接口地址匹配（点选后表单即为该服务商） */}
       <div>
         <div className="text-xs text-gray-500 mb-1.5">常用服务商</div>
         <div className="flex flex-wrap gap-2">
-          {PRESETS.map((p) => (
-            <button
-              key={p.label}
-              type="button"
-              onClick={() => handlePreset(p)}
-              className="btn-ghost btn-sm border border-gray-200"
-              aria-label={`填入 ${p.label} 的接口地址与模型`}
-            >
-              {p.label}
-            </button>
-          ))}
+          {PRESETS.map((p) => {
+            const active = normalizeBaseUrl(p.baseUrl) === normalizeBaseUrl(baseUrl)
+            return (
+              <button
+                key={p.label}
+                type="button"
+                onClick={() => handlePreset(p)}
+                aria-pressed={active}
+                className={clsx(
+                  'btn-ghost btn-sm inline-flex items-center gap-1 transition-colors',
+                  active
+                    ? 'border-primary-500 bg-primary-50 text-primary-700 ring-1 ring-primary-400'
+                    : 'border border-gray-200',
+                )}
+                aria-label={`填入 ${p.label} 的接口地址与模型`}
+              >
+                {active && <Check className="h-3 w-3" aria-hidden="true" />}
+                {p.label}
+              </button>
+            )
+          })}
         </div>
       </div>
 
@@ -449,7 +475,8 @@ function LLMSetupForm({ status }: { status: LLMConfigStatus }) {
         {showUsage && (
           <div className="mt-2 space-y-2">
             {receiptsQuery.isLoading ? (
-              <p className="text-xs text-gray-400">加载中…</p>
+              // 骨架屏：首屏加载期间保持版面稳定，不用一行"加载中…"
+              <SkeletonList count={3} />
             ) : receiptsQuery.isError ? (
               <p className="text-xs text-danger">
                 加载失败
@@ -457,39 +484,40 @@ function LLMSetupForm({ status }: { status: LLMConfigStatus }) {
                   重试
                 </button>
               </p>
-            ) : receiptsQuery.data ? (
+            ) : todaySummary ? (
               <>
-                <UsageSummary summary={receiptsQuery.data.today} onRefresh={() => receiptsQuery.refetch()} />
-                {receiptsQuery.data.receipts.length === 0 ? (
+                <UsageSummary
+                  summary={todaySummary}
+                  refreshing={receiptsQuery.isFetching && !receiptsQuery.isFetchingNextPage}
+                  onRefresh={() => receiptsQuery.refetch()}
+                />
+                {receipts.length === 0 ? (
                   <p className="text-xs text-gray-400">还没有调用记录。接入后生成热点综述时会记录在这里。</p>
                 ) : (
                   <div className="divide-y divide-gray-100">
-                    {receiptsQuery.data.receipts.map((r) => <ReceiptRow key={r.id} receipt={r} />)}
+                    {receipts.map((r) => <ReceiptRow key={r.id} receipt={r} />)}
                   </div>
                 )}
                 <div className="flex items-center gap-2 pt-1 text-xs text-gray-500">
-                  <span>第 {page} / {totalPages} 页 · 共 {formatTokens(total)} 条</span>
-                  <div className="ml-auto flex gap-1.5">
-                    <button
-                      type="button"
-                      className="btn-ghost btn-sm border border-gray-200"
-                      disabled={page <= 1 || receiptsQuery.isFetching}
-                      onClick={() => setPage((p) => Math.max(1, p - 1))}
-                      aria-label="上一页"
-                    >
-                      <ChevronLeft className="h-3 w-3" aria-hidden="true" />
-                      上一页
-                    </button>
-                    <button
-                      type="button"
-                      className="btn-ghost btn-sm border border-gray-200"
-                      disabled={page >= totalPages || receiptsQuery.isFetching}
-                      onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                      aria-label="下一页"
-                    >
-                      下一页
-                      <ChevronRight className="h-3 w-3" aria-hidden="true" />
-                    </button>
+                  <span>已加载 {formatTokens(receipts.length)} / 共 {formatTokens(total)} 条</span>
+                  <div className="ml-auto">
+                    {receiptsQuery.hasNextPage ? (
+                      <button
+                        type="button"
+                        className="btn-ghost btn-sm border border-gray-200 inline-flex items-center gap-1"
+                        disabled={receiptsQuery.isFetchingNextPage}
+                        aria-busy={receiptsQuery.isFetchingNextPage}
+                        onClick={() => receiptsQuery.fetchNextPage()}
+                        aria-label="加载更多调用记录"
+                      >
+                        {receiptsQuery.isFetchingNextPage && (
+                          <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
+                        )}
+                        {receiptsQuery.isFetchingNextPage ? '加载中…' : '加载更多'}
+                      </button>
+                    ) : (
+                      <span className="text-gray-400">已全部加载</span>
+                    )}
                   </div>
                 </div>
               </>
@@ -515,8 +543,16 @@ function LLMSetupForm({ status }: { status: LLMConfigStatus }) {
   )
 }
 
-/** 当日调用汇总行 */
-function UsageSummary({ summary, onRefresh }: { summary: LLMReceiptsOverview['today']; onRefresh: () => void }) {
+/** 当日调用汇总行（刷新按钮带加载态反馈） */
+function UsageSummary({
+  summary,
+  onRefresh,
+  refreshing,
+}: {
+  summary: LLMReceiptsOverview['today']
+  onRefresh: () => void
+  refreshing: boolean
+}) {
   return (
     <div className="flex items-center gap-2 flex-wrap text-xs text-gray-500">
       <span className="badge badge-gray">今日 {summary.calls} 次调用</span>
@@ -525,10 +561,17 @@ function UsageSummary({ summary, onRefresh }: { summary: LLMReceiptsOverview['to
       <button
         type="button"
         onClick={onRefresh}
-        className="btn-ghost btn-sm ml-auto"
+        disabled={refreshing}
+        aria-busy={refreshing}
+        className="btn-ghost btn-sm ml-auto inline-flex items-center gap-1"
         aria-label="刷新调用记录"
+        title="刷新调用记录"
       >
-        <RefreshCw className="h-3 w-3" aria-hidden="true" />
+        <RefreshCw
+          className={clsx('h-3 w-3', refreshing && 'animate-spin')}
+          aria-hidden="true"
+        />
+        <span className="sr-only">{refreshing ? '刷新中' : '刷新'}</span>
       </button>
     </div>
   )

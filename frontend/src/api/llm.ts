@@ -28,7 +28,9 @@ export const llmApi = {
   getModels: (payload: LLMConfigPayload) =>
     client.post<LLMModelsResult>('/llm/models', payload).then((r) => r.data),
 
-  /** 当日调用汇总 + 回执分页（created_at 倒序） */
-  getReceipts: (limit: number = 10, offset: number = 0) =>
-    client.get<LLMReceiptsOverview>('/llm/receipts', { params: { limit, offset } }).then((r) => r.data),
+  /** 当日调用汇总 + 回执游标分页（created_at 倒序；cursor 为空取第一页） */
+  getReceipts: (limit: number = 10, cursor?: string | null) =>
+    client.get<LLMReceiptsOverview>('/llm/receipts', {
+      params: cursor ? { limit, cursor } : { limit },
+    }).then((r) => r.data),
 }
