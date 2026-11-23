@@ -111,34 +111,41 @@ function StatusBadge({ status }: { status: StreamStatus }) {
 }
 
 
-/** 流水线节点 */
+/** 流水线节点：等宽栅格 + 居中排布，状态圈与文字都有充分呼吸空间 */
 function PipelineNode({ step, isLast }: { step: StepState; isLast: boolean }) {
   return (
-    <div className="flex flex-col items-center">
-      {/* 节点 + 连线 */}
-      <div className="flex items-center w-full">
-        <div className={clsx('w-5 h-5 rounded-full shrink-0 flex items-center justify-center text-xs',
-          STEP_DOT_CLASS[step.status])}>
-          {step.status === 'active' && <span className="text-white text-[9px]">●</span>}
-          {step.status === 'done'   && <span className="text-white text-[9px] font-bold">✓</span>}
-          {step.status === 'error'  && <span className="text-white text-[9px] font-bold">✗</span>}
-          {step.status === 'skipped' && <span className="text-gray-400 text-[9px]">⊘</span>}
-        </div>
-        {!isLast && (
-          <div className={clsx('h-0.5 flex-1 transition-colors',
+    <div className="relative flex flex-col items-center min-w-0">
+      {/* 节点之间的连接线：从本节点圆心延伸到下一节点圆心（补足栅格间隙） */}
+      {!isLast && (
+        <div
+          className={clsx(
+            'absolute top-[11px] left-1/2 h-0.5',
+            // gap-3 = 12px：线宽 = 一列宽度 + 间隙，两端正好落在相邻圆心
+            'w-[calc(100%+12px)]',
             step.status === 'done'    ? 'bg-green-500' :
             step.status === 'error'   ? 'bg-red-500' :
-            step.status === 'skipped' ? 'bg-gray-600' : 'bg-gray-700'
-          )} />
-        )}
+            step.status === 'skipped' ? 'bg-gray-600' : 'bg-gray-700',
+          )}
+          aria-hidden="true"
+        />
+      )}
+      {/* 状态圈：ring 用抽屉底色遮住穿过的连接线 */}
+      <div className={clsx('relative z-10 w-6 h-6 rounded-full shrink-0 flex items-center justify-center text-xs ring-4 ring-gray-950',
+        STEP_DOT_CLASS[step.status])}>
+        {step.status === 'active' && <span className="text-white text-[10px]">●</span>}
+        {step.status === 'done'   && <span className="text-white text-[11px] font-bold">✓</span>}
+        {step.status === 'error'  && <span className="text-white text-[11px] font-bold">✗</span>}
+        {step.status === 'skipped' && <span className="text-gray-400 text-[10px]">⊘</span>}
       </div>
-      {/* 标签 */}
-      <div className={clsx('text-[10px] mt-1.5 whitespace-nowrap text-center', STEP_LABEL_CLASS[step.status])}>
+      {/* 标签：桌面端单行（列宽充足），窄屏允许换行避免相邻列文字相互压盖 */}
+      <div className={clsx('text-[11px] sm:text-[13px] leading-tight mt-2.5 text-center whitespace-normal sm:whitespace-nowrap', STEP_LABEL_CLASS[step.status])}>
         {step.label}
       </div>
       {/* 耗时 */}
       {step.durationMs != null && (
-        <div className="text-[9px] text-gray-500 mt-0.5">{formatDuration(step.durationMs)}</div>
+        <div className="text-[11px] text-gray-500 mt-1 font-mono tabular-nums">
+          {formatDuration(step.durationMs)}
+        </div>
       )}
     </div>
   )
@@ -150,9 +157,9 @@ function PipelinePanel({ steps, isWaiting }: { steps: StepState[]; isWaiting?: b
   const lastDone   = [...steps].reverse().find((s) => s.status === 'done' || s.status === 'skipped')
 
   return (
-    <div className="px-4 py-4 border-b border-gray-800">
-      {/* 横向流水线 */}
-      <div className="flex items-start gap-0">
+    <div className="px-5 py-5 border-b border-gray-800">
+      {/* 横向流水线：等宽栅格 + 列间距，圈与文字不再相互挤压 */}
+      <div className="grid grid-cols-6 gap-3">
         {steps.map((step, i) => (
           <PipelineNode key={step.id} step={step} isLast={i === steps.length - 1} />
         ))}
@@ -160,7 +167,7 @@ function PipelinePanel({ steps, isWaiting }: { steps: StepState[]; isWaiting?: b
 
       {/* 当前活动步骤详情 */}
       {(activeStep || lastDone) && (
-        <div className="mt-3 px-2 py-1.5 rounded bg-gray-800/60 text-xs">
+        <div className="mt-4 px-3 py-2 rounded bg-gray-800/60 text-[13px]">
           {activeStep ? (
             <span className="text-blue-300">
               <span className="text-gray-500 mr-1.5">▶</span>
@@ -177,7 +184,7 @@ function PipelinePanel({ steps, isWaiting }: { steps: StepState[]; isWaiting?: b
 
       {/* 等待 Worker 响应指示器 */}
       {isWaiting && !activeStep && (
-        <div className="mt-3 px-2 py-1.5 rounded bg-orange-900/30 text-xs text-orange-300 flex items-center gap-2">
+        <div className="mt-4 px-3 py-2 rounded bg-orange-900/30 text-[13px] text-orange-300 flex items-center gap-2">
           <span className="w-1.5 h-1.5 rounded-full bg-orange-400 animate-pulse" />
           等待 Worker 响应，任务可能在队列中卡住…
         </div>
@@ -193,22 +200,22 @@ function StepsTable({ steps }: { steps: StepState[] }) {
       {steps.map((step) => (
         <div key={step.id}
           className={clsx(
-            'flex items-start gap-2 px-3 py-1.5 rounded text-xs',
+            'flex items-start gap-2.5 px-3 py-2 rounded text-[13px]',
             step.status === 'active'  && 'bg-blue-900/20',
             step.status === 'error'   && 'bg-red-900/20',
           )}
         >
-          <span className={clsx('shrink-0 w-4 text-center font-mono', STEP_LABEL_CLASS[step.status])}>
+          <span className={clsx('shrink-0 w-5 text-center font-mono', STEP_LABEL_CLASS[step.status])}>
             {STEP_ICON[step.status]}
           </span>
-          <span className={clsx('w-16 shrink-0 font-medium', STEP_LABEL_CLASS[step.status])}>
+          <span className={clsx('w-20 shrink-0 font-medium', STEP_LABEL_CLASS[step.status])}>
             {step.label}
           </span>
           <span className={clsx('flex-1 min-w-0', step.status === 'pending' ? 'text-gray-400' : 'text-gray-300')}>
             {step.status === 'pending' ? '等待中' : (step.detail || '—')}
           </span>
           {step.durationMs != null && (
-            <span className="text-gray-400 font-mono shrink-0">{formatDuration(step.durationMs)}</span>
+            <span className="text-gray-400 font-mono tabular-nums shrink-0">{formatDuration(step.durationMs)}</span>
           )}
         </div>
       ))}
@@ -248,19 +255,19 @@ function ItemsPreview({ items, total }: { items: { title: string; url: string; s
   )
 }
 
-/** 原始事件日志行 */
+/** 原始事件日志行（字号放大到 14px，便于一眼扫读） */
 function LogRow({ evt, idx }: { evt: { type: string; message: string; data?: Record<string, unknown>; timestamp?: string }; idx: number }) {
   if (evt.type === 'items_preview') return null   // 单独渲染预览卡片
   const color = LOG_COLOR[evt.type] ?? 'text-gray-400'
   const icon  = LOG_ICON[evt.type]  ?? '▸'
 
   return (
-    <div className={clsx('flex items-start gap-2 py-1 px-2 rounded text-xs font-mono', color)}
+    <div className={clsx('flex items-start gap-2.5 py-1.5 px-2 rounded text-sm font-mono leading-relaxed', color)}
       style={{ animationDelay: `${idx * 15}ms` }}>
-      <span className="shrink-0 w-4 text-center select-none">{icon}</span>
+      <span className="shrink-0 w-5 text-center select-none">{icon}</span>
       <span className="flex-1 min-w-0 break-words">{evt.message}</span>
       {evt.timestamp && (
-        <span className="text-gray-500 shrink-0 font-mono" title={formatLogTimestamp(evt.timestamp)}>
+        <span className="text-xs text-gray-500 shrink-0 font-mono tabular-nums pt-0.5" title={formatLogTimestamp(evt.timestamp)}>
           {formatLogClock(evt.timestamp)}
         </span>
       )}
@@ -335,7 +342,7 @@ export function TaskExecutionStream({ taskId, taskName, onClose }: Props) {
         role="dialog"
         aria-modal="true"
         aria-label={`${taskName} 实时执行流`}
-        className="fixed right-0 top-0 bottom-0 z-50 w-full max-w-lg
+        className="fixed right-0 top-0 bottom-0 z-50 w-full max-w-2xl
                     bg-gray-950 border-l border-gray-800 shadow-2xl flex flex-col"
       >
 
@@ -431,8 +438,8 @@ export function TaskExecutionStream({ taskId, taskName, onClose }: Props) {
           <div className="px-3 pt-3">
             <button
               onClick={() => setShowLog((v) => !v)}
-              className="w-full flex items-center gap-2 text-xs text-gray-600
-                         hover:text-gray-400 transition-colors py-1"
+              className="w-full flex items-center gap-2 text-[13px] text-gray-500
+                         hover:text-gray-300 transition-colors py-1.5"
             >
               <span className="flex-1 border-t border-gray-800" />
               <span className="shrink-0 flex items-center gap-1">
