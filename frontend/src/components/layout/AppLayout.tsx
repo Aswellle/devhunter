@@ -14,14 +14,36 @@ import { useAuthStore } from '../../stores/authStore'
 import { ConfirmDialog } from '../ui/ConfirmDialog'
 import { TabBar } from './TabBar'
 
-const navItems = [
-  { to: '/',          label: '采集结果', icon: LayoutDashboard },
-  { to: '/tasks',     label: '任务管理', icon: Rss },
-  { to: '/cloud',     label: '结果云',   icon: Cloud },
-  { to: '/starred',   label: '已收藏',   icon: Star },
-  { to: '/recommend', label: '今日推荐', icon: Sparkles },
-  { to: '/dashboard', label: '数据概览', icon: BarChart2 },
-  { to: '/profile',   label: '我的画像', icon: User },
+/**
+ * 主导航分组：按"每天要看的内容"→"日常操作"→"配置与分析"排列。
+ *
+ * 排序依据（最佳实践）：
+ * 1. 每日第一目的地（今日推荐）置顶——打开系统最先想看的是"今天有什么"
+ * 2. 高频阅读/整理目的地紧随（采集结果、已收藏、结果云）
+ * 3. 低频的配置与分析类沉底（任务管理、数据概览、我的画像）
+ * 分组标签让"阅读"与"管理"两类心智模型分离，减少误点配置类入口
+ */
+const navGroups: Array<{
+  label: string
+  items: Array<{ to: string; label: string; icon: typeof LayoutDashboard }>
+}> = [
+  {
+    label: '阅读',
+    items: [
+      { to: '/recommend', label: '今日推荐', icon: Sparkles },
+      { to: '/',          label: '采集结果', icon: LayoutDashboard },
+      { to: '/starred',   label: '已收藏',   icon: Star },
+      { to: '/cloud',     label: '结果云',   icon: Cloud },
+    ],
+  },
+  {
+    label: '管理',
+    items: [
+      { to: '/tasks',     label: '任务管理', icon: Rss },
+      { to: '/dashboard', label: '数据概览', icon: BarChart2 },
+      { to: '/profile',   label: '我的画像', icon: User },
+    ],
+  },
 ]
 
 function BrandMark() {
@@ -55,24 +77,33 @@ function SidebarContent() {
       </div>
 
       {/* Nav */}
-      <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto" aria-label="主导航">
-        {navItems.map(({ to, label, icon: Icon }) => (
-          <NavLink
-            key={to}
-            to={to}
-            end={to === '/'}
-            className={({ isActive }) =>
-              clsx(
-                'flex items-center gap-2.5 px-3 py-2 rounded-md text-sm font-medium transition-colors focus-visible:ring-2 focus-visible:ring-primary-400 focus-visible:ring-inset outline-none',
-                isActive
-                  ? 'bg-primary-600 text-white'
-                  : 'text-gray-300 hover:bg-gray-800 hover:text-white',
-              )
-            }
-          >
-            <Icon className="h-4 w-4 shrink-0" />
-            {label}
-          </NavLink>
+      <nav className="flex-1 px-3 py-4 space-y-4 overflow-y-auto" aria-label="主导航">
+        {navGroups.map((group) => (
+          <div key={group.label}>
+            <p className="px-3 mb-1 text-[10px] font-semibold uppercase tracking-wider text-gray-500 select-none">
+              {group.label}
+            </p>
+            <div className="space-y-1">
+              {group.items.map(({ to, label, icon: Icon }) => (
+                <NavLink
+                  key={to}
+                  to={to}
+                  end={to === '/'}
+                  className={({ isActive }) =>
+                    clsx(
+                      'flex items-center gap-2.5 px-3 py-2 rounded-md text-sm font-medium transition-colors focus-visible:ring-2 focus-visible:ring-primary-400 focus-visible:ring-inset outline-none',
+                      isActive
+                        ? 'bg-primary-600 text-white'
+                        : 'text-gray-300 hover:bg-gray-800 hover:text-white',
+                    )
+                  }
+                >
+                  <Icon className="h-4 w-4 shrink-0" />
+                  {label}
+                </NavLink>
+              ))}
+            </div>
+          </div>
         ))}
       </nav>
 

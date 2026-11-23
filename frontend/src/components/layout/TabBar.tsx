@@ -10,11 +10,12 @@ import { NavLink } from 'react-router-dom'
 import { LayoutDashboard, MoreHorizontal, Rss, Sparkles, Star } from 'lucide-react'
 import { clsx } from 'clsx'
 
+// 顺序与桌面侧边栏「阅读」分组一致：每日第一目的地 → 采集结果 → 已收藏 → 任务管理
 const tabs = [
-  { to: '/', label: '采集结果', icon: LayoutDashboard },
-  { to: '/tasks', label: '任务管理', icon: Rss },
   { to: '/recommend', label: '今日推荐', icon: Sparkles },
+  { to: '/', label: '采集结果', icon: LayoutDashboard },
   { to: '/starred', label: '已收藏', icon: Star },
+  { to: '/tasks', label: '任务管理', icon: Rss },
   { to: '/more', label: '更多', icon: MoreHorizontal },
 ]
 
