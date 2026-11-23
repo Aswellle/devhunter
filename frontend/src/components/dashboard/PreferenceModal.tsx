@@ -108,11 +108,9 @@ export function PreferenceModal({ isOpen, onClose }: PreferenceModalProps) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
-      {/* Backdrop */}
-      <div
-        className="absolute inset-0 bg-black/40 backdrop-blur-sm"
-        onClick={onClose}
-      />
+      {/* Backdrop：只负责视觉压暗，不接管关闭——主题的增删改都是即时保存，
+          误点背景不应把正在输入的新主题一起带走 */}
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
 
       {/* Modal */}
       <div
