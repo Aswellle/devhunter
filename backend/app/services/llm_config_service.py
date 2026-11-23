@@ -8,6 +8,8 @@ LLM 接入配置服务：界面保存值（app_settings）的写入/清除、状
 - 字段有值   → 写入覆盖（保存前去除首尾空白与末尾斜杠）
 - daily_token_budget 为整数 → 直接覆盖（数值字段无"清空"态，回落默认用清除配置）
 """
+import base64
+
 from app.core.config import settings
 from app.llm.config import LLM_SETTING_KEYS, mask_secret, resolve_llm_config, utc_day_start_iso
 from app.llm.provider import llm_provider
@@ -21,6 +23,28 @@ _FIELD_TO_KEY = {
     "base_url": "llm_base_url",
     "model": "llm_model",
 }
+
+
+def _encode_cursor(anchor: tuple[str, str] | None) -> str | None:
+    """(created_at, id) → 不透明游标（base64url）"""
+    if anchor is None:
+        return None
+    raw = f"{anchor[0]}|{anchor[1]}".encode("utf-8")
+    return base64.urlsafe_b64encode(raw).decode("ascii")
+
+
+def _decode_cursor(cursor: str | None) -> tuple[str, str] | None:
+    """不透明游标 → (created_at, id)；非法游标按"从头开始"处理"""
+    if not cursor:
+        return None
+    try:
+        raw = base64.urlsafe_b64decode(cursor.encode("ascii")).decode("utf-8")
+        created_at, _, receipt_id = raw.partition("|")
+        if not created_at or not receipt_id:
+            return None
+        return created_at, receipt_id
+    except Exception:  # noqa: BLE001 —— 游标损坏不应 500，退化为第一页
+        return None
 
 
 class LLMConfigService:
@@ -85,12 +109,26 @@ class LLMConfigService:
             api_protocol=payload.api_protocol or cfg.api_protocol,
         )
 
-    def usage(self, limit: int = 10, offset: int = 0) -> dict:
-        """当日调用汇总 + 回执分页（含失败原因）"""
+    def usage(self, limit: int = 10, offset: int = 0, cursor: str | None = None) -> dict:
+        """
+        当日调用汇总 + 回执分页（含失败原因）。
+
+        分页优先走游标（keyset）：翻页期间新增调用不会让后续页错位。
+        未提供游标时退回 offset（兼容旧调用方），并按本页最后一条
+        生成下一页游标，之后即可无缝切换为游标翻页。
+        """
+        if cursor:
+            receipts, anchor = model_receipt_repo.stats_page(
+                limit=limit, before=_decode_cursor(cursor),
+            )
+        else:
+            receipts = model_receipt_repo.stats(limit=limit, offset=offset)
+            anchor = (receipts[-1]["created_at"], receipts[-1]["id"]) if len(receipts) == limit else None
         return {
             "today": model_receipt_repo.usage_summary(utc_day_start_iso()),
-            "receipts": model_receipt_repo.stats(limit=limit, offset=offset),
+            "receipts": receipts,
             "total": model_receipt_repo.count_all(),
+            "next_cursor": _encode_cursor(anchor),
         }
 
 

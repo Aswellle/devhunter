@@ -84,6 +84,16 @@ class LLMProvider:
         used = model_receipt_repo.tokens_since(utc_day_start_iso())
         return max(0, resolve_llm_config().daily_budget - used)
 
+    @staticmethod
+    def _estimate_tokens(text: str) -> int:
+        """
+        调用前的 token 粗估（保守高估）。
+
+        中英文混排按 2 字符/token 估（英文实际约 4、中文约 1-1.5），
+        宁可高估拒绝一次调用，也不让单次调用把预算大幅冲穿。
+        """
+        return max(1, len(text) // 2)
+
     def status(self) -> dict:
         """用量与熔断状态（配置页展示用）"""
         budget = resolve_llm_config().daily_budget
@@ -94,6 +104,8 @@ class LLMProvider:
             "used_today": used,
             "budget": budget,
             "remaining": max(0, budget - used),
+            # 预算熔断：剩余为 0 时 chat() 直接跳过，次日 UTC 零点自动恢复
+            "budget_breaker_open": used >= budget,
             "breaker_open": failures >= settings.llm_max_consecutive_failures,
             "consecutive_failures": failures,
             "max_consecutive_failures": settings.llm_max_consecutive_failures,
@@ -236,6 +248,22 @@ class LLMProvider:
             logger.warning(
                 "LLM daily token budget exhausted (%d), skipping purpose=%s until next UTC day",
                 cfg.daily_budget, purpose,
+            )
+            return None
+
+        # 预算硬闸：本次调用（输入估算 + 输出上限）会超预算时不发请求。
+        # 只检查"剩余 > 0"是不够的——剩余 50 token 时一次调用仍可能烧掉
+        # 数千 token，预算形同虚设；预估过高时拒绝一次，好过冲穿预算。
+        estimated = (
+            self._estimate_tokens(system)
+            + self._estimate_tokens(prompt)
+            + max_tokens
+        )
+        if estimated > remaining:
+            logger.warning(
+                "LLM call would exceed daily budget (estimated=%d, remaining=%d), "
+                "skipping purpose=%s",
+                estimated, remaining, purpose,
             )
             return None
 

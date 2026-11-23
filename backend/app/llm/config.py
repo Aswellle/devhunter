@@ -27,8 +27,14 @@ LLM_PROTOCOLS = ("openai", "anthropic")
 
 
 def utc_day_start_iso() -> str:
-    """当前 UTC 日的零点（ISO），作为每日预算统计窗口起点"""
-    return time.strftime("%Y-%m-%dT00:00:00Z", time.gmtime())
+    """
+    当前 UTC 日的零点（ISO，毫秒精度），作为每日预算统计窗口起点。
+
+    必须与 model_receipts.created_at 同一精度（毫秒）：秒级边界
+    "00:00:00Z" 在字符串比较下会大于 "00:00:00.500Z"（'Z' > '.'），
+    导致零点后 1 秒内的消耗被漏计。
+    """
+    return time.strftime("%Y-%m-%dT00:00:00.000Z", time.gmtime())
 
 
 @dataclass(frozen=True)

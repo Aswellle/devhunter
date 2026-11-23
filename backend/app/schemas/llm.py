@@ -12,6 +12,8 @@ class LLMUsageStatus(BaseModel):
     used_today: int
     budget: int
     remaining: int
+    # 预算熔断：当日 token 用尽时为 true，引擎跳过一切调用，次日 UTC 恢复
+    budget_breaker_open: bool = False
     breaker_open: bool
     consecutive_failures: int
     max_consecutive_failures: int
@@ -101,7 +103,9 @@ class LLMReceiptItem(BaseModel):
 
 
 class LLMReceiptsResponse(BaseModel):
-    """用量查询响应：当日汇总 + 回执分页"""
+    """用量查询响应：当日汇总 + 回执分页（游标）"""
     today: LLMUsageSummary
     receipts: list[LLMReceiptItem]
     total: int
+    # 下一页游标（keyset）；null 表示已到末页
+    next_cursor: str | None = None

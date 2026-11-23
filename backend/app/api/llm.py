@@ -60,7 +60,14 @@ def list_models(body: LLMConfigUpdate, _: str = Depends(require_auth)):
 def list_receipts(
     limit: int = Query(10, ge=1, le=100),
     offset: int = Query(0, ge=0),
+    cursor: str | None = Query(None, description="上一页返回的 next_cursor（keyset 分页，优先于 offset）"),
     _: str = Depends(require_auth),
 ):
-    """当日（UTC）调用汇总与回执分页（created_at 倒序，含失败记录与失败原因）"""
-    return llm_config_service.usage(limit=limit, offset=offset)
+    """
+    当日（UTC）调用汇总与回执分页（created_at 倒序，含失败记录与失败原因）。
+
+    分页：传入上一页的 `next_cursor` 即按游标（keyset）翻页——边翻页边有
+    新调用也不会重复/漏项；`next_cursor` 为 null 表示已到末页。
+    不传游标时按 `offset` 分页（兼容旧调用方）。
+    """
+    return llm_config_service.usage(limit=limit, offset=offset, cursor=cursor)
