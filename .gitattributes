@@ -1,0 +1,2 @@
+# Git 钩子脚本必须按 LF 检出：shebang 带 CRLF 时 POSIX shell 无法执行。
+.githooks/** text eol=lf

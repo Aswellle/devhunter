@@ -1,0 +1,22 @@
+#!/bin/sh
+# commit-msg 钩子：提交标题必须为英文、正文必须为中文。
+# 校验逻辑在 check_commit_msg.py；克隆后执行一次启用：
+#   git config core.hooksPath .githooks
+set -eu
+
+[ $# -ge 1 ] || { echo "commit-msg: 缺少提交信息文件参数" >&2; exit 1; }
+msg_file=$1
+hook_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+
+if command -v python3 >/dev/null 2>&1; then
+    exec python3 "$hook_dir/check_commit_msg.py" "$msg_file"
+fi
+if command -v python >/dev/null 2>&1; then
+    exec python "$hook_dir/check_commit_msg.py" "$msg_file"
+fi
+if command -v py >/dev/null 2>&1; then
+    exec py -3 "$hook_dir/check_commit_msg.py" "$msg_file"
+fi
+
+echo "commit-msg: 未找到 Python 3（python3/python/py），无法校验提交信息" >&2
+exit 1
