@@ -105,7 +105,9 @@ export function TemplateMarket({ onClose, onCreated }: TemplateMarketProps) {
   }
 
   return (
-    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50" onClick={(e) => { if (e.target === e.currentTarget) onClose() }}>
+    // 遮罩点击不关闭：市场里的一键启用是会落库的写操作，
+    // 误点背景让面板闪退会打断"浏览 → 比较 → 启用"的完整流程
+    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50">
       <div
         ref={modalRef}
         role="dialog"
