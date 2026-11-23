@@ -18,6 +18,9 @@ class ItemResponse(BaseModel):
     is_starred: bool
     fetched_at: str
     created_at: str
+    # 收藏分组（仅 is_starred 时有展示意义；取消收藏后保留归属）
+    star_folder_id: str | None = None
+    star_folder_name: str | None = None
 
     model_config = {"from_attributes": True}
 

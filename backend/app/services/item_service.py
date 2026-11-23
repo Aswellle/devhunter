@@ -26,6 +26,7 @@ class ItemService:
         search: str | None = None,
         starred: bool | None = None,
         is_read: bool | None = None,
+        star_folder_id: str | None = None,
         page: int = 1,
         per_page: int = 20,
     ) -> tuple[list[dict], int]:
@@ -34,6 +35,7 @@ class ItemService:
             search=search,
             starred=starred,
             is_read=is_read,
+            star_folder_id=star_folder_id,
             page=page,
             per_page=per_page,
         )

@@ -39,6 +39,10 @@ def list_items(
     search: Annotated[str | None, Query(max_length=200)] = None,
     starred: bool | None = Query(None),
     is_read: bool | None = Query(None),
+    star_folder_id: Annotated[
+        str | None,
+        Query(max_length=64, description="收藏文件夹 id；'none' 表示未分类"),
+    ] = None,
     page: int = Query(1, ge=1),
     per_page: int = Query(20, ge=1, le=100),
     _: str = Depends(require_auth),
@@ -48,6 +52,7 @@ def list_items(
         search=search,
         starred=starred,
         is_read=is_read,
+        star_folder_id=star_folder_id,
         page=page,
         per_page=per_page,
     )

@@ -142,18 +142,23 @@ class ItemRepository:
         search: str | None = None,
         starred: bool | None = None,
         is_read: bool | None = None,
+        star_folder_id: str | None = None,
         page: int = 1,
         per_page: int = 20,
         created_after: str | None = None,
     ) -> tuple[list[dict], int]:
         """
         分页查询采集结果，支持多维度过滤。
-        返回 (条目列表, 总数)，列表项包含 task_name（LEFT JOIN）。
+        返回 (条目列表, 总数)，列表项包含 task_name 与收藏文件夹名（LEFT JOIN）。
+
+        star_folder_id 取 "none" 表示只看未分类收藏（SQL 的 IS NULL），
+        其余值按文件夹 id 精确过滤。
         """
-        # 基础 JOIN（获取 task_name）
+        # 基础 JOIN（获取 task_name / 文件夹名）
         base_from = """
             FROM items i
             LEFT JOIN tasks t ON i.task_id = t.id
+            LEFT JOIN star_folders sf ON sf.id = i.star_folder_id
         """
         conditions: list[str] = []
         params: list[Any] = []
@@ -169,6 +174,12 @@ class ItemRepository:
         if is_read is not None:
             conditions.append("i.is_read = ?")
             params.append(1 if is_read else 0)
+
+        if star_folder_id == "none":
+            conditions.append("i.star_folder_id IS NULL")
+        elif star_folder_id:
+            conditions.append("i.star_folder_id = ?")
+            params.append(star_folder_id)
 
         if created_after:
             conditions.append("i.created_at >= ?")
@@ -194,7 +205,7 @@ class ItemRepository:
 
                 rows = conn.execute(
                     f"""
-                    SELECT i.*, t.name AS task_name
+                    SELECT i.*, t.name AS task_name, sf.name AS star_folder_name
                     {base_from}
                     {where}
                     ORDER BY i.created_at DESC, i.id DESC
@@ -207,7 +218,8 @@ class ItemRepository:
                 # 否则 LIKE 路径会静默丢掉 created_after 等维度）
                 logger.warning("FTS query failed, falling back to LIKE for: %s", search)
                 return self._query_with_like(
-                    task_id, search, starred, is_read, created_after, page, per_page
+                    task_id, search, starred, is_read, star_folder_id,
+                    created_after, page, per_page,
                 )
 
         return [_row_to_dict(r) for r in rows], total
@@ -218,12 +230,17 @@ class ItemRepository:
         search: str | None,
         starred: bool | None,
         is_read: bool | None,
+        star_folder_id: str | None,
         created_after: str | None,
         page: int,
         per_page: int,
     ) -> tuple[list[dict], int]:
         """LIKE 回退查询（FTS 不可用时），过滤条件与 FTS 路径保持一致"""
-        base_from = "FROM items i LEFT JOIN tasks t ON i.task_id = t.id"
+        base_from = (
+            "FROM items i "
+            "LEFT JOIN tasks t ON i.task_id = t.id "
+            "LEFT JOIN star_folders sf ON sf.id = i.star_folder_id"
+        )
         conditions: list[str] = []
         params: list[Any] = []
 
@@ -236,6 +253,11 @@ class ItemRepository:
         if is_read is not None:
             conditions.append("i.is_read = ?")
             params.append(1 if is_read else 0)
+        if star_folder_id == "none":
+            conditions.append("i.star_folder_id IS NULL")
+        elif star_folder_id:
+            conditions.append("i.star_folder_id = ?")
+            params.append(star_folder_id)
         if created_after:
             conditions.append("i.created_at >= ?")
             params.append(created_after)
@@ -256,7 +278,7 @@ class ItemRepository:
             ).fetchone()[0]
             rows = conn.execute(
                 f"""
-                SELECT i.*, t.name AS task_name
+                SELECT i.*, t.name AS task_name, sf.name AS star_folder_name
                 {base_from} {where}
                 ORDER BY i.created_at DESC, i.id DESC
                 LIMIT ? OFFSET ?
@@ -312,7 +334,11 @@ class ItemRepository:
     def get(self, item_id: str) -> dict | None:
         with get_db() as conn:
             row = conn.execute(
-                "SELECT i.*, t.name AS task_name FROM items i LEFT JOIN tasks t ON i.task_id = t.id WHERE i.id = ?",
+                "SELECT i.*, t.name AS task_name, sf.name AS star_folder_name "
+                "FROM items i "
+                "LEFT JOIN tasks t ON i.task_id = t.id "
+                "LEFT JOIN star_folders sf ON sf.id = i.star_folder_id "
+                "WHERE i.id = ?",
                 (item_id,),
             ).fetchone()
         return _row_to_dict(row) if row else None
