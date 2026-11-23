@@ -19,15 +19,17 @@ interface ScorePillProps {
   /** 紧凑模式：只显示数字（用于仪表盘等密集列表） */
   compact?: boolean
   className?: string
+  /** 自定义悬停说明（默认「推荐分 X/100」），用于解释分数构成 */
+  title?: string
 }
 
-export function ScorePill({ score, compact = false, className }: ScorePillProps) {
+export function ScorePill({ score, compact = false, className, title }: ScorePillProps) {
   const value = Math.round(score)
   const tier = TIERS.find((t) => value >= t.min) ?? TIERS[TIERS.length - 1]
 
   return (
     <span
-      title={`推荐分 ${value}/100`}
+      title={title ?? `推荐分 ${value}/100`}
       aria-label={`推荐分 ${value} 分`}
       className={clsx(
         'inline-flex h-5 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-2 ring-1 ring-inset',
