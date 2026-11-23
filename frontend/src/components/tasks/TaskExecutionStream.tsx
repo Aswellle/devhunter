@@ -16,7 +16,7 @@ import {
 } from '../../hooks/useTaskEventStream'
 import { queryKeys } from '../../api/queryKeys'
 import { isSafeExternalUrl } from '../../utils/url'
-import { formatDuration } from '../../utils/time'
+import { formatDuration, formatLogClock, formatLogTimestamp } from '../../utils/time'
 import { Spinner } from '../ui/Spinner'
 import { useModalA11y } from '../../hooks/useModalA11y'
 
@@ -260,8 +260,8 @@ function LogRow({ evt, idx }: { evt: { type: string; message: string; data?: Rec
       <span className="shrink-0 w-4 text-center select-none">{icon}</span>
       <span className="flex-1 min-w-0 break-words">{evt.message}</span>
       {evt.timestamp && (
-        <span className="text-gray-500 shrink-0 font-mono" title={evt.timestamp}>
-          {evt.timestamp.slice(11, 23)}
+        <span className="text-gray-500 shrink-0 font-mono" title={formatLogTimestamp(evt.timestamp)}>
+          {formatLogClock(evt.timestamp)}
         </span>
       )}
     </div>
