@@ -89,7 +89,7 @@ export function ItemCard({ item }: ItemCardProps) {
           </a>
 
           {/* 摘要 */}
-          <ClampText text={item.summary} className="mt-1 text-xs text-gray-500" />
+          <ClampText text={item.summary} readMoreHref={item.url} className="mt-1 text-xs text-gray-500" />
 
           {/* meta */}
           <div className="mt-2 flex items-center gap-3 text-xs text-gray-400">

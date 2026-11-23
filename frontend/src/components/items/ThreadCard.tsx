@@ -431,7 +431,7 @@ export function ThreadCard({ thread, defaultExpanded = false }: ThreadCardProps)
                             <ExternalLink className="h-3 w-3 inline ml-1 opacity-50" />
                           </a>
                         </h3>
-                        <ClampText text={item.summary} className="text-xs text-gray-500 mt-1" />
+                        <ClampText text={item.summary} readMoreHref={item.url} className="text-xs text-gray-500 mt-1" />
                       </div>
                       <div className="flex items-center gap-1 shrink-0">
                         <button

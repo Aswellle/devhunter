@@ -204,7 +204,7 @@ function RecommendedItemCard({ item }: { item: RecommendedItem }) {
         {item.title}
       </a>
       <ReasonBadges reasons={item.recommendation_reasons} max={3} />
-      <ClampText text={item.summary} className="text-xs text-gray-500 mt-1" />
+      <ClampText text={item.summary} readMoreHref={item.url} className="text-xs text-gray-500 mt-1" />
       <div className="flex items-center gap-2 mt-2 flex-wrap">
         {/* 分级胶囊：≥80 主题色即"推荐"态，不再重复文字徽标 */}
         <ScorePill score={score} />

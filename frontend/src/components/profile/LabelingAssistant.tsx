@@ -9,6 +9,7 @@
  * 贴合度才反映排序质量而非"与模型的一致度"。
  */
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'react-hot-toast'
 import { ClipboardList, ThumbsDown, ThumbsUp } from 'lucide-react'
@@ -45,7 +46,7 @@ function LabelRow({
         ) : (
           <span className="text-sm font-medium text-gray-800">{item.title}</span>
         )}
-        <ClampText text={item.summary ?? undefined} className="text-xs text-gray-500 mt-0.5" />
+        <ClampText text={item.summary ?? undefined} readMoreHref={item.url} className="text-xs text-gray-500 mt-0.5" />
       </div>
       <div className="flex items-center gap-1.5 shrink-0">
         <button
@@ -133,8 +134,13 @@ export function LabelingAssistant() {
         </button>
       </div>
       <p className="text-xs text-gray-500 mb-3">
-        对随机抽样的推荐候选标注"是否感兴趣"，用于评估推荐排序质量；
-        标注只用于评估，不会改变你的推荐结果。
+        对随机抽样的推荐候选标注"是否感兴趣"，用于衡量推荐排序质量（贴合度 = 感兴趣条目
+        的推荐分高于不感兴趣条目的比例）。这里的标注<b>只用于评估</b>，不会改变推荐结果；
+        若要真正排除某条推荐，请在
+        <Link to="/recommend" className="text-primary-600 hover:underline mx-0.5">
+          今日推荐
+        </Link>
+        中点击该条目的 ×（不感兴趣）。
         {summary && summary.total > 0 && (
           <>
             {' '}已标 <b className="text-gray-700">{summary.total}</b> 条
