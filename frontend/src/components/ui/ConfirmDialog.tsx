@@ -2,8 +2,9 @@
  * ConfirmDialog：通用确认对话框。
  *
  * 用于需要用户确认的操作（如退出登录、删除等）。
- * 符合 WAI-ARIA Dialog Pattern：焦点捕获、Escape 关闭、backdrop 关闭、
- * 焦点还原、ARIA 属性完整。
+ * 符合 WAI-ARIA Dialog Pattern：焦点捕获、Escape 取消、焦点还原、ARIA 属性完整。
+ * 遮罩点击不关闭：确认框的职责是拿到用户明确的确认/取消决定，
+ * 误点遮罩是可撤销的误操作来源，不算完成职责。
  */
 import { useCallback, useEffect, useId, useRef } from 'react'
 
@@ -100,13 +101,8 @@ export function ConfirmDialog({
     }
   }, [onCancel, trapFocus])
 
-  // backdrop 点击关闭
-  const handleBackdropClick = (e: React.MouseEvent) => {
-    if (e.target === dialogRef.current) {
-      onCancel()
-    }
-  }
-
+  // 遮罩点击不关闭：确认框必须拿到「确认/取消」的明确选择才能退出，
+  // 误点遮罩不等于用户做出了决定（Esc 仍等价于显式点「取消」）
   const handleCancel = () => {
     onCancel()
   }
@@ -126,7 +122,6 @@ export function ConfirmDialog({
       aria-modal="true"
       aria-labelledby={titleId}
       onClose={handleCancel}
-      onClick={handleBackdropClick}
       // 显式宽度：dialog 的 UA 默认宽度是 fit-content（随文字收缩），
       // 内层卡片的 w-full max-w-sm 永远撑不起来，卡片会塌缩成一条窄条
       className="fixed inset-0 z-[300] m-auto p-0 rounded-lg shadow-2xl border-0 backdrop:bg-black/50 bg-transparent w-[calc(100vw-2rem)] max-w-sm overflow-hidden"
