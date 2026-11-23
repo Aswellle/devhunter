@@ -22,10 +22,17 @@ export const queryKeys = {
       ['items', 'grouped', filters] as const,
     counts: () => ['items', 'counts'] as const,
     detail: (id: string) => ['items', 'detail', id] as const,
-    // 收藏列表按页缓存；starredAll 用于跨页失效（前缀匹配）
-    starred: (page: number = 1) => ['items', 'starred', page] as const,
+    // 收藏列表按"文件夹 + 页"缓存；starredAll 用于跨页失效（前缀匹配）
+    starred: (folder: string | undefined, page: number = 1) =>
+      ['items', 'starred', folder ?? 'all', page] as const,
     starredAll: ['items', 'starred'] as const,
     cloud: () => ['items', 'cloud'] as const,
+  },
+
+  // ── 收藏分组 ─────────────────────────────────────────────
+  starFolders: {
+    all: ['star-folders'] as const,
+    overview: () => ['star-folders', 'overview'] as const,
   },
 
   // ── Tasks ──────────────────────────────────────────────
@@ -45,6 +52,7 @@ export const queryKeys = {
     list: (params: Record<string, unknown> | undefined) =>
       ['threads', 'list', params] as const,
     detail: (id: string) => ['threads', 'detail', id] as const,
+    overview: (windowHours: number) => ['threads', 'overview', windowHours] as const,
   },
 
   // ── Recommendations ────────────────────────────────────

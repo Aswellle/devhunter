@@ -40,6 +40,24 @@ export interface Item {
   is_starred: boolean
   fetched_at: string
   created_at: string
+  /** 收藏分组；取消收藏后保留归属，重新收藏时回到原文件夹 */
+  star_folder_id?: string | null
+  star_folder_name?: string | null
+}
+
+/** 收藏分组（文件夹） */
+export interface StarFolder {
+  id: string
+  name: string
+  item_count: number
+  created_at: string
+  updated_at: string
+}
+
+export interface StarFolderOverview {
+  folders: StarFolder[]
+  total_starred: number
+  uncategorized_count: number
 }
 
 export interface RecommendedItem extends Item {
@@ -259,6 +277,7 @@ export interface ThreadRecomputeResult {
   threads: number
   duration_ms: number
   window_hours: number
+  orphans_swept?: number
 }
 
 /** GET /api/items/threads/recompute/status 响应 */
@@ -266,6 +285,43 @@ export interface ThreadRecomputeStatus {
   running: boolean
   result: ThreadRecomputeResult | null
   error: string | null
+}
+
+/** POST /api/items/threads/consolidate：增量合并结果 */
+export interface ThreadConsolidateResult {
+  window_hours: number
+  orphans_clustered: number
+  merged_threads: number
+  orphans_swept: number
+  threads_before: number
+  threads_after: number
+  threads_multi: number
+  threads_single: number
+  duration_ms: number
+}
+
+/** GET /api/items/threads/overview：聚合概览 */
+export interface ThreadAggregationOverview {
+  window_hours: number
+  threads_total: number
+  threads_multi: number
+  threads_single: number
+  active_discussion_sources: number
+  discussion_items_in_window: number
+  orphan_items: number
+  recompute: ThreadRecomputeStatus
+  last_consolidation: {
+    at: string
+    trigger: string
+    result: ThreadConsolidateResult
+  } | null
+}
+
+/** POST /api/items/threads/aggregate：手动聚合请求 */
+export interface ThreadAggregatePayload {
+  item_ids: string[]
+  title?: string
+  target_thread_id?: string
 }
 
 // ── RSS 机器出口 ──────────────────────────────────────────

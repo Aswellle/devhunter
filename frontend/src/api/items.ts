@@ -6,6 +6,8 @@ export interface ItemsQuery {
   search?: string
   starred?: boolean
   is_read?: boolean
+  /** 收藏文件夹 id；'none' 表示未分类 */
+  star_folder_id?: string
   page?: number
   per_page?: number
 }
