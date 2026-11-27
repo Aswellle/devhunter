@@ -464,8 +464,8 @@ export function ThreadCard({ thread, defaultExpanded = false }: ThreadCardProps)
                             )}
                           />
                         </button>
-                        <span className="text-xs text-gray-400" title={formatDateTime(item.fetched_at)}>
-                          {formatDistanceToNow(item.fetched_at)}
+                        <span className="text-xs text-gray-400" title={formatDateTime(item.published_at || item.fetched_at)}>
+                          {formatDistanceToNow(item.published_at || item.fetched_at)}
                         </span>
                       </div>
                     </div>

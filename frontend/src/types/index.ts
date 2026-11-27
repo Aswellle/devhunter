@@ -38,6 +38,8 @@ export interface Item {
   summary: string | null
   is_read: boolean
   is_starred: boolean
+  /** 来源原发时间（X/RSS 提供时优先展示；缺失时回退 fetched_at） */
+  published_at?: string | null
   fetched_at: string
   created_at: string
   /** 收藏分组；取消收藏后保留归属，重新收藏时回到原文件夹 */

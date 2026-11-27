@@ -7,7 +7,7 @@
 import { useMemo, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'react-hot-toast'
-import { Zap, ExternalLink, Check, Code, Lightbulb, Users, BookOpen, Palette, ClipboardList } from 'lucide-react'
+import { Zap, ExternalLink, Check, Code, Lightbulb, Users, BookOpen, Palette, ClipboardList, TrendingUp } from 'lucide-react'
 import { tasksApi } from '../../api/tasks'
 import { queryKeys } from '../../api/queryKeys'
 import { errorMessage } from '../../api/client'
@@ -24,6 +24,7 @@ interface TemplateMarketProps {
 const CATEGORIES = [
   { id: 'all', name: '全部', icon: null },
   { id: '开发趋势', name: '开发趋势', icon: Code },
+  { id: '热点趋势', name: '热点趋势', icon: TrendingUp },
   { id: '创意发现', name: '创意发现', icon: Lightbulb },
   { id: '社区讨论', name: '社区讨论', icon: Users },
   { id: '技术博客', name: '技术博客', icon: BookOpen },

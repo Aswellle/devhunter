@@ -216,7 +216,7 @@ function RecommendedItemCard({ item }: { item: RecommendedItem }) {
         </span>
         <span className="text-xs text-gray-300">·</span>
         <span className="text-xs text-gray-400">
-          {formatDistanceToNow(item.fetched_at)}
+          {formatDistanceToNow(item.published_at || item.fetched_at)}
         </span>
       </div>
     </div>

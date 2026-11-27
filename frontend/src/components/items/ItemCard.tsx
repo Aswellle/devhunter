@@ -133,9 +133,9 @@ export function ItemCard({
             {item.task_name && (
               <span className="badge badge-gray">{item.task_name}</span>
             )}
-            {/* 相对时间悬停显示绝对时间，跨天后仍可溯源 */}
-            <span title={formatDateTime(item.fetched_at)}>
-              {formatDistanceToNow(item.fetched_at)}
+            {/* 相对时间悬停显示绝对时间；X/RSS 有原发时间时优先展示原发时间 */}
+            <span title={`${item.published_at ? '原发时间' : '采集时间'}：${formatDateTime(item.published_at || item.fetched_at)}`}>
+              {formatDistanceToNow(item.published_at || item.fetched_at)}
             </span>
             {folderControl}
           </div>
