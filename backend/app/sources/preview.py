@@ -70,6 +70,8 @@ class PreviewExtractor:
                 result = self._preview_rss(url, discovery_result, limit)
             elif discovery_result.source_type == "json":
                 result = self._preview_json(url, discovery_result, limit)
+            elif discovery_result.source_type == "x":
+                result = self._preview_x(url, limit)
             else:
                 result = self._preview_html(url, discovery_result, limit)
 
@@ -127,6 +129,42 @@ class PreviewExtractor:
 
         if crawl_result.error:
             result.error = crawl_result.error
+            return result
+
+        result.success = True
+        result.http_status = crawl_result.http_status
+        result.total_found = crawl_result.extracted_count
+
+        for item in crawl_result.items[:limit]:
+            result.items.append({
+                "title": item.title,
+                "url": item.url,
+                "summary": item.summary,
+            })
+
+        return result
+
+    def _preview_x(self, url: str, limit: int) -> PreviewResult:
+        """预览 X（推特）公开账号时间线（引擎内部改写为 syndication 地址）"""
+        result = PreviewResult()
+
+        selectors = {
+            "list": "x:",
+            "title": "x:text",
+            "link": "x:url",
+            "summary": "x:meta",
+        }
+
+        crawl_result = fetch_and_parse(url, selectors, [])
+
+        if crawl_result.error:
+            if "429" in crawl_result.error or "Too Many Requests" in crawl_result.error:
+                result.error = (
+                    "X 嵌入接口限流（HTTP 429）：同一 IP 约 30 次/窗口。"
+                    "请稍后再试，或把 X 任务频率降到每小时一次。"
+                )
+            else:
+                result.error = crawl_result.error
             return result
 
         result.success = True

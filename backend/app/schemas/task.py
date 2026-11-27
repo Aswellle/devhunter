@@ -42,6 +42,11 @@ PRESET_TEMPLATES = {
     "bilibili_music",
     "douyin_trending",
     "zhihu_hot",
+    # X（推特）公开时间线
+    "x_world",
+    "x_chinese",
+    "x_tech",
+    "x_dev",
     # 需求分享
     "reddit_forhire",
     "reddit_ideas",
@@ -59,6 +64,7 @@ def _selector_mode(selector_list: str | None) -> str:
     - html     → CSS 选择器（soupsieve 校验）
     - json     → JSON 路径，link 支持 PREF:prefix|path
     - rss      → 由 feed 自带标题/链接，这三个字段不参与解析
+    - x        → X 专属适配器，这三个字段仅为兼容任务模型占位
     """
     sl = (selector_list or "").strip()
     if sl.startswith("json-post:"):
@@ -67,6 +73,8 @@ def _selector_mode(selector_list: str | None) -> str:
         return "json"
     if sl.startswith("rss:"):
         return "rss"
+    if sl.startswith("x:"):
+        return "x"
     return "html"
 
 
@@ -113,7 +121,7 @@ def _validate_next_page_selector(v: str | None, mode: str | None = "html") -> st
     v = v.strip()
     if len(v) > _MAX_SELECTOR_LEN:
         raise InvalidSelectorError(f"selector_next_page 长度超过 {_MAX_SELECTOR_LEN}")
-    if mode in ("json", "json-post", "rss") or v.startswith("json:"):
+    if mode in ("json", "json-post", "rss", "x") or v.startswith("json:"):
         return v
     if v.startswith("json-post:"):
         return v
@@ -212,7 +220,7 @@ class TaskBase(BaseModel):
     @field_validator("selector_list")
     @classmethod
     def validate_selector_list(cls, v: str) -> str:
-        """列表 selector 决定解析模式（json: / json-post: / rss: / HTML）。"""
+        """列表 selector 决定解析模式（json: / json-post: / rss: / x: / HTML）。"""
         return _require_selector(v, "selector_list", _selector_mode(v))
 
     @field_validator("selector_title", "selector_link")

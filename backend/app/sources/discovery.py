@@ -28,6 +28,7 @@ from bs4 import BeautifulSoup
 from ..core.http_client import get_http_client
 from ..core.ssrf import resolve_and_validate_url
 from ..crawler.engine import MAX_REDIRECTS
+from ..crawler.x_source import extract_screen_name, normalize_x_source_url
 
 logger = logging.getLogger(__name__)
 
@@ -79,7 +80,7 @@ class DiscoveryFailure:
 class DiscoveryResult:
     """发现结果"""
     url: str
-    source_type: str = "unknown"  # rss | json | html
+    source_type: str = "unknown"  # rss | json | html | x
     title: str = ""
     description: str = ""
     feed_url: str = ""
@@ -210,6 +211,24 @@ class URLDiscoverer:
         # 结果反映归一化后的实际地址（后续保存任务直接可用）
         result.url = normalized
         tried: list[str] = [normalized]
+
+        # X（推特）账号主页：普通 HTML 抓取只能拿到 SPA 空壳，
+        # 直接走内置的公开时间线适配器，避免误判为 JS_RENDERED_PAGE
+        x_url = normalize_x_source_url(normalized)
+        if x_url:
+            screen_name = extract_screen_name(x_url)
+            result.source_type = "x"
+            result.title = f"X 账号 @{screen_name}" if screen_name else "X 账号时间线"
+            result.description = (
+                "X（推特）公开时间线：内置适配器解析最新推文，"
+                "无需登录/API Key，已自动过滤转推与回复。"
+            )
+            result.list_selector = "x:"
+            result.title_selector = "x:text"
+            result.link_selector = "x:url"
+            result.summary_selector = "x:meta"
+            result.tried_urls = tried
+            return result
 
         resp, fail = self._fetch_with_classification(normalized, timeout=15.0)
 
