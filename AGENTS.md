@@ -50,6 +50,8 @@ DevHunter 是一个自托管的内容聚合系统，自动从 28+ 开发者平�
 - **json:\<path\>** — JSON API GET，点分隔路径
 - **json-post:\<path\>\|\|\|\<body\>** — JSON API POST
 - **rss:** — RSS 2.0 / Atom 订阅源解析
+- **x:** — X（推特）公开账号时间线：`https://x.com/<账号>` 自动改写为
+  `syndication.twitter.com` 嵌入页并解析 `__NEXT_DATA__`，无需登录/API Key
 
 ### 实时事件
 - `EventBus` 单例通过 SSE 发布任务执行进度
@@ -78,7 +80,7 @@ devhunter/
 │   │   ├── services/       # 业务逻辑（task、item、execution、thread、recommendation）
 │   │   ├── repositories/   # 数据访问层（6 个仓储）
 │   │   ├── schemas/        # Pydantic 请求/响应模型
-│   │   ├── crawler/        # HTTP 抓取 + 解析引擎（engine、dedup、templates）
+│   │   ├── crawler/        # HTTP 抓取 + 解析引擎（engine、dedup、templates、x_source）
 │   │   ├── sources/        # 模板注册、发现、预览、验证、健康、市场
 │   │   ├── threads/        # 聚类、评分、合并、拆分
 │   │   ├── recommendation/ # 候选、评分、排序、多样性、解释、画像、适配器
@@ -88,7 +90,7 @@ devhunter/
 │   │   └── utils/          # 哈希、URL、相似度工具
 │   ├── migrations/         # 28 个纯 SQL 迁移文件（001–028）
 │   ├── templates/          # 预设爬取模板（JSON）
-│   ├── tests/              # 26 个测试文件，跨 8 个领域模块 + 1 个空目录 + 1 个独立 E2E 脚本
+│   ├── tests/              # 28 个测试文件，跨 8 个领域模块 + 1 个空目录 + 1 个独立 E2E 脚本
 │   ├── run.py              # 本地开发入口
 │   ├── e2e_test.py         # 独立 E2E 测试（自包含，使用临时 DB）
 │   └── pyproject.toml      # pytest 配置、依赖
@@ -233,7 +235,7 @@ git config core.hooksPath .githooks    # 克隆后执行一次：启用提交信
   - **服务/仓储集成测试** — 使用共享的 session 级 SQLite 测试 DB 并应用迁移
   - **API 测试** — 通过 FastAPI `TestClient` 覆盖完整 ASGI 栈
 - **Fixture：** `backend/tests/conftest.py` — session 级临时 SQLite DB 带迁移，autouse monkeypatch 覆盖 `config.settings.db_path`
-- **组织：** 26 个测试文件，8 个领域模块：`test_api/`、`test_crawler/`、`test_recommendation/`、`test_sources/`、`test_features/`、`test_threads/`、`test_services/`、`test_execution/`
+- **组织：** 28 个测试文件，8 个领域模块：`test_api/`、`test_crawler/`、`test_recommendation/`、`test_sources/`、`test_features/`、`test_threads/`、`test_services/`、`test_execution/`
 - **模式：**
   - API 测试使用 FastAPI `TestClient` + `_auth_headers()` Bearer token 辅助函数
   - 爬取器测试使用 `_FakeResponse` + `_ScriptedClient`（脚本化响应序列 + `.calls` 计数器）
@@ -279,6 +281,7 @@ python e2e_test.py                  # 独立 E2E（必须从 backend/ 目录运�
 | `CRAWLER_MAX_RESPONSE_MB` | `5` | 响应体大小上限 |
 | `SCHEDULER_MAX_WORKERS` | `3` | 并行爬取任务数 |
 | `SCHEDULER_MISFIRE_GRACE_TIME` | `300` | APScheduler misfire grace（秒） |
+| `THREAD_CLUSTER_WINDOW_HOURS` | `72` | Thread 聚类候选活动窗口（小时） |
 | `LOG_LEVEL` | `INFO` | 日志级别 |
 | `LOG_FORMAT` | `json` | `json` 或 `text` |
 | `CORS_ORIGINS` | `http://localhost:5173,...` | 逗号分隔的允许来源 |
@@ -444,3 +447,5 @@ SQLite，WAL 模式。关键表：
 26. **收藏文件夹的归属语义**：`items.star_folder_id` 在取消收藏后**保留**（文件夹视图只筛 `is_starred=1`，重新收藏自动回位）；删除文件夹走 `ON DELETE SET NULL` 回到未分类，不取消收藏。名称用 `COLLATE NOCASE` 唯一索引，批量归组走 `/api/star-folders/assign`（`folder_id=null` 表示移出）。
 27. **Thread 聚合不能只靠采集管线**：采集只让**新条目**找候选 Thread，两个不同批次各自创建的单条 Thread 永远不会互相比较。`consolidate_threads()`（每小时系统任务 + `POST /items/threads/consolidate`）负责补聚孤儿并合并可归并的单条 Thread；手动聚合用 `POST /items/threads/aggregate`。候选窗口默认 72h（`THREAD_CLUSTER_WINDOW_HOURS`），24h 会让跨天报道等不到后续报道。
 28. **Thread 评分需要标题内容支持**：`source_score` 必须用任务名比较（items 表没有 source_id），而跨来源加分 + 泛化实体（例如所有 GPT-5 新闻）足以把总分推过 0.35；`MIN_CONTENT_SIMILARITY=0.18` 要求词级或字符级相似度至少一项达标，避免"同一实体、不同故事"被合并。
+29. **X 来源走公开嵌入时间线，不是官方 API**：`x:` 模式把 `https://x.com/<账号>` 改写为 `syndication.twitter.com` 的 Next.js 页面并解析 `__NEXT_DATA__`，无需登录；只支持账号时间线（不支持搜索/列表），每次最多 40 条，转推/回复会被过滤。X 嵌入接口按 IP 限流（约 30 次/窗口），模板默认每小时一次，GET 429 有限重试。新增 X 模板时必须同步 `schemas/task.py` 的 `PRESET_TEMPLATES` 与 `_selector_mode`（否则任务创建 400/422），并保留 `selector_title/link/summary` 的非空占位值。
+30. **published_at 优先于 fetched_at**：X/RSS 等带原发时间的条目在入库时写 `items.published_at`，Thread 时间因子（`threads/scoring.py`）与展示层都优先使用它；缺失时才回退 `fetched_at`。不要把 `fetched_at` 当成事件发生时间，否则一周前的推文刚抓到就会被当成新热点。
