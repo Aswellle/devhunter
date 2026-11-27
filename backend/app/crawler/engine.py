@@ -1,12 +1,13 @@
 """
 app/crawler/engine.py
-核心抓取引擎：HTTP fetch + HTML/JSON/RSS 解析 + 关键词过滤
+核心抓取引擎：HTTP fetch + HTML/JSON/RSS/X 解析 + 关键词过滤
 
-支持三种解析模式（通过 selectors['list'] 前缀自动识别）：
+支持四种解析模式（通过 selectors['list'] 前缀自动识别）：
   html       : CSS Selector 解析（默认，无前缀）
   json:      : JSON API GET 解析，selector_list = "json:<dot_path>"
   json-post: : JSON API POST 解析，selector_list = "json-post:<path>|||<body_json>"
   rss:       : RSS 2.0 / Atom feed 解析，selector_list = "rss:"
+  x:         : X（推特）公开账号时间线，selector_list = "x:"
 
 链接字段支持 PREF:prefix|path 语法：自动拼接前缀 + JSON 路径值。
 永远不向调用方抛异常，错误通过 CrawlResult.error 字段传递。
@@ -32,6 +33,7 @@ from app.core.http_client import get_http_client
 # pinning 执法在共享 HTTP 客户端的传输后端里（SSRFPinnedNetworkBackend），
 # 本模块的预检只负责在发起请求前给出即时、可读的拒绝信息
 from app.core.ssrf import resolve_and_validate_url
+from app.crawler.x_source import normalize_x_source_url, parse_x_timeline
 from app.utils.url import compute_url_hash
 
 logger = logging.getLogger(__name__)
@@ -40,6 +42,9 @@ logger = logging.getLogger(__name__)
 MAX_RESPONSE_BYTES = settings.crawler_max_response_mb * 1024 * 1024
 MAX_RETRY_ATTEMPTS = 3
 RETRY_DELAY_SECONDS = 2
+# 429 限流重试上限：X 的嵌入时间线会返回 x-rate-limit-reset，
+# 但一次任务不应被远期的 reset 时间长时间占住执行锁
+MAX_429_RETRY_DELAY_SECONDS = 30.0
 MAX_PAGES = 10
 MAX_ITEMS_PER_EXECUTION = 500
 MAX_REDIRECTS = 5
@@ -52,6 +57,10 @@ class CrawlItem:
     url: str
     summary: str = ""
     url_hash: str = ""
+    # 原发时间（RSS pubDate / X created_at 等）。为空时回退 fetched_at。
+    # 条目表自 migration 012 起已有 published_at 列，采集入库时一并写入，
+    # Thread 评分的时间因子优先使用它，避免"刚抓到一条一周前的推文"被当成新事件。
+    published_at: str = ""
     # D1: 去重优先级字段
     external_id: str = ""   # 来源平台的原生 ID（如 GitHub issue number, RSS GUID）
     content_hash: str = ""  # 内容指纹（title + summary 的 hash）
@@ -106,6 +115,9 @@ def _parse_mode(selector_list: str) -> tuple[str, str, dict]:
 
     if sl.startswith("rss:"):
         return "rss", "", {}
+
+    if sl.startswith("x:"):
+        return "x", "", {}
 
     # Default: HTML mode
     return "html", sl, {}
@@ -337,6 +349,13 @@ def _get_extra_headers(url: str) -> dict:
             "User-Agent": "Mozilla/5.0 (compatible; DevHunter/1.0; +https://github.com/devhunter)",
         }
 
+    # X syndication: 公开嵌入时间线，按浏览器 HTML 请求；带上来源页 Referer
+    if "syndication.twitter.com" in domain or "cdn.syndication.twimg.com" in domain:
+        return {
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Referer": "https://x.com/",
+        }
+
     return {}
 
 
@@ -425,6 +444,34 @@ def _fetch_bounded(
         response.close()
 
 
+def _rate_limit_delay(response: httpx.Response | None) -> float:
+    """
+    429 后的等待时间：优先 Retry-After，其次 x-rate-limit-reset（epoch 秒），
+    上限 MAX_429_RETRY_DELAY_SECONDS。X 的 reset 可能在十几分钟后，直接等待
+    会长时间占住任务的执行锁；这里最多等 30s，剩余情况交给下一轮 cron。
+    """
+    headers = getattr(response, "headers", None)
+    if headers is None:
+        return RETRY_DELAY_SECONDS
+
+    retry_after = headers.get("retry-after")
+    if retry_after:
+        try:
+            return min(max(float(retry_after), 1.0), MAX_429_RETRY_DELAY_SECONDS)
+        except (TypeError, ValueError):
+            pass
+
+    reset = headers.get("x-rate-limit-reset")
+    if reset:
+        try:
+            remaining = float(reset) - time.time()
+            return min(max(remaining, 1.0), MAX_429_RETRY_DELAY_SECONDS)
+        except (TypeError, ValueError):
+            pass
+
+    return RETRY_DELAY_SECONDS
+
+
 def _fetch_page_with_retry(
     client: httpx.Client,
     url: str,
@@ -443,7 +490,10 @@ def _fetch_page_with_retry(
     POST is still retried on network-level failures (TimeoutException,
     RequestError) where the request likely never reached the server.
 
-    Terminal (no retry): HTTP 4xx (all modes), HTTP 5xx (POST only).
+    429 限流对 GET 类模式可重试（X 的嵌入时间线按 IP 限流，短暂等待后
+    通常恢复）；POST 仍视为终态，避免重复提交。
+
+    Terminal (no retry): HTTP 4xx (all modes except GET 429), HTTP 5xx (POST only).
     """
     last_error = ""
     last_status = 0
@@ -451,6 +501,7 @@ def _fetch_page_with_retry(
     post_body = mode_extra.get("post_body") or {}
 
     for attempt in range(1, MAX_RETRY_ATTEMPTS + 1):
+        retry_delay = RETRY_DELAY_SECONDS
         try:
             if mode == "json-post":
                 response, fetch_err = _fetch_bounded(
@@ -529,32 +580,41 @@ def _fetch_page_with_retry(
             status = e.response.status_code
             last_status = status
             last_error = f"HTTP {status} {e.response.reason_phrase}"
-            _emit(on_progress, "fetch_error", last_error, {"status": status, "attempt": attempt})
-            if 400 <= status < 500:
-                # 4xx is terminal; do not retry.
-                return _FetchOutcome(
-                    response=None,
-                    retries_used=attempt - 1,
-                    error=last_error,
-                    http_status=status,
+            if status == 429 and mode != "json-post":
+                retry_delay = _rate_limit_delay(e.response)
+                _emit(
+                    on_progress, "fetch_error",
+                    f"来源限流（HTTP 429），{retry_delay:.0f}s 后重试",
+                    {"status": status, "attempt": attempt, "retry_delay": retry_delay},
                 )
-            # S6: POST 5xx may indicate partial server processing — do NOT retry
-            # to avoid duplicating side effects (e.g. double-submit). Only
-            # GET/HTML/RSS 5xx are safe to retry.
-            if mode == "json-post":
-                return _FetchOutcome(
-                    response=None,
-                    retries_used=attempt - 1,
-                    error=f"{last_error} (POST 5xx not retried for safety)",
-                    http_status=status,
-                )
-            # GET 5xx falls through to the retry delay below
+            else:
+                _emit(on_progress, "fetch_error", last_error,
+                      {"status": status, "attempt": attempt})
+                if 400 <= status < 500:
+                    # 4xx (except GET 429) is terminal; do not retry.
+                    return _FetchOutcome(
+                        response=None,
+                        retries_used=attempt - 1,
+                        error=last_error,
+                        http_status=status,
+                    )
+                # S6: POST 5xx may indicate partial server processing — do NOT retry
+                # to avoid duplicating side effects (e.g. double-submit). Only
+                # GET/HTML/RSS 5xx are safe to retry.
+                if mode == "json-post":
+                    return _FetchOutcome(
+                        response=None,
+                        retries_used=attempt - 1,
+                        error=f"{last_error} (POST 5xx not retried for safety)",
+                        http_status=status,
+                    )
+                # GET 5xx falls through to the retry delay below
         except Exception as e:
             last_error = f"Unknown error: {type(e).__name__}: {e}"
             _emit(on_progress, "fetch_error", f"未知错误: {type(e).__name__}", {"attempt": attempt})
 
         if attempt < MAX_RETRY_ATTEMPTS:
-            time.sleep(RETRY_DELAY_SECONDS)
+            time.sleep(retry_delay)
 
     return _FetchOutcome(
         response=None,
@@ -581,13 +641,15 @@ def fetch_and_parse(
       json:<path>   → JSON API GET，path 为列表的 dot-notation 路径
       json-post:<path>|||<body> → JSON API POST
       rss:           → RSS 2.0 / Atom 解析
+      x:             → X（推特）账号公开时间线（把 x.com/<账号> 自动改写为
+                       syndication 嵌入地址；只支持账号主页）
 
     title/link/summary 字段在 JSON 模式下为 dot-notation 路径；
     link 字段支持 PREF:<prefix>|<path> 语法拼接 URL 前缀。
 
     分页：selectors['next_page'] 存在时（CSS selector 或 json: 路径），
     引擎会跟随下一页链接最多 MAX_PAGES 页（HTML/json/json-post 模式）。
-    RSS 模式忽略 next_page，只抓一页。每页通过 _fetch_page_with_retry
+    RSS/X 模式忽略 next_page，只抓一页。每页通过 _fetch_page_with_retry
     获得 3×2s 重试保护。永不抛异常，错误经 CrawlResult.error 传递。
     """
     _timeout = timeout or settings.crawler_timeout
@@ -597,6 +659,17 @@ def fetch_and_parse(
     selector_list = selectors.get("list") or ""
     mode, list_path, mode_extra = _parse_mode(selector_list)
 
+    # X 模式：用户填 x.com/<账号> 即可，内部改写为公开嵌入时间线
+    if mode == "x":
+        normalized = normalize_x_source_url(url)
+        if not normalized:
+            _emit(on_progress, "fetch_error", "X 来源只支持账号主页 URL")
+            return CrawlResult(
+                error="X 来源仅支持账号主页 URL（例如 https://x.com/BBCWorld），"
+                      "不支持搜索、列表或推文详情页"
+            )
+        url = normalized
+
     # ── 初始 URL 的 SSRF 安全检查 ────────────────────────
     ssrf_safe, ssrf_msg, validated_ip = resolve_and_validate_url(url)
     if not ssrf_safe:
@@ -604,8 +677,8 @@ def fetch_and_parse(
         return CrawlResult(error=f"SSRF blocked: {ssrf_msg}")
 
     next_page_selector = selectors.get("next_page")
-    # RSS 不支持分页：忽略 next_page selector，只抓一页
-    if mode == "rss":
+    # RSS/X 不支持分页：忽略 next_page selector，只抓一页
+    if mode in ("rss", "x"):
         next_page_selector = None
 
     return _paginate(
@@ -645,6 +718,46 @@ def _parse_one_page(
     if len(content) > MAX_RESPONSE_BYTES:
         logger.warning("Response too large (%d bytes), truncating: %s", len(content), base_url)
         content = content[:MAX_RESPONSE_BYTES]
+
+    if mode == "x":
+        # syndication 页面是 Next.js HTML，推文在 __NEXT_DATA__ 里；
+        # 专用适配器负责过滤转推/回复、清理媒体短链并生成摘要
+        encoding = response.encoding
+        if not encoding or encoding.lower() in ("", "utf-8", "utf8"):
+            detected = chardet.detect(content)
+            encoding = detected.get("encoding") or "utf-8"
+        try:
+            html_text = content.decode(encoding, errors="replace")
+        except (LookupError, UnicodeDecodeError):
+            html_text = content.decode("utf-8", errors="replace")
+
+        posts, raw_count = parse_x_timeline(html_text, base_url)
+        parsed = [
+            CrawlItem(
+                title=post["title"],
+                url=post["url"],
+                summary=post["summary"],
+                external_id=post.get("external_id", ""),
+                published_at=post.get("published_at", ""),
+            )
+            for post in posts
+        ]
+        parse_ms = int((time.time() - parse_start) * 1000)
+        if raw_count == 0:
+            _emit(
+                on_progress, "parse_done",
+                "X 时间线未找到推文：请确认账号存在且公开，或页面结构已变更",
+                {"list_count": 0},
+            )
+        else:
+            skipped = raw_count - len(parsed)
+            _emit(
+                on_progress, "parse_done",
+                f"X 解析完成：{raw_count} 条时间线事件 → 提取 {len(parsed)} 条"
+                f"（过滤转推/回复 {max(skipped, 0)} 条）",
+                {"list_count": raw_count, "extracted": len(parsed), "parse_ms": parse_ms},
+            )
+        return parsed, raw_count, None
 
     if mode in ("json", "json-post"):
         try:

@@ -706,7 +706,8 @@ class ThreadRepository:
             rows = conn.execute(
                 f"""
                 SELECT ti.thread_id, i.id, i.task_id, i.title, i.summary,
-                       i.fetched_at, i.created_at, t.name AS task_name
+                       i.published_at, i.fetched_at, i.created_at,
+                       t.name AS task_name
                 FROM thread_items ti
                 JOIN items i ON i.id = ti.item_id
                 LEFT JOIN tasks t ON t.id = i.task_id

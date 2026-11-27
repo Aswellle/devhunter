@@ -16,6 +16,7 @@ class ItemResponse(BaseModel):
     summary: str | None
     is_read: bool
     is_starred: bool
+    published_at: str | None = None
     fetched_at: str
     created_at: str
     # 收藏分组（仅 is_starred 时有展示意义；取消收藏后保留归属）

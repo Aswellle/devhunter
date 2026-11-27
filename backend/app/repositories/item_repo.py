@@ -46,9 +46,9 @@ class ItemRepository:
                     conn_.execute(
                         """
                         INSERT INTO items
-                            (id, task_id, title, url, url_hash, summary, fetched_at, created_at,
-                             external_id, content_hash)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            (id, task_id, title, url, url_hash, summary, published_at,
+                             fetched_at, created_at, external_id, content_hash)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                         (
                             item_id,
@@ -57,6 +57,7 @@ class ItemRepository:
                             item["url"],
                             item["url_hash"],
                             item.get("summary") or "",
+                            item.get("published_at") or None,
                             item.get("fetched_at") or now,
                             now,
                             item.get("external_id") or None,
@@ -292,13 +293,14 @@ class ItemRepository:
         """
         全部条目按 created_at 正序（Thread 重建重放用），只取聚类所需字段。
 
-        items 表没有 source_id/published_at 列——与采集入库路径一致，
-        评分器对这些缺失键走默认回退（source 视为未知、时间用 fetched_at）。
+        published_at 是来源原发时间（X/RSS 可能提供）；评分器优先用它，
+        缺失时回退 fetched_at。
         """
         with get_db() as conn:
             rows = conn.execute(
                 """
-                SELECT id, task_id, title, url, summary, fetched_at, created_at
+                SELECT id, task_id, title, url, summary, published_at,
+                       fetched_at, created_at
                 FROM items
                 ORDER BY created_at ASC, id ASC
                 """
@@ -318,7 +320,7 @@ class ItemRepository:
             rows = conn.execute(
                 """
                 SELECT i.id, i.task_id, i.title, i.url, i.summary,
-                       i.fetched_at, i.created_at
+                       i.published_at, i.fetched_at, i.created_at
                 FROM items i
                 JOIN tasks t ON i.task_id = t.id
                 WHERE i.thread_id IS NULL

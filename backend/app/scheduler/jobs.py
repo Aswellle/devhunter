@@ -287,6 +287,7 @@ def _run_task(
             "url":       item.url,
             "url_hash":  item.url_hash,
             "summary":   item.summary,
+            "published_at": item.published_at or None,
             "fetched_at": executed_at_iso,
             "external_id": item.external_id or None,
             "content_hash": item.content_hash or None,
