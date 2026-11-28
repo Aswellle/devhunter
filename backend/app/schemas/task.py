@@ -47,6 +47,10 @@ PRESET_TEMPLATES = {
     "x_chinese",
     "x_tech",
     "x_dev",
+    # GitHub 官方 API（只读：Repo / Releases / Issues）
+    "github_repo",
+    "github_releases",
+    "github_issues",
     # 需求分享
     "reddit_forhire",
     "reddit_ideas",
@@ -75,6 +79,8 @@ def _selector_mode(selector_list: str | None) -> str:
         return "rss"
     if sl.startswith("x:"):
         return "x"
+    if sl.startswith("github:"):
+        return "github"
     return "html"
 
 
@@ -121,7 +127,7 @@ def _validate_next_page_selector(v: str | None, mode: str | None = "html") -> st
     v = v.strip()
     if len(v) > _MAX_SELECTOR_LEN:
         raise InvalidSelectorError(f"selector_next_page 长度超过 {_MAX_SELECTOR_LEN}")
-    if mode in ("json", "json-post", "rss", "x") or v.startswith("json:"):
+    if mode in ("json", "json-post", "rss", "x", "github") or v.startswith("json:"):
         return v
     if v.startswith("json-post:"):
         return v

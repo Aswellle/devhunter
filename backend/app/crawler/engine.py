@@ -125,6 +125,10 @@ def _parse_mode(selector_list: str) -> tuple[str, str, dict]:
     if sl.startswith("x:"):
         return "x", "", {}
 
+    if sl.startswith("github:"):
+        # GitHub 官方只读 Connector：后缀选 repo | releases | issues
+        return "github", sl.split(":", 1)[1].strip(), {}
+
     # Default: HTML mode
     return "html", sl, {}
 
@@ -757,6 +761,23 @@ def fetch_and_parse(
     mode, list_path, mode_extra = _parse_mode(selector_list)
 
     # X 模式：用户填 x.com/<账号> 即可，内部改写为公开嵌入时间线
+    if mode == "github":
+        # GitHub 官方 API Connector（PROD-002）：请求域名固定 api.github.com
+        # （无用户可控主机），自带 ETag 与 Link 分页，不走通用抓取循环
+        from app.sources.github_connector import fetch as _github_fetch
+        result = _github_fetch(
+            url, list_path, token=settings.github_token,
+            on_progress=on_progress,
+        )
+        if result.error:
+            _emit(on_progress, "fetch_error", result.error, {"mode": "github"})
+        else:
+            _emit(on_progress, "fetch_done",
+                  f"GitHub API：{result.extracted_count} 条 · {result.pages_fetched} 页",
+                  {"status": result.http_status, "mode": "github",
+                   "pages": result.pages_fetched})
+        return result
+
     if mode == "x":
         normalized = normalize_x_source_url(url)
         if not normalized:

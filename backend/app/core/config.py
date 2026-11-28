@@ -78,6 +78,12 @@ class Settings(BaseSettings):
     # 连续失败达到该次数后停止调用（进程生命周期内），防止服务端故障时重试烧钱
     llm_max_consecutive_failures: int = 5
 
+    # ── GitHub Connector（PROD-002，可选）─────────
+    # 公开只读访问无需 token；配置后配额从 60/h 提升到 5000/h。
+    # 最小权限：public_repo 只读即可；撤销 = 删除/轮换该环境变量后重启，
+    # 不在任务模板或数据库中保存明文。
+    github_token: str = ""
+
     # ── CORS ────────────────────────────────────
     cors_origins: str = "http://localhost:5173,http://localhost:3000,http://localhost:5200,http://127.0.0.1:5200"
 

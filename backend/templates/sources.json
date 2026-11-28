@@ -433,5 +433,50 @@
     "category": "开发趋势",
     "subcategory": "X 时间线",
     "content_kind": "discussion"
+  },
+  {
+    "id": "github_repo",
+    "name": "GitHub 仓库动态",
+    "source_url": "https://github.com/astral-sh/uv",
+    "selector_list": "github:repo",
+    "selector_title": "github:title",
+    "selector_link": "github:url",
+    "selector_summary": "github:summary",
+    "description": "官方 API 读取仓库元数据（描述、Star、最近推送时间）。替换 URL 为任意公开仓库即可。只读、无需登录；配置 GITHUB_TOKEN 可提升配额。",
+    "default_keywords": [],
+    "recommended_cron": "0 */6 * * *",
+    "category": "开发趋势",
+    "subcategory": "GitHub",
+    "content_kind": "catalog"
+  },
+  {
+    "id": "github_releases",
+    "name": "GitHub Release 发布",
+    "source_url": "https://github.com/astral-sh/uv/releases",
+    "selector_list": "github:releases",
+    "selector_title": "github:title",
+    "selector_link": "github:url",
+    "selector_summary": "github:summary",
+    "description": "官方 API 读取 Release 列表（ETag 条件请求 + Link 分页）。适合追踪依赖库/框架的新版本发布。",
+    "default_keywords": [],
+    "recommended_cron": "0 */3 * * *",
+    "category": "开发趋势",
+    "subcategory": "GitHub",
+    "content_kind": "discussion"
+  },
+  {
+    "id": "github_issues",
+    "name": "GitHub Issue 讨论",
+    "source_url": "https://github.com/astral-sh/uv/issues",
+    "selector_list": "github:issues",
+    "selector_title": "github:title",
+    "selector_link": "github:url",
+    "selector_summary": "github:summary",
+    "description": "官方 API 读取 Issue 列表（自动过滤 Pull Request）。适合追踪项目痛点与社区讨论。",
+    "default_keywords": [],
+    "recommended_cron": "0 */4 * * *",
+    "category": "社区讨论",
+    "subcategory": "GitHub",
+    "content_kind": "discussion"
   }
 ]
