@@ -10,6 +10,7 @@ from app.api import (
     executions,
     items,
     llm,
+    notifications,
     outlets,
     sources,
     star_folders,
@@ -33,3 +34,4 @@ api_router.include_router(sources.router)
 api_router.include_router(stats.router)
 api_router.include_router(user_prefs.router)
 api_router.include_router(llm.router)
+api_router.include_router(notifications.router)

@@ -114,6 +114,19 @@ class SchedulerManager:
         except Exception as e:
             logger.error("Failed to register thread consolidation job: %s", e)
 
+        # 通知投递（PROD-003）：每 5 分钟投递到期待发通知
+        try:
+            from app.notifications.service import dispatch_deliveries_job
+            self._scheduler.add_job(
+                dispatch_deliveries_job,
+                trigger=IntervalTrigger(minutes=5, timezone=datetime.timezone.utc),
+                id="__system_notifications__",
+                replace_existing=True,
+                name="Notification Delivery (5min)",
+            )
+        except Exception as e:
+            logger.error("Failed to register notification job: %s", e)
+
         # SCHED: 周期性对账（10 分钟）——DB 是期望状态，JobStore 是投影，
         # add/reschedule/remove 任一失败留下的漂移在这里收敛
         try:

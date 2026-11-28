@@ -254,6 +254,16 @@ def _run_task(
                     last_error_code=error_code)
         task_repo.update_execution_stats(task_id, success=False, empty=False,
                                          executed_at=executed_at_iso)
+        try:
+            from app.notifications import service as notif_service
+            notif_service.dispatch_health_event({
+                "task_id": task_id, "task_name": task.get("name") or "",
+                "kind": "failure", "message": user_msg,
+                "executed_at": executed_at_iso,
+            })
+        except Exception as e:
+            logger.warning("Notification dispatch failed for task %s: %s", task_id, e)
+
         _pub(task_id, "failure",
              f"抓取失败：{user_msg}",
              {"duration_ms": duration_ms,
@@ -403,6 +413,26 @@ def _run_task(
     task_repo.update_execution_stats(task_id, success=True,
                                      empty=is_empty, executed_at=executed_at_iso)
 
+    # 通知（PROD-003）：保存搜索命中新条目；部分成功按 health 事件播报。
+    # 通知失败绝不影响采集结果（服务内部吞异常）
+    try:
+        from app.notifications import service as notif_service
+        if new_items:
+            # 事件键用 url_hash：入库前没有 item id，且 url_hash 稳定
+            notif_service.dispatch_keyword_items([
+                {"id": item.url_hash or item.url, "title": item.title,
+                 "url": item.url, "summary": item.summary}
+                for item in new_items
+            ])
+        if result.is_partial:
+            notif_service.dispatch_health_event({
+                "task_id": task_id, "task_name": task.get("name") or "",
+                "kind": "partial", "message": f"已达{result.stop_reason}上限",
+                "executed_at": executed_at_iso,
+            })
+    except Exception as e:
+        logger.warning("Notification dispatch failed for task %s: %s", task_id, e)
+
     # ── Step 7: 最终事件 ─────────────────────────────────
     if is_empty:
         _pub(task_id, "warning",
@@ -444,8 +474,22 @@ def consolidate_threads_job() -> None:
     from app.services.thread_service import thread_service
 
     try:
+        # 通知（PROD-003）：只对"刚变成多来源"的 Thread 发一次——
+        # 合并前后做集合差，存量 Thread 不重复播报
+        from app.repositories.thread_repo import thread_repo
+        from app.notifications import service as notif_service
+        before_multi = set(thread_repo.list_multi_source_ids())
         result = thread_service.consolidate_threads(trigger="scheduled")
         logger.info("Scheduled thread consolidation: %s", result)
+        for thread_id in list(set(thread_repo.list_multi_source_ids()) - before_multi)[:20]:
+            thread = thread_repo.get(thread_id)
+            if thread:
+                notif_service.dispatch_thread_event({
+                    "thread_id": thread_id,
+                    "title": thread.get("title") or "",
+                    "item_count": thread.get("item_count") or 0,
+                    "platforms": thread.get("platforms") or [],
+                })
     except ConflictError:
         logger.info(
             "Scheduled thread consolidation skipped: another thread job is running"

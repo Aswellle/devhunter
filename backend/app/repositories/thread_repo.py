@@ -458,6 +458,20 @@ class ThreadRepository:
                 rows = c.execute(sql, (boundary, limit)).fetchall()
         return [_row_to_dict(r) for r in rows]
 
+    def list_multi_source_ids(self, limit: int = 500) -> list[str]:
+        """多来源 Thread 的 id 列表（跨来源证据 ≥2）。
+
+        通知服务用它在增量合并前后做集合差，只对"刚变成多来源"的
+        Thread 发通知，避免每小时重复播报存量 Thread。"""
+        with get_db() as conn:
+            rows = conn.execute(
+                """SELECT id FROM threads
+                   WHERE item_count >= 2
+                   ORDER BY last_seen_at DESC LIMIT ?""",
+                (limit,),
+            ).fetchall()
+        return [r["id"] for r in rows]
+
     def count_all(self) -> int:
         """当前 Thread 总数（含可能成为孤儿的行）"""
         with get_db() as conn:
