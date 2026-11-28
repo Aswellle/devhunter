@@ -36,6 +36,16 @@ async def lifespan(app: FastAPI):
     settings.validate_production_secrets()
 
     init_database()
+
+    # ADR-002: 历史条目按任务 source_url 回填来源身份（幂等，只处理空行）
+    from app.repositories.item_repo import item_repo
+    try:
+        filled = item_repo.backfill_item_source_keys()
+        if filled:
+            logger.info("Backfilled source_key for %d item(s)", filled)
+    except Exception as e:
+        logger.error("source_key backfill failed: %s", e)
+
     scheduler_manager.start()
     scheduler_manager.restore_jobs()
 

@@ -23,6 +23,19 @@ def _compute_content_hash(item: CrawlItem) -> str:
     return sha256_hex(content)
 
 
+def _task_source_identity(task_id: str) -> str:
+    """任务来源身份（来源 URL 主机名）。任务缺失/无 URL 返回空串，
+    content_hash 去重随之禁用（保守放行，不丢观测）。"""
+    if not task_id:
+        return ""
+    from app.repositories.task_repo import task_repo
+    from app.utils.url import source_identity
+    task = task_repo.get(task_id)
+    if not task:
+        return ""
+    return source_identity(task.get("source_url"), task.get("name") or "")
+
+
 def deduplicate(items: list[CrawlItem], task_id: str = "") -> list[CrawlItem]:
     """
     给每个 CrawlItem 填充 url_hash / content_hash，然后按优先级去重：
@@ -74,12 +87,15 @@ def _filter_by_priority(items: list[CrawlItem], task_id: str) -> list[CrawlItem]
     existing_hashes = item_repo.find_existing_hashes(hashes)
     after_url = [i for i in after_ext if i.url_hash not in existing_hashes]
 
-    # 第三优先级：content_hash（内容指纹去重）
+    # 第三优先级：content_hash（内容指纹去重，按来源身份限定，ADR-002）
+    # 全局匹配会把其他来源的转载观测丢掉——只拦"同一来源"的既有观测；
+    # 历史行身份未知（NULL）时保守放行
     content_hashes = [i.content_hash for i in after_url if i.content_hash]
     if content_hashes:
-        existing_content = item_repo.find_existing_content_hashes(content_hashes)
+        existing_content_sources = item_repo.find_content_hash_sources(content_hashes)
     else:
-        existing_content = set()
+        existing_content_sources = {}
+    source_key = _task_source_identity(task_id)
 
     # 批内集合：每保留一条立即登记其三级键，同一批次内相同 external_id /
     # url_hash / content_hash 的后续候选不再进入待插入列表——一次性对 DB
@@ -87,7 +103,10 @@ def _filter_by_priority(items: list[CrawlItem], task_id: str) -> list[CrawlItem]
     # 全部漏过并触发批量插入约束冲突
     seen_external_ids = set(existing_ext)
     seen_url_hashes = set(existing_hashes)
-    seen_content_hashes = set(existing_content)
+    # 批内集合：同批同任务 → 同来源身份，content_hash 批内语义不变
+    seen_content_hashes = {
+        h for h, key in existing_content_sources.items() if key == source_key
+    } if source_key else set()
 
     new_items: list[CrawlItem] = []
     for item in after_url:

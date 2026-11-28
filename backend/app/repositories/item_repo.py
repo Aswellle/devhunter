@@ -47,8 +47,9 @@ class ItemRepository:
                         """
                         INSERT INTO items
                             (id, task_id, title, url, url_hash, summary, published_at,
-                             fetched_at, created_at, external_id, content_hash)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                             fetched_at, created_at, external_id, content_hash,
+                             source_key)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                         (
                             item_id,
@@ -62,6 +63,7 @@ class ItemRepository:
                             now,
                             item.get("external_id") or None,
                             item.get("content_hash") or None,
+                            item.get("source_key") or None,
                         ),
                     )
                     ins += 1
@@ -105,6 +107,49 @@ class ItemRepository:
                 content_hashes,
             ).fetchall()
         return {row["content_hash"] for row in rows if row["content_hash"]}
+
+    def find_content_hash_sources(
+        self, content_hashes: list[str]
+    ) -> dict[str, str | None]:
+        """查询 content_hash 的既有来源身份（hash → source_key 或 None）。
+
+        内容指纹去重按来源身份限定（ADR-002）：调用方只拦截
+        source_key 与候选一致且非空的既有观测；NULL（历史行）不拦截。"""
+        if not content_hashes:
+            return {}
+        placeholders = ",".join(["?"] * len(content_hashes))
+        with get_db() as conn:
+            rows = conn.execute(
+                f"SELECT content_hash, source_key FROM items "
+                f"WHERE content_hash IN ({placeholders})",
+                content_hashes,
+            ).fetchall()
+        return {
+            row["content_hash"]: row["source_key"]
+            for row in rows if row["content_hash"]
+        }
+
+    def backfill_item_source_keys(self) -> int:
+        """为 source_key 为空的历史条目按任务 source_url 回填来源身份
+        （ADR-002）。幂等：只处理 NULL/空行；身份由
+        utils/url.source_identity 计算（与 threads.source_keys 同一体系，
+        任务改名不影响已回填身份，重建条目行也不会发生）。返回回填行数。"""
+        from app.utils.url import source_identity
+
+        with get_db() as conn:
+            tasks = conn.execute("SELECT id, source_url, name FROM tasks").fetchall()
+            filled = 0
+            for t in tasks:
+                identity = source_identity(t["source_url"], t["name"] or "")
+                if not identity:
+                    continue
+                cursor = conn.execute(
+                    "UPDATE items SET source_key = ? "
+                    "WHERE task_id = ? AND (source_key IS NULL OR source_key = '')",
+                    (identity, t["id"]),
+                )
+                filled += cursor.rowcount
+        return filled
     def find_existing_hashes(self, hashes: list[str]) -> set[str]:
         """批量查询哪些 url_hash 已存在，返回已存在的 hash 集合"""
         if not hashes:

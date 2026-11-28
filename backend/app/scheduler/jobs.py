@@ -285,6 +285,9 @@ def _run_task(
         _pub(task_id, "save_start",
              f"正在写入 {items_new} 条新数据…",
              {"count": items_new})
+        # 来源身份（ADR-002）：内容指纹去重与 Thread 跨来源证据按它限定
+        from app.utils.url import source_identity
+        task_source_key = source_identity(task.get("source_url"), task.get("name") or "")
         records = [{
             "task_id":   task_id,
             "title":     item.title,
@@ -295,6 +298,7 @@ def _run_task(
             "fetched_at": executed_at_iso,
             "external_id": item.external_id or None,
             "content_hash": item.content_hash or None,
+            "source_key": task_source_key or None,
         } for item in new_items]
 
         # R3: 将 item 插入和执行结果记录包装在同一事务中，
