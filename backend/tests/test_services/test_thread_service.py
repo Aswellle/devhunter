@@ -280,3 +280,76 @@ class TestBackgroundRecompute:
             assert "boom" in (status["error"] or "")
         finally:
             self._reset_state()
+
+
+# ── ADR-001：重建 staging 语义 ──────────────────────────────────
+
+class TestRecomputeStaging(TestRecomputeAllThreads):
+    """重建必须先构建 staging 投影、校验通过才切换：
+    中断或校验失败时旧投影完整可用（旧实现先提交清空，崩溃留半成品）。"""
+
+    def _threaded_items(self, titles: list[str]) -> list[str]:
+        self._seed_items(titles)
+        items = item_repo.list_all_chronological()
+        ids = [it["id"] for it in items]
+        thread_service.compute_threads_for_items(items)
+        return ids
+
+    def test_mid_replay_failure_keeps_old_projection(self, monkeypatch):
+        """重放第 2 批抛异常 → 旧 Thread 投影完好（成员与镜像未丢）。"""
+        ids = self._threaded_items(["alpha topic", "beta topic", "gamma topic"])
+        before = thread_repo.count_all()
+        assert before >= 1
+
+        real_compute = thread_service.compute_threads_for_items
+        calls = {"n": 0}
+
+        def flaky(items, threshold=None, window_hours=None, conn=None):
+            calls["n"] += 1
+            if calls["n"] == 2:
+                raise RuntimeError("injected mid-replay failure")
+            return real_compute(items, window_hours=window_hours, conn=conn)
+
+        monkeypatch.setattr("app.services.thread_service._RECOMPUTE_BATCH_SIZE", 1)
+        monkeypatch.setattr(thread_service, "compute_threads_for_items", flaky)
+        with pytest.raises(RuntimeError):
+            thread_service.recompute_all_threads()
+
+        assert thread_repo.count_all() == before, "中断后旧投影不得被破坏"
+        for item_id in ids:
+            row = item_repo.get(item_id)
+            assert row is not None and row.get("thread_id"), "镜像必须保留"
+
+    def test_validation_failure_keeps_old_projection(self, monkeypatch):
+        """完整性校验失败 → 整体回滚，旧投影继续可用。"""
+        ids = self._threaded_items(["alpha topic", "beta topic"])
+        before = thread_repo.count_all()
+
+        monkeypatch.setattr(thread_service, "_validate_rebuild",
+                            lambda conn: (_ for _ in ()).throw(RuntimeError("bad projection")))
+        with pytest.raises(RuntimeError):
+            thread_service.recompute_all_threads()
+
+        assert thread_repo.count_all() == before
+        assert all(item_repo.get(i).get("thread_id") for i in ids)
+
+    def test_successful_rebuild_passes_invariants(self):
+        """成功重建后：讨论型条目无孤儿、item_count 与成员数一致。"""
+        from app.core.database import get_db
+
+        ids = self._threaded_items(["alpha topic", "beta topic", "gamma topic"])
+
+        thread_service.recompute_all_threads()
+
+        assert item_repo.list_thread_orphans() == [], "讨论型条目不得有永久孤儿"
+        with get_db() as conn:
+            rows = conn.execute(
+                """
+                SELECT t.id, t.item_count,
+                       (SELECT COUNT(*) FROM thread_items ti
+                        WHERE ti.thread_id = t.id) AS members
+                FROM threads t
+                """
+            ).fetchall()
+        for r in rows:
+            assert r["item_count"] == r["members"], f"Thread {r['id']} 计数失真"

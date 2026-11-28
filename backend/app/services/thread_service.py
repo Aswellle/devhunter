@@ -7,6 +7,7 @@ V2: 使用多因素评分（lexical + entity + semantic + temporal + source）
 import logging
 import threading
 import time
+from typing import Any
 
 from app.core.config import settings
 from app.core.exceptions import ConflictError
@@ -49,6 +50,7 @@ class ThreadService:
         new_items: list[dict],
         threshold: float = DEFAULT_THRESHOLD,
         window_hours: int = DEFAULT_WINDOW_HOURS,
+        conn: Any = None,
     ) -> int:
         """
         为一批新采集的 Items 计算 Thread 归属。
@@ -118,69 +120,136 @@ class ThreadService:
             )
             return 0
         try:
-            matched_count = 0
+            if conn is not None:
+                # staging 事务路径：在调用方连接中聚类，不自行提交
+                return self._cluster_items(
+                    clusterable, item_id_to_platform, item_id_to_source_key,
+                    window_hours, threshold, conn,
+                )
             from app.core.database import transaction
 
             with transaction() as conn:
-                for item in clusterable:
-                    item_id = item["id"]
-                    title = item["title"]
-                    platform = item_id_to_platform.get(item_id, "unknown")
-
-                    # 每个条目都重新取候选（近期活跃 Thread），见 get_candidate_threads；
-                    # 事务内可读到此批次先前条目的写入，语义与逐条目提交一致
-                    candidate_threads = thread_repo.get_candidate_threads(
-                        hours=window_hours, conn=conn,
-                    )
-
-                    # source_id 用稳定身份（主机名）；task_name 保留展示名，
-                    # 供未回填 source_keys 的旧线程回退比较
-                    source_key = item_id_to_source_key.get(item_id, platform)
-                    scoring_item = {
-                        **item,
-                        "source_id": source_key,
-                        "source_name": source_key,
-                        "task_name": platform,
-                    }
-
-                    # 使用多因素聚类
-                    result = thread_clusterer.cluster(
-                        scoring_item, candidate_threads, threshold=threshold,
-                    )
-
-                    if result.action == "join" and result.thread_id:
-                        # 加入已有 Thread
-                        matched_count += 1
-                        thread_repo.add_item(
-                            thread_id=result.thread_id,
-                            item_id=item_id,
-                            similarity=result.score.total_score if result.score else 0.5,
-                            title=title,
-                            platform=platform,
-                            match_reason=result.match_reason,
-                            conn=conn,
-                            source_key=source_key,
-                        )
-                    else:
-                        # 创建新 Thread
-                        new_thread_id = thread_repo.create(title=title, item_id=item_id, platform=platform, algorithm_version="v2", similarity_threshold=threshold, match_reason="no_match", conn=conn, source_key=source_key)
-                        # 同一故事线 near-miss：与最佳候选显式关联（展示层分层，不改变归属）
-                        if result.related_thread_id:
-                            thread_repo.record_relation(
-                                new_thread_id,
-                                result.related_thread_id,
-                                similarity=result.score.total_score if result.score else 0.0,
-                                source="auto",
-                                conn=conn,
-                            )
+                return self._cluster_items(
+                    clusterable, item_id_to_platform, item_id_to_source_key,
+                    window_hours, threshold, conn,
+                )
         finally:
             self._recompute_lock.release()
 
+    def _cluster_items(
+        self,
+        clusterable: list[dict],
+        item_id_to_platform: dict[str, str],
+        item_id_to_source_key: dict[str, str],
+        window_hours: int,
+        threshold: float,
+        conn: Any,
+    ) -> int:
+        """聚类单批条目（在调用方事务/连接内执行，不自行提交）。"""
+        matched_count = 0
+        for item in clusterable:
+            item_id = item["id"]
+            title = item["title"]
+            platform = item_id_to_platform.get(item_id, "unknown")
+
+            # 每个条目都重新取候选（近期活跃 Thread），见 get_candidate_threads；
+            # 事务内可读到此批次先前条目的写入，语义与逐条目提交一致
+            candidate_threads = thread_repo.get_candidate_threads(
+                hours=window_hours, conn=conn,
+            )
+
+            # source_id 用稳定身份（主机名）；task_name 保留展示名，
+            # 供未回填 source_keys 的旧线程回退比较
+            source_key = item_id_to_source_key.get(item_id, platform)
+            scoring_item = {
+                **item,
+                "source_id": source_key,
+                "source_name": source_key,
+                "task_name": platform,
+            }
+
+            # 使用多因素聚类
+            result = thread_clusterer.cluster(
+                scoring_item, candidate_threads, threshold=threshold,
+            )
+
+            if result.action == "join" and result.thread_id:
+                # 加入已有 Thread
+                matched_count += 1
+                thread_repo.add_item(
+                    thread_id=result.thread_id,
+                    item_id=item_id,
+                    similarity=result.score.total_score if result.score else 0.5,
+                    title=title,
+                    platform=platform,
+                    match_reason=result.match_reason,
+                    conn=conn,
+                    source_key=source_key,
+                )
+            else:
+                # 创建新 Thread
+                new_thread_id = thread_repo.create(title=title, item_id=item_id, platform=platform, algorithm_version="v2", similarity_threshold=threshold, match_reason="no_match", conn=conn, source_key=source_key)
+                # 同一故事线 near-miss：与最佳候选显式关联（展示层分层，不改变归属）
+                if result.related_thread_id:
+                    thread_repo.record_relation(
+                        new_thread_id,
+                        result.related_thread_id,
+                        similarity=result.score.total_score if result.score else 0.0,
+                        source="auto",
+                        conn=conn,
+                    )
         logger.info(
-            "Thread compute: %d items clustered, %d matched to existing threads, %d created new, %d catalog-skipped",
-            len(clusterable), matched_count, len(clusterable) - matched_count, skipped,
+            "Thread compute: %d items clustered, %d matched to existing threads, %d created new"
+            " (catalog-skipped logged at batch entry)",
+            len(clusterable), matched_count, len(clusterable) - matched_count,
         )
         return len(clusterable)
+
+    @staticmethod
+    def _validate_rebuild(conn: Any) -> None:
+        """重建完整性校验（staging 提交前的最后一关，ADR-001）。
+
+        任一违反抛 RuntimeError → staging 事务整体回滚，旧投影继续可用：
+        1. thread_items 无孤儿引用（thread/item 都存在）；
+        2. items.thread_id 镜像与 thread_items 成员一致；
+        3. threads.item_count 与实际成员数一致。"""
+        orphans = conn.execute(
+            """
+            SELECT COUNT(*) FROM thread_items ti
+            WHERE NOT EXISTS (SELECT 1 FROM threads t WHERE t.id = ti.thread_id)
+               OR NOT EXISTS (SELECT 1 FROM items i WHERE i.id = ti.item_id)
+            """
+        ).fetchone()[0]
+        if orphans:
+            raise RuntimeError(f"rebuild validation failed: {orphans} orphan membership row(s)")
+
+        mirror_mismatch = conn.execute(
+            """
+            SELECT COUNT(*) FROM items i
+            WHERE i.thread_id IS NOT NULL
+              AND NOT EXISTS (
+                  SELECT 1 FROM thread_items ti
+                  WHERE ti.thread_id = i.thread_id AND ti.item_id = i.id
+              )
+            """
+        ).fetchone()[0]
+        if mirror_mismatch:
+            raise RuntimeError(
+                f"rebuild validation failed: {mirror_mismatch} dangling thread_id mirror(s)"
+            )
+
+        count_mismatch = conn.execute(
+            """
+            SELECT COUNT(*) FROM threads t
+            WHERE t.item_count != (
+                SELECT COUNT(*) FROM thread_items ti WHERE ti.thread_id = t.id
+            )
+            """
+        ).fetchone()[0]
+        if count_mismatch:
+            raise RuntimeError(
+                f"rebuild validation failed: {count_mismatch} thread(s) with stale item_count"
+            )
 
     def merge_threads(
         self,
@@ -360,29 +429,38 @@ class ThreadService:
             raise ConflictError("Thread 重建已在进行中，请稍后再试")
         try:
             from app.repositories.item_repo import item_repo
+            from app.core.database import transaction
 
             started = time.monotonic()
-            thread_repo.delete_all()
             items = item_repo.list_all_chronological()
 
-            for i in range(0, len(items), _RECOMPUTE_BATCH_SIZE):
-                self.compute_threads_for_items(
-                    items[i:i + _RECOMPUTE_BATCH_SIZE],
-                    window_hours=window_hours,
-                )
+            # staging 语义（ADR-001）：清空 + 重放 + 校验在同一个事务内，
+            # 校验通过才提交切换活动投影；中断/校验失败整体回滚，
+            # 旧投影保持完整可用（WAL 快照让重建期间读到旧投影）
+            with transaction() as conn:
+                thread_repo.delete_all(conn=conn)
+                for i in range(0, len(items), _RECOMPUTE_BATCH_SIZE):
+                    self.compute_threads_for_items(
+                        items[i:i + _RECOMPUTE_BATCH_SIZE],
+                        window_hours=window_hours,
+                        conn=conn,
+                    )
 
-            # 兜底扫描：重建期间到达的采集批次让位于重建被跳过（见
-            # compute_threads_for_items 的锁语义），且重放快照取自重建
-            # 开始前——按"thread_id 仍为 NULL 的讨论型条目"补聚一轮，
-            # 保证重建结束后讨论型条目没有永久孤儿。本线程持有锁，
-            # compute 内部的重入获取直接通过
-            orphans = item_repo.list_thread_orphans()
-            if orphans:
-                logger.info(
-                    "Thread recompute: sweeping %d orphan item(s) that arrived mid-recompute",
-                    len(orphans),
-                )
-                self.compute_threads_for_items(orphans, window_hours=window_hours)
+                # 兜底扫描：重建期间到达的采集批次让位于重建被跳过（见
+                # compute_threads_for_items 的锁语义），且重放快照取自重建
+                # 开始前——按"thread_id 仍为 NULL 的讨论型条目"补聚一轮，
+                # 保证重建结束后讨论型条目没有永久孤儿。本线程持有锁，
+                # compute 内部的重入获取直接通过
+                orphans = item_repo.list_thread_orphans()
+                if orphans:
+                    logger.info(
+                        "Thread recompute: sweeping %d orphan item(s) that arrived mid-recompute",
+                        len(orphans),
+                    )
+                    self.compute_threads_for_items(orphans, window_hours=window_hours, conn=conn)
+
+                # 完整性校验：任一违反都回滚到旧投影
+                self._validate_rebuild(conn)
 
             duration_ms = int((time.monotonic() - started) * 1000)
             result = {
