@@ -181,21 +181,32 @@ class PreviewExtractor:
         return result
 
     def _preview_json(self, url: str, discovery: DiscoveryResult, limit: int) -> PreviewResult:
-        """预览 JSON API"""
+        """预览 JSON API：沿用自动发现的字段映射（与执行落库走同一份选择器）"""
         result = PreviewResult()
 
-        json_path = discovery.json_path or ""
+        # list selector 优先用发现结果原样透传（json-post 场景含请求体，
+        # 从 json_path 重建会把 POST 降级成 GET）；title/link/summary 用发现
+        # 到的字段名，与向导保存进 Task、引擎执行时使用的映射保持一致。
         selectors = {
-            "list": f"json:{json_path}" if json_path else "json:",
-            "title": "title",
-            "link": "url",
-            "summary": "description",
+            "list": discovery.list_selector
+            or (f"json:{discovery.json_path}" if discovery.json_path else "json:"),
+            "title": discovery.title_selector or "title",
+            "link": discovery.link_selector or "url",
+            "summary": discovery.summary_selector or "description",
         }
 
         crawl_result = fetch_and_parse(url, selectors, [])
 
         if crawl_result.error:
             result.error = crawl_result.error
+            return result
+
+        if crawl_result.extracted_count == 0:
+            result.error = (
+                "未提取到任何条目：请检查列表路径与 title/link 字段映射——"
+                "title 或 link 缺失的条目会被跳过（HTTP "
+                f"{crawl_result.http_status}）"
+            )
             return result
 
         result.success = True
