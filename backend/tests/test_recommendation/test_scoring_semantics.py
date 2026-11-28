@@ -210,6 +210,9 @@ class TestRecencyUsesPublishedAt:
 
 # ── REC-002：坏日期与未来日期的确定行为 ──────────────────────────
 
+_MAX_HOURS_AGE_VALUE = 999.0  # 与 recommendation_service._MAX_HOURS_AGE 对齐
+
+
 class TestRecencyDateRobustness:
     def test_future_published_at_is_clamped(self):
         """未来时间（来源时区错误/伪造）clamp 到 0 小时，不得产生负值
@@ -248,4 +251,4 @@ class TestRecencyDateRobustness:
             "published_at": "garbage-1",
             "fetched_at": "garbage-2",
         })
-        assert details["recency_hours"] >= 24 * 365
+        assert details["recency_hours"] >= _MAX_HOURS_AGE_VALUE
