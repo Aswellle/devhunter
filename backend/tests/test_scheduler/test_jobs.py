@@ -164,3 +164,42 @@ class TestFailureMessagesAreUserFacing:
         row = execution_repo.get(exec_id)
         assert row["last_error_code"] == "HTTP_403"
         assert "403" in row["error_message"]
+
+
+class TestPartialResultStatus:
+    """部分成功语义：达到抓取上限的结果不能冒充完整成功。"""
+
+    def test_partial_result_marks_warning_execution(self, monkeypatch):
+        """is_partial + stop_reason → execution 状态 warning，终态事件
+        携带部分成功标记——旧实现把截断结果当普通 success 落库。"""
+        task_id = _task()
+        exec_id = str(uuid.uuid4())
+        execution_repo.create_running(exec_id, task_id, _iso())
+
+        stub = _stub_result(3)
+        stub.is_partial = True
+        stub.stop_reason = "item_limit"
+        monkeypatch.setattr("app.crawler.engine.fetch_and_parse",
+                            lambda **kwargs: stub)
+
+        events: list[tuple] = []
+        monkeypatch.setattr(jobs, "_pub",
+                            lambda tid, etype, msg, data=None: events.append((etype, msg, data)))
+        jobs.execute_task(task_id, exec_id=exec_id, _skip_lock=True)
+
+        row = execution_repo.get(exec_id)
+        assert row["status"] == "warning"
+        terminal = [e for e in events if e[0] == "warning"]
+        assert terminal, "部分成功必须发出 warning 终态事件"
+        assert "上限" in terminal[0][1]
+        assert terminal[0][2].get("stop_reason") == "item_limit"
+
+    def test_complete_result_keeps_success(self, monkeypatch):
+        """完整成功不受影响：仍是 success 终态。"""
+        task_id = _task()
+        exec_id = str(uuid.uuid4())
+        execution_repo.create_running(exec_id, task_id, _iso())
+        monkeypatch.setattr("app.crawler.engine.fetch_and_parse",
+                            lambda **kwargs: _stub_result(2))
+        jobs.execute_task(task_id, exec_id=exec_id, _skip_lock=True)
+        assert execution_repo.get(exec_id)["status"] == "success"

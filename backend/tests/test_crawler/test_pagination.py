@@ -215,3 +215,60 @@ def test_page_exhaustion_whole_crawl_failure(monkeypatch):
     assert result.pages_fetched == 2  # failure happened on page 2
     assert result.retries_used == 2
     assert len(result.items) == 0  # no partial save
+
+
+# ── 部分成功语义：达到上限必须显式标记，不能冒充完整成功 ──────────
+
+def test_page_cap_marks_partial(monkeypatch):
+    """11 页可用但 MAX_PAGES=10 → 停在第 10 页且必须标记
+    is_partial + stop_reason=page_limit——旧实现返回普通成功，
+    UI 把截断结果当完整成功展示。"""
+    pages = []
+    for i in range(11):
+        pages.append(_FakeResponse(
+            200,
+            _html_page([(f"item{i}", f"http://example.com/item{i}")], f"/p{i+2}"),
+        ))
+    _install_client(monkeypatch, pages)
+
+    result = fetch_and_parse("http://example.com/p1", _selectors(".next"), keywords=[])
+    assert result.success
+    assert result.pages_fetched == 10
+    assert result.is_partial is True
+    assert result.stop_reason == "page_limit"
+
+
+def test_item_cap_marks_partial(monkeypatch):
+    """达到单次执行 item 上限 → 截断保留前 N 条并标记
+    is_partial + stop_reason=item_limit。"""
+    monkeypatch.setattr(engine, "MAX_ITEMS_PER_EXECUTION", 5)
+    pages = []
+    for i in range(3):
+        pages.append(_FakeResponse(
+            200,
+            _html_page(
+                [(f"p{i}-item{j}", f"http://example.com/p{i}i{j}") for j in range(3)],
+                f"/p{i+2}",
+            ),
+        ))
+    _install_client(monkeypatch, pages)
+
+    result = fetch_and_parse("http://example.com/p1", _selectors(".next"), keywords=[])
+    assert result.success
+    assert len(result.items) == 5
+    assert result.is_partial is True
+    assert result.stop_reason == "item_limit"
+
+
+def test_natural_completion_is_not_partial(monkeypatch):
+    """自然结束（无下一页）→ 完整成功，不得误标 partial。"""
+    pages = [
+        _FakeResponse(200, _html_page([("a1", "http://example.com/a1")], "/p2")),
+        _FakeResponse(200, _html_page([("b1", "http://example.com/b1")], None)),
+    ]
+    _install_client(monkeypatch, pages)
+
+    result = fetch_and_parse("http://example.com/p1", _selectors(".next"), keywords=[])
+    assert result.success
+    assert result.is_partial is False
+    assert result.stop_reason == ""

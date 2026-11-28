@@ -80,6 +80,10 @@ class CrawlResult:
     fetch_ms: int = 0
     retries_used: int = 0
     pages_fetched: int = 1
+    # 部分成功语义：达到分页/条目上限时结果有效但不完整，
+    # 调用方（执行状态/UI）必须能区分完整成功与截断
+    is_partial: bool = False
+    stop_reason: str = ""   # "" | "page_limit" | "item_limit"
 
     @property
     def success(self) -> bool:
@@ -1016,6 +1020,7 @@ def _paginate(
     max_retries_used = 0
     last_http_status = 0
     seen_hashes: set[str] | None = None
+    stop_reason = ""
     page_url = start_url
     page_num = 0
 
@@ -1153,12 +1158,15 @@ def _paginate(
         seen_hashes = current_hashes
         all_items.extend(parsed)
 
-        # S5: 单任务 item 数上限，防止无界分页导致内存爆炸
+        # S5: 单任务 item 数上限，防止无界分页导致内存爆炸。
+        # 截断是部分成功而不是错误：用专用事件类型（fetch_error 会被
+        # 前端步骤机标红），结果照常入库并携带 is_partial 标记
         if len(all_items) >= MAX_ITEMS_PER_EXECUTION:
-            _emit(on_progress, "fetch_error",
-                  f"达到单任务最大 item 数限制 ({MAX_ITEMS_PER_EXECUTION})，停止分页",
-                  {"limit": MAX_ITEMS_PER_EXECUTION})
+            _emit(on_progress, "crawl_partial",
+                  f"达到单任务最大 item 数限制 ({MAX_ITEMS_PER_EXECUTION})，结果不完整",
+                  {"limit": MAX_ITEMS_PER_EXECUTION, "stop_reason": "item_limit"})
             all_items = all_items[:MAX_ITEMS_PER_EXECUTION]
+            stop_reason = "item_limit"
             break
 
         # ── resolve next page ───────────────────────────────
@@ -1168,6 +1176,12 @@ def _paginate(
         if not next_url or next_url == page_url:
             break  # empty selector match or self-loop
         page_url = next_url
+        # 还有下一页但循环已到页数上限 → 这是一次页数截断
+        if page_num == MAX_PAGES:
+            _emit(on_progress, "crawl_partial",
+                  f"达到最大页数限制 ({MAX_PAGES})，结果不完整",
+                  {"limit": MAX_PAGES, "stop_reason": "page_limit"})
+            stop_reason = "page_limit"
 
     logger.info("Crawled %s [%s]: %d pages, %d items (keywords=%s)",
                 start_url, mode, page_num, len(all_items), keywords or "none")
@@ -1182,4 +1196,6 @@ def _paginate(
         fetch_ms=total_fetch_ms,
         retries_used=max_retries_used,
         pages_fetched=page_num,
+        is_partial=bool(stop_reason),
+        stop_reason=stop_reason,
     )

@@ -317,6 +317,11 @@ export function TaskExecutionStream({ taskId, taskName, onClose }: Props) {
   // 失败原因（如"任务配置不完整，缺少：列表项 Selector"）直接呈现给用户
   const failureMessage = useMemo(
     () => events.find((e) => e.type === 'failure')?.message, [events])
+  // 部分成功（达到页数/条数上限）：与"完成但无新增数据"明确区分
+  const isPartial = isDone && isWarning &&
+    ((finalData?.is_partial as boolean | undefined) === true)
+  const warningMessage = useMemo(
+    () => events.find((e) => e.type === 'warning')?.message, [events])
   const logEvents = useMemo(
     () => events.filter((e) => e.type !== 'items_preview'), [events])
 
@@ -390,7 +395,8 @@ export function TaskExecutionStream({ taskId, taskName, onClose }: Props) {
               <p className={clsx('font-semibold text-sm',
                 isSuccess ? 'text-green-300' : isFailure ? 'text-red-300' : 'text-yellow-300')}>
                 {isSuccess ? `执行成功：新增 ${itemsNew} 条` :
-                 isFailure ? '执行失败' : '完成但无新增数据'}
+                 isFailure ? '执行失败' :
+                 isPartial ? '部分成功：已达上限，结果不完整' : '完成但无新增数据'}
               </p>
               {isSuccess && (
                 <p className="text-xs text-gray-400 mt-0.5">
@@ -399,6 +405,9 @@ export function TaskExecutionStream({ taskId, taskName, onClose }: Props) {
               )}
               {isFailure && failureMessage && (
                 <p className="text-xs text-red-200/90 mt-0.5 break-words">{failureMessage}</p>
+              )}
+              {isPartial && warningMessage && (
+                <p className="text-xs text-yellow-200/90 mt-0.5 break-words">{warningMessage}</p>
               )}
             </div>
           </div>

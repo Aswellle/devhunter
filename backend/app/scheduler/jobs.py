@@ -276,6 +276,10 @@ def _run_task(
          {"new": items_new, "duplicates": dup_count})
 
     # ── Step 5: 写入数据库 ───────────────────────────────
+    # 执行状态在写入前确定：达到页数/条数上限的部分结果 → warning，
+    # 两条 finalize 路径（事务内/事务外）共用同一状态
+    is_empty   = items_fetched == 0
+    exec_status = "warning" if (is_empty or result.is_partial) else "success"
     _save_called = False  # R3: 标记是否已在事务中写入执行结果
     if new_items:
         _pub(task_id, "save_start",
@@ -300,7 +304,7 @@ def _run_task(
             with transaction() as conn:
                 item_repo.bulk_insert(records, conn=conn)
                 execution_repo.finalize(exec_id, {
-                    "status": "success", "items_fetched": items_fetched,
+                    "status": exec_status, "items_fetched": items_fetched,
                     "items_new": items_new, "duration_ms": duration_ms,
                     "error_message": None, "pages_count": result.pages_fetched,
                     "items_seen": result.list_count, "items_created": items_new,
@@ -381,8 +385,7 @@ def _run_task(
              "无新增数据，跳过写入")
 
     # ── Step 6: 记录执行结果 ─────────────────────────────
-    is_empty   = items_fetched == 0
-    exec_status = "warning" if is_empty else "success"
+    # （exec_status 已在 Step 5 前确定）
 
     # R3: 如果已在 Step 5 的事务中 finalize，跳过重复写入
     if not _save_called:
@@ -403,6 +406,17 @@ def _run_task(
              {"items_fetched": 0, "items_new": 0, "duration_ms": duration_ms,
               "html_size_kb": result.html_size_kb, "list_count": result.list_count,
               "pages_fetched": result.pages_fetched, "retries_used": result.retries_used})
+    elif result.is_partial:
+        reason_text = "页数上限" if result.stop_reason == "page_limit" else "条数上限"
+        _pub(task_id, "warning",
+             f"部分成功：已达{reason_text}，结果不完整（新增 {items_new} 条，"
+             f"共抓取 {items_fetched} 条）耗时 {duration_ms}ms",
+             {"items_new": items_new, "items_fetched": items_fetched,
+              "duration_ms": duration_ms, "html_size_kb": result.html_size_kb,
+              "list_count": result.list_count,
+              "pages_fetched": result.pages_fetched,
+              "retries_used": result.retries_used,
+              "is_partial": True, "stop_reason": result.stop_reason})
     else:
         _pub(task_id, "success",
              f"执行成功：新增 {items_new} 条，共抓取 {items_fetched} 条，耗时 {duration_ms}ms",
