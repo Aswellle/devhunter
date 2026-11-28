@@ -44,13 +44,31 @@ def _get_config(key: str) -> float:
     return recommendation_config_repo.get(key, DEFAULT_CONFIG.get(key, 0.0))
 
 
+def _is_parseable_date(value: str) -> bool:
+    """ISO 日期是否可解析（坏日期回退用）。"""
+    if not value:
+        return False
+    try:
+        datetime.fromisoformat(value.replace("Z", "+00:00"))
+        return True
+    except (ValueError, TypeError):
+        return False
+
+
 def _hours_since(iso_date: str) -> float:
-    """计算距离 ISO 日期的小时数"""
+    """计算距离 ISO 日期的小时数。
+
+    未来时间（来源时区错误/伪造）clamp 到 0——负小时数会破坏下游
+    "年龄非负"的假设；解析失败返回最大年龄（新鲜度归零）。"""
     try:
         dt = datetime.fromisoformat(iso_date.replace("Z", "+00:00"))
         now = datetime.now(timezone.utc)
         delta = now - dt
-        return delta.total_seconds() / 3600
+        hours = delta.total_seconds() / 3600
+        if hours < 0:
+            logger.debug("Future date clamped to 0 hours: %s", iso_date)
+            return 0.0
+        return hours
     except Exception:
         logger.debug("Failed to parse date: %s", iso_date)
         return _MAX_HOURS_AGE
@@ -292,8 +310,12 @@ class RecommendationService:
         task_id = item.get("task_id", "")
         task_name = item.get("task_name", "") or ""
         # 新鲜度基准优先用原发时间：昨天发布、今天才抓到的内容不能按
-        # 抓取时间拿满新鲜度分（时间语义见数据契约 published_at > fetched_at）
-        fetched_at = item.get("published_at") or item.get("fetched_at") or ""
+        # 抓取时间拿满新鲜度分（时间语义见数据契约 published_at > fetched_at）。
+        # 原发时间损坏时回退抓取时间，两个都损坏才拿最大年龄
+        freshness_base = item.get("published_at") or ""
+        if not _is_parseable_date(freshness_base):
+            fallback = item.get("fetched_at") or ""
+            freshness_base = fallback if _is_parseable_date(fallback) else ""
 
         # ── 1. 主题匹配得分 ──────────────────────────────
         topic_score = self._calc_topic_score(title + " " + summary, topic_tokens_map)
@@ -313,7 +335,7 @@ class RecommendationService:
                 affinity_score += plat_score * 0.4
 
         # ── 3. 新鲜度得分 ───────────────────────────────
-        recency_hours = _hours_since(fetched_at)
+        recency_hours = _hours_since(freshness_base)
         recency_score = self._calc_recency_score(recency_hours)
 
         # ── 4. 参与度得分 ───────────────────────────────

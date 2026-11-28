@@ -206,3 +206,46 @@ class TestRecencyUsesPublishedAt:
         _, details = _details()
         # 默认 fetched_at 为 2026-01-01，距今远超 720 小时
         assert details["recency_hours"] > 720
+
+
+# ── REC-002：坏日期与未来日期的确定行为 ──────────────────────────
+
+class TestRecencyDateRobustness:
+    def test_future_published_at_is_clamped(self):
+        """未来时间（来源时区错误/伪造）clamp 到 0 小时，不得产生负值
+        或超过 1.0 的新鲜度。"""
+        from datetime import datetime, timedelta, timezone
+
+        now = datetime.now(timezone.utc)
+        _, details = _details(item={
+            "id": "i1", "title": "t", "summary": "", "task_id": "task-1",
+            "task_name": "Hacker News",
+            "published_at": (now + timedelta(hours=24)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "fetched_at": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        })
+        assert details["recency_hours"] == 0.0
+        assert details["recency_score"] <= 1.0
+
+    def test_invalid_published_at_falls_back_to_fetched_at(self):
+        """published_at 损坏时回退 fetched_at——旧实现直接把损坏值喂给
+        解析器拿到最大小时数，条目被当作最旧的 content 沉底。"""
+        from datetime import datetime, timedelta, timezone
+
+        now = datetime.now(timezone.utc)
+        _, details = _details(item={
+            "id": "i1", "title": "t", "summary": "", "task_id": "task-1",
+            "task_name": "Hacker News",
+            "published_at": "not-a-date",
+            "fetched_at": (now - timedelta(hours=72)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        })
+        assert details["recency_hours"] == pytest.approx(72.0, abs=0.5)
+
+    def test_both_dates_invalid_gets_max_age(self):
+        """两个时间都损坏 → 确定的最大年龄（新鲜度 0）。"""
+        _, details = _details(item={
+            "id": "i1", "title": "t", "summary": "", "task_id": "task-1",
+            "task_name": "Hacker News",
+            "published_at": "garbage-1",
+            "fetched_at": "garbage-2",
+        })
+        assert details["recency_hours"] >= 24 * 365
