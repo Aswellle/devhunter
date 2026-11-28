@@ -2,13 +2,14 @@ import { useCallback, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { createPortal } from 'react-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Plus, LayoutGrid } from 'lucide-react'
+import { Plus, LayoutGrid, FileUp } from 'lucide-react'
 import { tasksApi } from '../api/tasks'
 import { queryKeys } from '../api/queryKeys'
 import { TaskCard } from '../components/tasks/TaskCard'
 import { TaskFormModal } from '../components/tasks/TaskFormModal'
 import { SourceWizard } from '../components/tasks/SourceWizard'
 import { TemplateMarket } from '../components/tasks/TemplateMarket'
+import { OpmlDialog } from '../components/tasks/OpmlDialog'
 import { ExecutionHistoryPanel } from '../components/tasks/ExecutionHistoryPanel'
 import { Spinner } from '../components/ui/Spinner'
 import { Empty } from '../components/ui/Empty'
@@ -32,6 +33,7 @@ export function TasksPage() {
   const [statusFilter, setStatusFilter] = useState(searchParams.get('status') ?? '')
   const [showWizard, setShowWizard]     = useState(false)
   const [showMarket, setShowMarket]     = useState(false)
+  const [showOpml, setShowOpml]         = useState(false)
 
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: queryKeys.tasks.list({ status: statusFilter || undefined }),
@@ -91,6 +93,13 @@ export function TasksPage() {
           >
             <LayoutGrid className="h-4 w-4" />
             预设来源库
+          </button>
+          <button
+            onClick={() => setShowOpml(true)}
+            className="btn-ghost flex items-center gap-1.5 px-3 py-1.5 text-sm"
+          >
+            <FileUp className="h-4 w-4" />
+            OPML
           </button>
           <button
             onClick={() => setShowWizard(true)}
@@ -201,6 +210,10 @@ export function TasksPage() {
       {showWizard && createPortal(
         <SourceWizard onClose={() => setShowWizard(false)} onCreated={() => setShowWizard(false)} />,
         document.body
+      )}
+      {showOpml && createPortal(
+        <OpmlDialog onClose={() => setShowOpml(false)} />,
+        document.body,
       )}
       {showMarket && createPortal(
         <TemplateMarket onClose={() => setShowMarket(false)} onCreated={() => setShowMarket(false)} />,
