@@ -48,7 +48,11 @@ class TaskService:
             scheduler_manager.add_job(task["id"], task["cron_expression"])
         except Exception as e:
             logger.error("Failed to add scheduler job for task %s: %s", task["id"], e)
-            # 不影响任务创建，Job 会在下次服务重启时 restore
+            # 不再只依赖服务重启恢复：立即对账重试，仍失败进入对账报告
+            try:
+                scheduler_manager.reconcile()
+            except Exception as reconcile_err:
+                logger.error("Scheduler reconcile after add failure: %s", reconcile_err)
 
         return task
 
@@ -98,6 +102,11 @@ class TaskService:
                 scheduler_manager.reschedule_job(task_id, new_cron)
         except Exception as e:
             logger.error("Scheduler sync failed for task %s: %s", task_id, e)
+            # 同步失败可重试：立即对账一次；仍失败则留在对账报告（可观测）
+            try:
+                scheduler_manager.reconcile()
+            except Exception as reconcile_err:
+                logger.error("Scheduler reconcile after sync failure: %s", reconcile_err)
 
         return updated
 
@@ -109,6 +118,10 @@ class TaskService:
             scheduler_manager.remove_job(task_id)
         except Exception as e:
             logger.error("Failed to remove scheduler job for task %s: %s", task_id, e)
+            try:
+                scheduler_manager.reconcile()
+            except Exception as reconcile_err:
+                logger.error("Scheduler reconcile after remove failure: %s", reconcile_err)
 
     def trigger_execute(self, task_id: str) -> str:
         """

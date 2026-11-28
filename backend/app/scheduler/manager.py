@@ -11,6 +11,7 @@ from apscheduler.executors.pool import ThreadPoolExecutor
 from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.interval import IntervalTrigger
 
 from app.core.config import settings
 
@@ -41,6 +42,8 @@ class SchedulerManager:
         )
         self._lock = threading.Lock()
         self._started = False
+        # 最近一次对账报告（可观测）：启动对账与周期对账都会刷新
+        self._last_reconcile: dict | None = None
 
     def start(self) -> None:
         if self._started:
@@ -110,6 +113,25 @@ class SchedulerManager:
             )
         except Exception as e:
             logger.error("Failed to register thread consolidation job: %s", e)
+
+        # SCHED: 周期性对账（10 分钟）——DB 是期望状态，JobStore 是投影，
+        # add/reschedule/remove 任一失败留下的漂移在这里收敛
+        try:
+            self._scheduler.add_job(
+                self.reconcile,
+                trigger=IntervalTrigger(minutes=10, timezone=datetime.timezone.utc),
+                id="__system_scheduler_reconcile__",
+                replace_existing=True,
+                name="Scheduler Reconcile (10min)",
+            )
+        except Exception as e:
+            logger.error("Failed to register reconcile job: %s", e)
+
+        # 启动对账：restore 阶段失败的任务立即重试，漂移进入报告
+        try:
+            self.reconcile()
+        except Exception as e:
+            logger.error("Scheduler reconcile failed on startup: %s", e)
 
         logger.info("Restored %d scheduler jobs from DB", len(active_tasks))
 
@@ -194,6 +216,98 @@ class SchedulerManager:
                 replace_existing=True,
             )
         logger.info("Manual trigger queued for task %s", task_id)
+
+    def reconcile(self) -> dict:
+        """
+        对账 DB 期望状态（active tasks）与 Scheduler 实际投影（Jobs）。
+
+        启动时与周期性调用：补注册缺失 Job、重排 Cron 未同步的 trigger、
+        移除幽灵 Job；所有失败留在报告里（可观测），不抛异常。
+        手动触发残留 Job（*_manual）与系统 Job（__system_*）不在对账范围。
+        """
+        from app.repositories.task_repo import task_repo
+
+        report: dict = {"added": [], "removed": [], "rescheduled": [], "errors": []}
+        try:
+            active_tasks = task_repo.list_active()
+        except Exception as e:
+            report["errors"].append(f"load tasks failed: {e}")
+            self._last_reconcile = {**report,
+                                    "reconciled_at": datetime.datetime.now(datetime.timezone.utc).isoformat()}
+            return report
+        active_by_id = {t["id"]: t for t in active_tasks}
+
+        try:
+            jobs = {j.id: j for j in self._scheduler.get_jobs()}
+        except Exception as e:
+            report["errors"].append(f"list jobs failed: {e}")
+            self._last_reconcile = {**report,
+                                    "reconciled_at": datetime.datetime.now(datetime.timezone.utc).isoformat()}
+            return report
+
+        for task_id, task in active_by_id.items():
+            job = jobs.get(task_id)
+            if job is None:
+                try:
+                    self._add_job(task_id, task["cron_expression"])
+                    report["added"].append(task_id)
+                except Exception as e:
+                    report["errors"].append(f"{task_id}: add failed: {e}")
+                continue
+            # Cron 改了但 trigger 未同步（reschedule 曾失败）→ 重排
+            try:
+                expected = _parse_cron_trigger(task["cron_expression"])
+                if str(getattr(job, "trigger", "")) != str(expected):
+                    job.reschedule(trigger=expected)
+                    report["rescheduled"].append(task_id)
+            except Exception as e:
+                report["errors"].append(f"{task_id}: reschedule failed: {e}")
+
+        for job_id in jobs:
+            if job_id.startswith("__system_") or job_id.endswith("_manual"):
+                continue
+            if job_id not in active_by_id:
+                try:
+                    self.remove_job(job_id)
+                    report["removed"].append(job_id)
+                except Exception as e:
+                    report["errors"].append(f"{job_id}: remove failed: {e}")
+
+        self._last_reconcile = {
+            **report,
+            "reconciled_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        }
+        return report
+
+    @property
+    def last_reconcile_report(self) -> dict | None:
+        return self._last_reconcile
+
+    def drift_report(self) -> dict:
+        """当前漂移快照：active 但无 Job 的任务（供 UI 展示"启用但未调度"）。"""
+        from app.repositories.task_repo import task_repo
+
+        missing: list[dict] = []
+        try:
+            active_tasks = task_repo.list_active()
+            existing_ids = {j.id for j in self._scheduler.get_jobs()}
+            missing = [
+                {"task_id": t["id"], "name": t["name"]}
+                for t in active_tasks if t["id"] not in existing_ids
+            ]
+        except Exception as e:
+            missing = []
+            return {
+                "missing_jobs": missing,
+                "last_reconcile": self._last_reconcile,
+                "scheduler_running": self._started,
+                "error": str(e),
+            }
+        return {
+            "missing_jobs": missing,
+            "last_reconcile": self._last_reconcile,
+            "scheduler_running": self._started,
+        }
 
     def is_running(self, task_id: str) -> bool:
         """检查 Job 是否正在执行（通过内存锁判断）"""

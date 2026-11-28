@@ -81,6 +81,20 @@ def list_tasks(
     return PaginatedResponse(items=items, total=total, page=page, per_page=per_page)
 
 
+@router.get("/scheduler-status")
+def scheduler_status(_: str = Depends(require_auth)):
+    """调度对账快照：启用但未调度的任务（漂移）与最近对账报告。"""
+    from app.scheduler.manager import scheduler_manager
+    return scheduler_manager.drift_report()
+
+
+@router.post("/scheduler-reconcile")
+def scheduler_reconcile(_: str = Depends(require_auth)):
+    """手动触发一次对账（同步失败后的重试入口）。"""
+    from app.scheduler.manager import scheduler_manager
+    return scheduler_manager.reconcile()
+
+
 @router.get("/{task_id}", response_model=TaskResponse)
 def get_task(task_id: uuid.UUID, _: str = Depends(require_auth)):
     try:
