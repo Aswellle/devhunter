@@ -11,6 +11,7 @@ from app.api import (
     items,
     llm,
     notifications,
+    opportunities,
     outlets,
     sources,
     star_folders,
@@ -35,3 +36,4 @@ api_router.include_router(stats.router)
 api_router.include_router(user_prefs.router)
 api_router.include_router(llm.router)
 api_router.include_router(notifications.router)
+api_router.include_router(opportunities.router)
