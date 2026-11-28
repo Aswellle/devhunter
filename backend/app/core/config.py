@@ -106,7 +106,21 @@ class Settings(BaseSettings):
 
     @property
     def cors_origins_list(self) -> list[str]:
-        return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+        """解析逗号分隔的允许 Origin。
+
+        归一化尾部斜杠：用户在环境变量里常写 `https://app.example.test/`，
+        而浏览器发送的 Origin 永远没有尾斜杠，不归一化会导致 CSRF 中间件
+        把自定义域名部署全部拒之门外。"""
+        origins = []
+        for entry in self.cors_origins.split(","):
+            origin = entry.strip()
+            if not origin:
+                continue
+            if origin.endswith("/") and origin.count("/") > 2:
+                # 只剥一个尾斜杠；scheme 自带的 "//" 不受影响
+                origin = origin[:-1]
+            origins.append(origin)
+        return origins
 
     @property
     def is_production(self) -> bool:
@@ -136,6 +150,13 @@ class Settings(BaseSettings):
             raise RuntimeError("AUTH_PASSWORD must be changed from default in production")
         if self.secret_key in insecure_keys:
             raise RuntimeError("SECRET_KEY must be changed from default in production")
+        # 生产环境禁止 wildcard Origin：allow_credentials=True 下 `*` 会让
+        # CORS 中间件拒绝带凭证响应，且 CSRF 白名单退化为形同虚设
+        if "*" in self.cors_origins_list:
+            raise RuntimeError(
+                "CORS_ORIGINS must list exact origins in production; "
+                "wildcard '*' is not allowed"
+            )
 
 
 @lru_cache(maxsize=1)

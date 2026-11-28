@@ -29,9 +29,11 @@ services:
       # 是 nginx 地址，登录限流和锁定对全部外部调用者共享一个桶。
       # 后端仅 expose 在 Docker 内部网络，此网络上的唯一 peer 就是 nginx。
       FORWARDED_ALLOW_IPS: "*"
-      # 浏览器可见的前端 origin；http://frontend 是 Docker 内部服务名，
-      # 浏览器永远不会把它当作 Origin 发送，此前留在这里是死配置。
-      CORS_ORIGINS: http://localhost,http://localhost:80,https://localhost
+      # 浏览器可见的前端 origin。自定义域名部署时，在仓库根目录 .env（或
+      # shell 环境）设置 CORS_ORIGINS=https://你的域名,https://其他域名 ——
+      # 同源 Nginx 反代下默认值即可工作，但直接以域名跨域访问 API 时必须
+      # 列入白名单。禁止使用 *：生产环境启动校验会拒绝 wildcard Origin。
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost,http://localhost:80,https://localhost}
     volumes:
       - devhunter_data:/data
     # 生产环境通过内部网络通信，不再映射宿主机端口。
