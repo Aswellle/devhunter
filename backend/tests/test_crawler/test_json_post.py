@@ -125,8 +125,9 @@ def test_json_post_5xx_is_terminal_no_retry():
     assert len(client.calls) == 1
 
 
-def test_json_post_redirect_reposts_same_body(monkeypatch):
-    """手动跟随重定向时，下一跳以同一请求体 POST 到解析后的目标。"""
+def test_json_post_301_redirect_downgrades_to_get(monkeypatch):
+    """重定向语义收紧：301/302/303 必须降级为 GET 并丢弃请求体——
+    旧行为对每一跳重复 POST 同一请求体，会把副作用转发到任意目标。"""
     monkeypatch.setattr(
         engine, "resolve_and_validate_url", lambda _url: (True, "", None)
     )
@@ -139,9 +140,9 @@ def test_json_post_redirect_reposts_same_body(monkeypatch):
         {"post_body": {"page": 2}}, {}, timeout=5.0, on_progress=None,
     )
     assert outcome.error is None
-    assert [c[0] for c in client.calls] == ["POST", "POST"]
+    assert [c[0] for c in client.calls] == ["POST", "GET"]
     assert client.calls[1][1] == "http://example.com/api?page=2"
-    assert client.calls[1][2] == {"page": 2}
+    assert client.calls[1][2] is None
 
 
 def test_redirect_target_resolved_via_url_join(monkeypatch):

@@ -502,6 +502,20 @@ def _fetch_bounded(
         response.close()
 
 
+def _origin_of(url: str) -> tuple[str, str, int]:
+    """(scheme, hostname, effective port)：跨域比较用。"""
+    parts = urlparse(url)
+    port = parts.port
+    if port is None:
+        port = 443 if parts.scheme == "https" else 80
+    return parts.scheme.lower(), (parts.hostname or "").lower(), port
+
+
+def _is_cross_origin(base_url: str, target_url: str) -> bool:
+    """重定向跨域判定：scheme/host/port 任一不同即为跨域。"""
+    return _origin_of(base_url) != _origin_of(target_url)
+
+
 def _rate_limit_delay(response: httpx.Response | None) -> float:
     """
     429 后的等待时间：优先 Retry-After，其次 x-rate-limit-reset（epoch 秒），
@@ -585,6 +599,12 @@ def _fetch_page_with_retry(
             # C1: redirects are followed manually so each hop's Location URL
             # can be re-validated against the SSRF blocklist. The shared
             # httpx.Client has follow_redirects=False for exactly this reason.
+            #
+            # CRAWL-001 安全语义：
+            # - 301/302/303 → POST 降级为 GET，丢弃请求体与 POST 专用头
+            # - 307/308 → 仅同源保留 POST 方法与请求体；跨域拒绝跟随
+            #   （跟随等于把请求体和站点专用头发送给第三方主机）
+            # - 任意跨域跳转不转发自定义头（referer/api-key/内部标识等）
             redirect_hops = 0
             while getattr(response, "is_redirect", False) and redirect_hops < MAX_REDIRECTS:
                 location = response.headers.get("location")
@@ -599,19 +619,38 @@ def _fetch_page_with_retry(
                         error=f"SSRF blocked on redirect: {ssrf_msg}",
                         http_status=response.status_code,
                     )
-                redirect_hops += 1
+                cross_origin = _is_cross_origin(str(response.url), next_url)
+                status = response.status_code
+                hop_method = "GET"
+                hop_json = None
+                hop_headers: dict = {}
                 if mode == "json-post":
-                    response, fetch_err = _fetch_bounded(
-                        client, "POST", next_url, MAX_RESPONSE_BYTES,
-                        json=post_body,
-                        headers={**extra_headers, "Content-Type": "application/json"},
-                        timeout=timeout,
-                    )
-                else:
-                    response, fetch_err = _fetch_bounded(
-                        client, "GET", next_url, MAX_RESPONSE_BYTES,
-                        headers=extra_headers, timeout=timeout,
-                    )
+                    if status in (301, 302, 303):
+                        pass  # 降级 GET：无 body、无 POST 专用头
+                    elif status in (307, 308):
+                        if cross_origin:
+                            return _FetchOutcome(
+                                response=None,
+                                retries_used=attempt - 1,
+                                error=(
+                                    "Cross-origin redirect with POST body refused: "
+                                    f"{next_url}（307/308 跨域跟随会把请求体和"
+                                    "站点专用头发送给第三方主机）"
+                                ),
+                                http_status=status,
+                            )
+                        hop_method = "POST"
+                        hop_json = post_body
+                        hop_headers = {**extra_headers, "Content-Type": "application/json"}
+                    else:
+                        break
+                elif not cross_origin:
+                    hop_headers = dict(extra_headers)
+                redirect_hops += 1
+                response, fetch_err = _fetch_bounded(
+                    client, hop_method, next_url, MAX_RESPONSE_BYTES,
+                    json=hop_json, headers=hop_headers, timeout=timeout,
+                )
                 if fetch_err:
                     _emit(on_progress, "fetch_error", fetch_err, {"attempt": attempt})
                     return _FetchOutcome(
