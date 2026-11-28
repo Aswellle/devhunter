@@ -48,6 +48,7 @@ def get_templates(_: str = Depends(require_auth)):
             "category": t.category,
             "subcategory": t.subcategory,
             "content_kind": t.content_kind,
+            "selector_next_page": t.selector_next_page,
         }
         for t in templates
     ]

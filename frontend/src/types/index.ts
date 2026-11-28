@@ -468,6 +468,8 @@ export interface SourceTemplate {
   subcategory?: string
   /** 模板建议的内容性质：条目型模板（如 GitHub Trending）创建的任务不参与热点聚合 */
   content_kind: ContentKind
+  /** 可选分页配置（下一页 selector / json: 路径）；缺省单页抓取 */
+  selector_next_page?: string | null
 }
 
 // ── Auth ──────────────────────────────────────────────────

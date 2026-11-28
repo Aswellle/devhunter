@@ -69,7 +69,8 @@ export function TemplateMarket({ onClose, onCreated }: TemplateMarketProps) {
         selector_title: tpl.selector_title,
         selector_link: tpl.selector_link,
         selector_summary: tpl.selector_summary ?? null,
-        selector_next_page: null,
+        // 模板自带可选分页配置时透传（模板 schema 已支持 selector_next_page）
+        selector_next_page: tpl.selector_next_page ?? null,
         keywords: tpl.default_keywords || [],
         cron_expression: tpl.recommended_cron,
         content_kind: tpl.content_kind,

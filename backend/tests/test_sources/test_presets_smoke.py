@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from app.crawler.templates import get_template, list_templates
+from app.crawler.templates import SourceTemplate, get_template, list_templates
 
 
 class TestPresetSmoke:
@@ -76,3 +76,40 @@ class TestPresetSmoke:
         data = json.loads(templates_file.read_text(encoding="utf-8"))
         assert isinstance(data, list), "sources.json must be a JSON array"
         assert len(data) > 0, "sources.json must not be empty"
+
+
+class TestTemplatePagination:
+    def test_template_accepts_optional_next_page_selector(self):
+        """模板 schema 支持可选分页配置：带 selector_next_page 的模板
+        不再被加载器丢弃，字段进入 API 响应供创建任务透传。"""
+        template = SourceTemplate(
+            id="tpl-pagination",
+            name="分页模板",
+            source_url="https://example.com/list",
+            selector_list=".item",
+            selector_title="h2",
+            selector_link="a",
+            selector_summary=None,
+            description="d",
+            default_keywords=[],
+            recommended_cron="0 9 * * *",
+            selector_next_page="a.next",
+        )
+        assert template.selector_next_page == "a.next"
+
+    def test_templates_api_exposes_next_page_field(self):
+        """/api/tasks/templates 响应携带 selector_next_page，模板市场
+        创建任务时才能把分页配置带进 Task。"""
+        from fastapi.testclient import TestClient
+
+        from app.core.security import create_access_token
+        from app.main import app
+
+        client = TestClient(app)
+        token = create_access_token({"sub": "admin"})
+        resp = client.get("/api/tasks/templates",
+                          headers={"Authorization": f"Bearer {token}"})
+        assert resp.status_code == 200
+        payload = resp.json()
+        assert payload, "预设模板不应为空"
+        assert all("selector_next_page" in t for t in payload)

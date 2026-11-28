@@ -29,6 +29,8 @@ class SourceTemplate:
     # 内容性质：discussion=讨论型（跨来源聚合成 Thread 有意义）
     #          catalog=条目型（独立资源条目，不参与热点聚合）
     content_kind: str = "discussion"
+    # 可选分页配置（下一页 CSS selector / json: 路径）；缺省单页抓取
+    selector_next_page: str | None = None
 
 
 _templates: dict[str, SourceTemplate] = {}

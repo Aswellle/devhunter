@@ -346,6 +346,17 @@ export function SourceWizard({ onClose, onCreated }: SourceWizardProps) {
                     {discoveryResult.summary_selector || 'N/A'}
                   </code>
                 </div>
+                {discoveryResult.next_page_selector && (
+                  <div>
+                    <span className="text-gray-500">分页:</span>
+                    <code className="ml-2 px-2 py-0.5 bg-gray-100 rounded text-xs">
+                      {discoveryResult.next_page_selector}
+                    </code>
+                    <span className="ml-2 text-xs text-gray-500">
+                      （保存后自动跟随下一页抓取）
+                    </span>
+                  </div>
+                )}
               </div>
 
               <div>
