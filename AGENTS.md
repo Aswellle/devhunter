@@ -376,7 +376,8 @@ SQLite，WAL 模式。关键表：
 | `/recommendations` | GET | 个性化推荐 |
 | `/topics` | GET/POST | 用户主题管理 |
 | `/topics/recommended` | GET | 推荐主题 |
-| `/interactions` | POST | 记录用户交互 |
+| `/interactions` | POST | 记录用户交互（dwell 60 分钟去重） |
+| `/user-prefs/feedback` | GET/DELETE | 屏蔽管理：列出负反馈 / 撤销屏蔽（工作流 D 可撤销） |
 | `/health` | GET | 健康检查 |
 
 ---
@@ -488,3 +489,5 @@ SQLite，WAL 模式。关键表：
 43. **liveness 与 readiness 分离**：`/api/health` 只答进程存活；`/api/ready` 检查 DB `SELECT 1`、`PRAGMA user_version` 对照最新迁移文件、Scheduler 已启动，任一失败 503。Compose healthcheck 探 readiness——不要在 `/health` 里加 DB/Scheduler 探测（会让 liveness 误报进程死亡）。
 44. **任务 status 必须由 insert 保留**：`task_repo.insert` 曾硬编码 `'active'`，草稿（向导验证失败、OPML 导入）被直接启用并进入调度；insert 现只接受 active/paused（其余回退 active）。`execute_task` 对 paused 有早退守卫，但"注册 Job 即视为会抓取"仍是错误假设——新写入路径必须显式传 status。
 45. **机器令牌的三种身份与 query 兼容开关**：出口端点校验顺序是命名令牌（`token:<name>`）→ legacy machine-token → 用户 JWT Cookie；`ALLOW_QUERY_TOKEN=false` 时 query token 完全忽略（Cookie 登录不受影响）。命名令牌每次校验都查库（撤销/过期立即生效），绝不进程内缓存；明文只在创建响应出现一次，列表/日志都不得出现明文或哈希；`token=` 查询参数由 `_TokenRedactionFilter` 统一脱敏。
+46. **dwell 埋点双侧控制**：前端 `useDwellTracking`（IntersectionObserver ≥60% 可见 + 前台 + 5s 阈值 + sessionStorage 每条目一次）只防客户端噪声；服务端 `record_interaction` 对 dwell 还有 60 分钟去重窗口兜底（重复上报返回已有记录）。新增交互类型或客户端埋点时两侧都要有控制，缺一侧就会被灌水。
+47. **负反馈撤销是物理删除**：`DELETE /api/user-prefs/feedback/{id}` 删行即恢复推荐（`get_negative_feedback_map` 立即不再排除）；不做软删除/revoked 列（018 表无该列，屏蔽历史价值低于恢复路径的简单性）。Profile 页「屏蔽管理」卡片消费 GET/DELETE，撤销成功必须同时失效 `queryKeys.userPrefs.negativeFeedback()` 与 `queryKeys.recommendations.all`。
