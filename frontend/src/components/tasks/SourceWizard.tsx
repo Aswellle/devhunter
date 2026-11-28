@@ -8,7 +8,7 @@ import { errorMessage } from '../../api/client'
 import { useModalA11y } from '../../hooks/useModalA11y'
 import { ConfirmDialog } from '../ui/ConfirmDialog'
 import { SchedulePicker } from './SchedulePicker'
-import type { DiscoveryFailure, DiscoveryResult, PreviewResult } from '../../types'
+import type { DiscoveryFailure, DiscoveryResult, PreviewResult, TestResult } from '../../types'
 
 interface SourceWizardProps {
   onClose: () => void
@@ -48,7 +48,13 @@ export function SourceWizard({ onClose, onCreated }: SourceWizardProps) {
   const [step, setStep] = useState<Step>(1)
   const [url, setUrl] = useState('')
   const [discoveryResult, setDiscoveryResult] = useState<DiscoveryResult | null>(null)
+  // 可修正的选择器映射：自动发现经常偏差，用户改完直接重新预览/验证——
+  // 预览、验证与最终保存永远使用同一份配置
+  const [selectors, setSelectors] = useState({
+    list: '', title: '', link: '', summary: '', next_page: '',
+  })
   const [previewResult, setPreviewResult] = useState<PreviewResult | null>(null)
+  const [testResult, setTestResult] = useState<TestResult | null>(null)
   const [name, setName] = useState('')
   const [keywords, setKeywords] = useState('')
   const [cronExpression, setCronExpression] = useState('0 9 * * *')
@@ -96,6 +102,14 @@ export function SourceWizard({ onClose, onCreated }: SourceWizardProps) {
         return
       }
       setDiscoveryResult(data)
+      // 发现结果初始化可编辑选择器；新 URL 的旧预览/验证结果一并作废
+      setSelectors({
+        list: data.list_selector || '',
+        title: data.title_selector || '',
+        link: data.link_selector || '',
+        summary: data.summary_selector || '',
+        next_page: data.next_page_selector || '',
+      })
       // 用站点标题预填任务名称（用户已输入或站点无名时保持现状）
       if (!name && data.title) {
         setName(data.title)
@@ -103,6 +117,7 @@ export function SourceWizard({ onClose, onCreated }: SourceWizardProps) {
       // URL 变了就重新发现，旧 URL 的预览结果必须作废，
       // 否则"继续"按钮会用上一个 URL 的 preview.success 放行
       setPreviewResult(null)
+      setTestResult(null)
       setStep(2)
     },
     onError: (e: unknown) => {
@@ -112,12 +127,42 @@ export function SourceWizard({ onClose, onCreated }: SourceWizardProps) {
   })
 
   const previewMutation = useMutation({
-    mutationFn: () => sourcesApi.preview(url, discoveryResult || undefined),
+    // 预览用「人工修正后的选择器」而不是原始发现结果——用户改完映射
+    // 立即能看到修正效果，且预览与最终保存的是同一份配置
+    mutationFn: () => {
+      const base = discoveryResult
+      if (!base) throw new Error('missing discovery')
+      return sourcesApi.preview(url, {
+        ...base,
+        list_selector: selectors.list,
+        title_selector: selectors.title,
+        link_selector: selectors.link,
+        summary_selector: selectors.summary,
+        next_page_selector: selectors.next_page,
+      })
+    },
     onSuccess: (data) => {
       setPreviewResult(data)
     },
     onError: (e: unknown) => {
       setError(errorMessage(e, '预览失败'))
+    },
+  })
+
+  const testMutation = useMutation({
+    // 语义验证与预览使用完全相同的选择器配置
+    mutationFn: () =>
+      sourcesApi.test(url, {
+        list: selectors.list,
+        title: selectors.title,
+        link: selectors.link,
+        summary: selectors.summary,
+      }),
+    onSuccess: (data) => {
+      setTestResult(data)
+    },
+    onError: (e: unknown) => {
+      setError(errorMessage(e, '验证失败'))
     },
   })
 
@@ -127,15 +172,19 @@ export function SourceWizard({ onClose, onCreated }: SourceWizardProps) {
         name,
         source_url: url,
         template_id: null,
-        selector_list: discoveryResult?.list_selector || '',
-        selector_title: discoveryResult?.title_selector || '',
-        selector_link: discoveryResult?.link_selector || '',
-        selector_summary: discoveryResult?.summary_selector || null,
-        selector_next_page: null,
+        selector_list: selectors.list,
+        selector_title: selectors.title,
+        selector_link: selectors.link,
+        selector_summary: selectors.summary || null,
+        // 自动发现/人工修正出的分页选择器必须进入任务：丢弃它会让分页源永远只抓第一页
+        selector_next_page: selectors.next_page || null,
         keywords: keywords ? keywords.split(/[,，]/).map((k) => k.trim()).filter(Boolean) : [],
         cron_expression: cronExpression,
         // 自定义来源默认讨论型；条目型可在任务设置里改
         content_kind: 'discussion',
+        // 验证通过才启用；验证失败/未验证保存为草稿（paused），
+        // 不把未验证来源标记为健康
+        status: testResult?.success ? 'active' : 'paused',
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: queryKeys.tasks.all })
@@ -146,6 +195,13 @@ export function SourceWizard({ onClose, onCreated }: SourceWizardProps) {
       setError(errorMessage(e, '保存失败'))
     },
   })
+
+  // 选择器人工修正后，旧预览/验证结果立即失效
+  const updateSelector = (field: keyof typeof selectors, value: string) => {
+    setSelectors((prev) => ({ ...prev, [field]: value }))
+    setPreviewResult(null)
+    setTestResult(null)
+  }
 
   const runDiscover = (target?: string) => {
     setError('')
@@ -167,8 +223,8 @@ export function SourceWizard({ onClose, onCreated }: SourceWizardProps) {
     setError('')
     // 自动发现失败/未产出选择器时不允许保存：空 selector 过去会打到
     // 数据库 NOT NULL 约束上返回 500，现在前后端都拦（后端返回 400）
-    if (!discoveryResult?.list_selector || !discoveryResult?.title_selector || !discoveryResult?.link_selector) {
-      setError('未获取到有效的选择器，请返回上一步重新执行「自动发现」')
+    if (!selectors.list || !selectors.title || !selectors.link) {
+      setError('列表/标题/链接选择器不能为空，请返回上一步修正后重试')
       return
     }
     saveMutation.mutate()
@@ -321,42 +377,37 @@ export function SourceWizard({ onClose, onCreated }: SourceWizardProps) {
                 )}
               </div>
 
-              <div className="grid grid-cols-2 gap-3 text-sm">
-                <div>
-                  <span className="text-gray-500">列表:</span>
-                  <code className="ml-2 px-2 py-0.5 bg-gray-100 rounded text-xs">
-                    {discoveryResult.list_selector || 'N/A'}
-                  </code>
-                </div>
-                <div>
-                  <span className="text-gray-500">标题:</span>
-                  <code className="ml-2 px-2 py-0.5 bg-gray-100 rounded text-xs">
-                    {discoveryResult.title_selector || 'N/A'}
-                  </code>
-                </div>
-                <div>
-                  <span className="text-gray-500">链接:</span>
-                  <code className="ml-2 px-2 py-0.5 bg-gray-100 rounded text-xs">
-                    {discoveryResult.link_selector || 'N/A'}
-                  </code>
-                </div>
-                <div>
-                  <span className="text-gray-500">摘要:</span>
-                  <code className="ml-2 px-2 py-0.5 bg-gray-100 rounded text-xs">
-                    {discoveryResult.summary_selector || 'N/A'}
-                  </code>
-                </div>
-                {discoveryResult.next_page_selector && (
-                  <div>
-                    <span className="text-gray-500">分页:</span>
-                    <code className="ml-2 px-2 py-0.5 bg-gray-100 rounded text-xs">
-                      {discoveryResult.next_page_selector}
-                    </code>
-                    <span className="ml-2 text-xs text-gray-500">
-                      （保存后自动跟随下一页抓取）
-                    </span>
+              {/* 选择器可修正：自动发现经常偏差，改完重新预览/验证，
+                  全程使用同一份配置 */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+                {(
+                  [
+                    { key: 'list', label: '列表选择器', required: true },
+                    { key: 'title', label: '标题字段/选择器', required: true },
+                    { key: 'link', label: '链接字段/选择器', required: true },
+                    { key: 'summary', label: '摘要字段/选择器', required: false },
+                    { key: 'next_page', label: '分页选择器（可选）', required: false },
+                  ] as const
+                ).map(({ key, label, required }) => (
+                  <div key={key}>
+                    <label
+                      htmlFor={`wizard-sel-${key}`}
+                      className="block text-gray-500 mb-1"
+                    >
+                      {label}
+                      {required && <span aria-hidden="true" className="text-danger ml-1">*</span>}
+                    </label>
+                    <input
+                      id={`wizard-sel-${key}`}
+                      type="text"
+                      value={selectors[key]}
+                      onChange={(e) => updateSelector(key, e.target.value)}
+                      spellCheck={false}
+                      aria-required={required}
+                      className="w-full px-3 py-1.5 border rounded-lg font-mono text-xs focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    />
                   </div>
-                )}
+                ))}
               </div>
 
               <div>
@@ -459,6 +510,68 @@ export function SourceWizard({ onClose, onCreated }: SourceWizardProps) {
                 <SchedulePicker value={cronExpression} onChange={setCronExpression} />
               </div>
 
+              {/* 保存前语义验证：transport/parse/semantic 三层分开呈现，
+                  字段覆盖率与警告明确展示 */}
+              <div className="p-3 border rounded-lg bg-gray-50">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-sm font-medium text-gray-700">配置验证</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setError('')
+                      testMutation.mutate()
+                    }}
+                    disabled={
+                      testMutation.isPending ||
+                      !selectors.list || !selectors.title || !selectors.link
+                    }
+                    className="btn-ghost px-3 py-1.5 border border-gray-300 rounded-lg text-sm hover:bg-gray-100 flex items-center gap-1.5 disabled:opacity-50"
+                  >
+                    {testMutation.isPending ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Search className="h-4 w-4" />
+                    )}
+                    验证配置
+                  </button>
+                </div>
+
+                {testResult && (
+                  <div className="mt-3 space-y-1.5 text-sm" aria-live="polite">
+                    <div className="flex flex-wrap gap-2">
+                      <span className="text-gray-500">HTTP {testResult.http_status}</span>
+                      <span className={testResult.transport_success ? 'text-green-700' : 'text-danger'}>
+                        传输 {testResult.transport_success ? '✓' : '✗'}
+                      </span>
+                      <span className={testResult.parse_success ? 'text-green-700' : 'text-danger'}>
+                        解析 {testResult.parse_success ? '✓' : '✗'}
+                      </span>
+                      <span className={testResult.semantic_success ? 'text-green-700' : 'text-danger'}>
+                        语义 {testResult.semantic_success ? '✓' : '✗'}
+                      </span>
+                      <span className="text-gray-500">
+                        提取 {testResult.items_found} 条 · 字段覆盖 {(testResult.field_coverage * 100).toFixed(0)}%
+                      </span>
+                    </div>
+                    {testResult.errors.length > 0 && (
+                      <ul className="text-xs text-danger list-disc list-inside">
+                        {testResult.errors.map((e, i) => <li key={i}>{e}</li>)}
+                      </ul>
+                    )}
+                    {testResult.warnings.length > 0 && (
+                      <ul className="text-xs text-amber-700 list-disc list-inside">
+                        {testResult.warnings.map((w, i) => <li key={i}>{w}</li>)}
+                      </ul>
+                    )}
+                    <p className="text-xs text-gray-500">
+                      {testResult.success
+                        ? '验证通过，保存后将立即启用。'
+                        : '验证未通过：仍可保存为草稿（不会启用定时抓取），修正选择器后可再次验证。'}
+                    </p>
+                  </div>
+                )}
+              </div>
+
               <div className="flex gap-2">
                 <button
                   onClick={() => setStep(2)}
@@ -477,7 +590,8 @@ export function SourceWizard({ onClose, onCreated }: SourceWizardProps) {
                   ) : (
                     <Check className="h-4 w-4" />
                   )}
-                  保存
+                  {/* 验证未通过/未验证 → 草稿（paused），不冒充健康来源 */}
+                  {testResult?.success ? '保存并启用' : '保存为草稿'}
                 </button>
               </div>
             </div>

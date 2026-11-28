@@ -186,6 +186,8 @@ export interface TaskCreate {
   keywords: string[]
   cron_expression: string
   content_kind: ContentKind
+  /** 未验证/验证失败的来源保存为 paused 草稿，不冒充健康 */
+  status?: 'active' | 'paused'
 }
 
 export interface TaskUpdate extends Partial<TaskCreate> {
