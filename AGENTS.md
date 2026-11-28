@@ -93,9 +93,9 @@ devhunter/
 │   │   ├── execution/      # 执行状态机
 │   │   ├── features/       # 实体提取、语义相似度、时间特征
 │   │   └── utils/          # 哈希、URL、相似度工具
-│   ├── migrations/         # 35 个纯 SQL 迁移文件（001–035）
+│   ├── migrations/         # 36 个纯 SQL 迁移文件（001–036）
 │   ├── templates/          # 预设爬取模板（JSON）
-│   ├── tests/              # 78 个测试文件，跨 12 个领域模块 + 迁移测试脚本 + 1 个独立 E2E 脚本
+│   ├── tests/              # 79 个测试文件，跨 12 个领域模块 + 迁移测试脚本 + 1 个独立 E2E 脚本
 │   ├── run.py              # 本地开发入口
 │   ├── e2e_test.py         # 独立 E2E 测试（自包含，使用临时 DB）
 │   └── pyproject.toml      # pytest 配置、依赖
@@ -163,7 +163,7 @@ git config core.hooksPath .githooks    # 克隆后执行一次：启用提交信
 - **错误处理：** `crawler/engine.py` 绝不抛出异常——所有错误通过 `CrawlResult.error` 返回。API 错误使用 `DevHunterError` 层级（含 `status_code` + `error_code`）。所有错误返回 `{"error": {"code": ..., "message": ...}}`。
 - **依赖注入：** `deps.py` 提供 `require_auth()`。服务层通过构造函数注入接收仓储。
 - **数据库访问：** `get_db()` 上下文管理器自动 commit/rollback。`transaction()` 用于跨仓储原子性。SQLite WAL 模式，`busy_timeout=5000`，`foreign_keys=ON`。
-- **迁移：** 35 个纯 SQL 迁移文件通过 `init_database()`（PRAGMA user_version 游标）在启动时应用。使用幂等 `ALTER TABLE ADD COLUMN`——永不破坏性变更。触发器感知的 SQL 拆分器正确处理 `BEGIN...END` 块。
+- **迁移：** 36 个纯 SQL 迁移文件通过 `init_database()`（PRAGMA user_version 游标）在启动时应用。使用幂等 `ALTER TABLE ADD COLUMN`——永不破坏性变更。触发器感知的 SQL 拆分器正确处理 `BEGIN...END` 块。
 - **单例模式：** `scheduler_manager`、`event_bus`、`settings`（lru_cache）、`get_http_client()`。所有仓储/服务导出单一实例。
 - **SSRF 防护：** 两层防线。① URL 预检（`core/ssrf.py::resolve_and_validate_url`）：HTTP 调用前阻止私有/环回/链路本地 IP 与 metadata.* 主机名，DNS 解析失败时 **fail-closed**。② 连接层 IP pinning（`SSRFPinnedNetworkBackend`，挂在共享客户端的传输后端）：每次 TCP 连接在同一次调用内解析 DNS、校验黑名单、只拨号到已验证 IP——关闭 DNS rebinding TOCTOU；TLS 的 SNI/证书校验仍用原始主机名，https 不受影响。`follow_redirects=False`——每个跳转手动重新预检。
 - **去重：** 三层去重——(1) `external_id` 按任务，(2) `url_hash` 全局，(3) `content_hash`（title+summary 的 SHA256）。
@@ -240,7 +240,7 @@ git config core.hooksPath .githooks    # 克隆后执行一次：启用提交信
   - **服务/仓储集成测试** — 使用共享的 session 级 SQLite 测试 DB 并应用迁移
   - **API 测试** — 通过 FastAPI `TestClient` 覆盖完整 ASGI 栈
 - **Fixture：** `backend/tests/conftest.py` — session 级临时 SQLite DB 带迁移，autouse monkeypatch 覆盖 `config.settings.db_path`
-- **组织：** 78 个测试文件，12 个领域模块：`test_api/`、`test_core/`、`test_crawler/`、`test_recommendation/`、`test_sources/`、`test_features/`、`test_threads/`、`test_services/`、`test_scheduler/`、`test_execution/`、`test_llm/`、`test_repositories/` + `test_migrations.py`
+- **组织：** 79 个测试文件，12 个领域模块：`test_api/`、`test_core/`、`test_crawler/`、`test_recommendation/`、`test_sources/`、`test_features/`、`test_threads/`、`test_services/`、`test_scheduler/`、`test_execution/`、`test_llm/`、`test_repositories/` + `test_migrations.py`
 - **模式：**
   - API 测试使用 FastAPI `TestClient` + `_auth_headers()` Bearer token 辅助函数
   - 爬取器测试使用 `_FakeResponse` + `_ScriptedClient`（脚本化响应序列 + `.calls` 计数器）
@@ -291,6 +291,7 @@ python e2e_test.py                  # 独立 E2E（必须从 backend/ 目录运�
 | `REDDIT_CLIENT_ID` / `REDDIT_CLIENT_SECRET` | *(空)* | Reddit 官方 OAuth 应用凭据（未配置时连接器报可行动错误） |
 | `REDDIT_USER_AGENT` | `devhunter/1.0 (personal aggregator)` | Reddit API 必需 UA（平台条款） |
 | `REDDIT_ITEM_TTL_DAYS` | `30` | Reddit 条目保留天数（每日清理，删除同步策略） |
+| `ALLOW_QUERY_TOKEN` | `true` | 机器出口 query token 兼容模式；false 后只接受 Authorization header（SEC-002） |
 | `LOG_LEVEL` | `INFO` | 日志级别 |
 | `LOG_FORMAT` | `json` | `json` 或 `text` |
 | `CORS_ORIGINS` | `http://localhost:5173,...` | 逗号分隔的允许来源 |
@@ -364,6 +365,8 @@ SQLite，WAL 模式。关键表：
 | `/opportunities` | GET/POST | 机会板列表 / 从 Item 或 Thread 创建 |
 | `/opportunities/{id}` | GET/PATCH/DELETE | 详情（含证据与审计）/ 更新 / 删除 |
 | `/ready` | GET | readiness（DB + 迁移游标 + Scheduler） |
+| `/tokens` | GET/POST | 命名机器令牌列表 / 创建（明文只返回一次） |
+| `/tokens/{id}` | DELETE | 撤销命名令牌（立即失效） |
 | `/sources/test` | POST | 测试爬取配置 |
 | `/sources` | GET/POST | 模板 CRUD |
 | `/sources/marketplace/list` | GET | 列出共享模板 |
@@ -484,3 +487,4 @@ SQLite，WAL 模式。关键表：
 42. **机会板审计不可丢**：`opportunity_repo.update` 在"仅事件无字段"（状态/优先级/笔记/标签/提醒变更）时也必须写入 `opportunity_events`——提前 return 会静默丢审计（已修）。机会记录不级联删除原始证据；证据因 TTL 清理缺失时列表返回 `evidence_missing` 而不是隐藏机会。
 43. **liveness 与 readiness 分离**：`/api/health` 只答进程存活；`/api/ready` 检查 DB `SELECT 1`、`PRAGMA user_version` 对照最新迁移文件、Scheduler 已启动，任一失败 503。Compose healthcheck 探 readiness——不要在 `/health` 里加 DB/Scheduler 探测（会让 liveness 误报进程死亡）。
 44. **任务 status 必须由 insert 保留**：`task_repo.insert` 曾硬编码 `'active'`，草稿（向导验证失败、OPML 导入）被直接启用并进入调度；insert 现只接受 active/paused（其余回退 active）。`execute_task` 对 paused 有早退守卫，但"注册 Job 即视为会抓取"仍是错误假设——新写入路径必须显式传 status。
+45. **机器令牌的三种身份与 query 兼容开关**：出口端点校验顺序是命名令牌（`token:<name>`）→ legacy machine-token → 用户 JWT Cookie；`ALLOW_QUERY_TOKEN=false` 时 query token 完全忽略（Cookie 登录不受影响）。命名令牌每次校验都查库（撤销/过期立即生效），绝不进程内缓存；明文只在创建响应出现一次，列表/日志都不得出现明文或哈希；`token=` 查询参数由 `_TokenRedactionFilter` 统一脱敏。
