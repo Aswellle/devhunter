@@ -3,6 +3,7 @@ app/services/recommendation_service.py
 个性化推荐业务层
 基于用户偏好主题、行为亲缘度、 item 新鲜度计算推荐得分
 """
+import heapq
 import logging
 import math
 import re
@@ -143,52 +144,84 @@ class RecommendationService:
             for r in user_affinity_repo.get_top_affinities(affinity_type="platform", limit=20)
         }
 
-        # 4. 获取候选 Items（最近 7 天）
+        # 4. 获取候选 Items（最近 7 天）——分页批量打分，内存有界（REC-001）
+        # 旧实现只取第一页 500 条打分：第 501-600 条里的最高分永远不会
+        # 出现，"Top-N"实际是"第一页里的 Top-N"。
         cutoff_date = (datetime.now(timezone.utc) - timedelta(days=7)).strftime('%Y-%m-%dT%H:%M:%SZ')
-        items, total = item_repo.query(page=1, per_page=500, created_after=cutoff_date)
-        if not items:
-            return []
 
-        # F1: 批量预取所有候选 item 的参与度统计，避免循环内逐条查询（N+1）
-        engagement_stats_map = user_interaction_repo.get_engagement_stats_bulk(
-            [item["id"] for item in items if item.get("id")]
-        )
+        # 全局 Top-K 上限：推荐位与打标采样都远小于该值，K=500 时
+        # 全局正确性与内存占用可兼得；超出的低分候选被堆淘汰
+        _CANDIDATE_TOP_K = 500
+        _PAGE_SIZE = 500
+        _MAX_PAGES = 40  # 硬上限：20k 候选封顶，防止异常数据拖垮接口
 
-        # 推荐解释用：把用户兴趣词传给解释器，让它点出具体命中的兴趣
-        user_profile = {"topics": [topic for topic, _ in user_topics]}
+        candidate_heap: list[tuple[float, int, dict]] = []  # (score, seq, item)
+        heap_seq = 0
+        page = 1
+        while page <= _MAX_PAGES:
+            items, _total = item_repo.query(
+                page=page, per_page=_PAGE_SIZE, created_after=cutoff_date,
+            )
+            if not items:
+                break
 
-        # 5. 计算每条 Item 的推荐得分
-        scored_items: list[tuple[float, dict]] = []
-        for item in items:
-            if exclude_read and item.get("is_read"):
-                continue
-            if item.get("id") in dismissed_ids:
-                continue
-            if (item.get("task_id") in hidden_task_ids
-                    or (item.get("task_name") or "") in hidden_source_names):
-                continue
-
-            score, score_details = self._compute_item_score_details(
-                item=item,
-                topic_tokens_map=topic_tokens_map,
-                affinity_map=affinity_map,
-                task_affinities=task_affinities,
-                platform_affinities=platform_affinities,
-                config=config,
-                engagement_stats_map=engagement_stats_map,
+            # F1: 批量预取本页参与度统计，避免循环内逐条查询（N+1）
+            engagement_stats_map = user_interaction_repo.get_engagement_stats_bulk(
+                [item["id"] for item in items if item.get("id")]
             )
 
-            if score >= config["min_score_threshold"]:
-                # F5: 附上可解释的推荐理由（前端以徽章展示）
-                reasons = explanation_generator.generate(item, score_details, user_profile)
-                scored_items.append((score, {**item, "recommendation_reasons": reasons}))
+            # 推荐解释用：把用户兴趣词传给解释器，让它点出具体命中的兴趣
+            user_profile = {"topics": [topic for topic, _ in user_topics]}
 
-        # 6. 按得分降序
-        scored_items.sort(key=lambda x: x[0], reverse=True)
+            # 5. 计算本页每条 Item 的推荐得分
+            scored_items: list[tuple[float, dict]] = []
+            for item in items:
+                if exclude_read and item.get("is_read"):
+                    continue
+                if item.get("id") in dismissed_ids:
+                    continue
+                if (item.get("task_id") in hidden_task_ids
+                        or (item.get("task_name") or "") in hidden_source_names):
+                    continue
 
+                score, score_details = self._compute_item_score_details(
+                    item=item,
+                    topic_tokens_map=topic_tokens_map,
+                    affinity_map=affinity_map,
+                    task_affinities=task_affinities,
+                    platform_affinities=platform_affinities,
+                    config=config,
+                    engagement_stats_map=engagement_stats_map,
+                )
+
+                if score >= config["min_score_threshold"]:
+                    # F5: 附上可解释的推荐理由（前端以徽章展示）
+                    reasons = explanation_generator.generate(item, score_details, user_profile)
+                    scored_items.append((score, {**item, "recommendation_reasons": reasons}))
+
+            # 有界 Top-K：堆只保留全局最高分的 K 条，内存不随候选总量增长
+            for score, entry in scored_items:
+                heap_seq += 1
+                if len(candidate_heap) < _CANDIDATE_TOP_K:
+                    heapq.heappush(candidate_heap, (score, heap_seq, entry))
+                elif score > candidate_heap[0][0]:
+                    heapq.heapreplace(candidate_heap, (score, heap_seq, entry))
+
+            if len(items) < _PAGE_SIZE:
+                break
+            page += 1
+
+        # 6. 按得分降序（全局 Top-K，跨所有页正确）
+        if len(candidate_heap) >= _CANDIDATE_TOP_K:
+            logger.info(
+                "Recommendation candidates hit top-K cap (%d); lower-scored "
+                "candidates were dropped in a bounded heap",
+                _CANDIDATE_TOP_K,
+            )
+        top = sorted(candidate_heap, key=lambda x: x[0], reverse=True)
         return [
             {**item, "recommendation_score": round(score, 4)}
-            for score, item in scored_items
+            for score, _seq, item in top
         ]
 
     # ── 推荐质量打标（金标采样）─────────────────────────────

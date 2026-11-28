@@ -252,3 +252,47 @@ class TestRecencyDateRobustness:
             "fetched_at": "garbage-2",
         })
         assert details["recency_hours"] >= _MAX_HOURS_AGE_VALUE
+
+
+# ── REC-001：候选分批打分，全局 Top-K 内存有界 ───────────────────
+
+class TestBoundedCandidateScoring:
+    def test_scores_across_pages_return_global_top(self, monkeypatch):
+        """600 条候选分两页：旧实现只取第一页 500 条打分——第 501-600 条
+        里的最高分永远不会出现。分批打分后必须返回全局正确的 Top-K。"""
+        total = 600
+        items = []
+        for i in range(total):
+            items.append({
+                "id": f"item-{i:04d}",
+                "title": f"t {i}", "summary": "", "task_id": "task-1",
+                "task_name": "Hacker News",
+                "published_at": "2026-01-01T00:00:00Z",
+                "fetched_at": "2026-01-01T00:00:00Z",
+            })
+
+        def fake_query(page=1, per_page=500, created_after=None, **kwargs):
+            start = (page - 1) * per_page
+            chunk = items[start:start + per_page]
+            return chunk, total
+
+        monkeypatch.setattr("app.repositories.item_repo.item_repo.query", fake_query)
+
+        import app.services.recommendation_service as rec_module
+
+        # 确定性分数 = 条目编号（item-0 最低，item-599 最高）
+        def fixed_score(item, **kwargs):
+            return float(item["id"].split("-")[1]), {}
+
+        monkeypatch.setattr(
+            rec_module.recommendation_service,
+            "_compute_item_score_details", fixed_score,
+        )
+        scored = rec_module.recommendation_service.score_candidates(exclude_read=True)
+
+        assert len(scored) == 500, "Top-K 上限应为 500"
+        scores = [s["recommendation_score"] for s in scored]
+        assert scores == sorted(scores, reverse=True), "必须按分数降序"
+        # 全局正确：500 以下分数（0-99）不得出现，最高分 599 必须在头部
+        assert min(scores) == 100.0
+        assert max(scores) == 599.0
