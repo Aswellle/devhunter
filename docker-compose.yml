@@ -42,7 +42,8 @@ services:
     expose:
       - "8000"
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      # readiness（DB + 迁移游标 + Scheduler）；liveness 仍是 /health
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/ready"]
       interval: 30s
       timeout: 10s
       retries: 3

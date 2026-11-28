@@ -71,10 +71,62 @@ def llms_txt() -> Response:
 
 @router.get("/health")
 def api_health() -> dict:
-    """/api/health：健康检查（无需认证）。必须在 include_router 之前注册的
-    路由才不会被 MCP 挂载点拦截——本文件的路由经 api_router 注册，
-    先于 main.py 的 app.mount("/api", mcp) 匹配。"""
+    """/api/health：liveness（无需认证）。只回答进程存活，永远轻量——
+    DB/Scheduler 状态属于 readiness，见 /api/ready。必须在 include_router
+    之前注册的路由才不会被 MCP 挂载点拦截——本文件的路由经 api_router
+    注册，先于 main.py 的 app.mount("/api", mcp) 匹配。"""
     return {"status": "ok"}
+
+
+def _latest_migration_version() -> int:
+    """迁移目录中最大版本号（readiness 对照 PRAGMA user_version 用）。"""
+    from app.core.database import MIGRATIONS_DIR, _migration_version
+
+    versions = [
+        v for v in (_migration_version(f) for f in MIGRATIONS_DIR.glob("*.sql"))
+        if v is not None
+    ]
+    return max(versions) if versions else 0
+
+
+@router.get("/ready")
+def api_ready():
+    """readiness（无需认证）：DB 可读、迁移游标已到最新、Scheduler 已启动。
+
+    任一不满足返回 503 + checks 明细，容器/网关据此撤流；不探测外部站点，
+    检查保持快速（单条 SELECT 1 + 目录 glob）。"""
+    from fastapi.responses import JSONResponse
+
+    from app.core.database import get_db
+    from app.scheduler.manager import scheduler_manager
+
+    checks: dict[str, str] = {}
+
+    # DB：能连接并执行查询（只读/损坏/被锁都会在这里暴露）
+    try:
+        with get_db() as conn:
+            conn.execute("SELECT 1").fetchone()
+            applied = conn.execute("PRAGMA user_version").fetchone()[0]
+        checks["db"] = "ok"
+    except Exception as e:  # noqa: BLE001 — readiness 必须自己兜底
+        checks["db"] = f"error: {type(e).__name__}"
+        applied = None
+
+    # 迁移游标：落后于最新迁移文件时不得对外报告 ready
+    if applied is not None:
+        latest = _latest_migration_version()
+        if applied < latest:
+            checks["migration"] = f"behind (db={applied}, latest={latest})"
+        else:
+            checks["migration"] = "ok"
+
+    checks["scheduler"] = "ok" if scheduler_manager._started else "stopped"
+
+    ready = all(v == "ok" for v in checks.values())
+    return JSONResponse(
+        status_code=200 if ready else 503,
+        content={"status": "ready" if ready else "not_ready", "checks": checks},
+    )
 
 
 # ── RSS 出口 ─────────────────────────────────────────────
