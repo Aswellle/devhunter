@@ -820,6 +820,58 @@ class ThreadRepository:
 
     # ── T3: 人工纠错 ────────────────────────────────────────────
 
+    # ── 人工纠错决策（按成员条目 ID 存储，跨重建可重放，ADR-001）──
+
+    def record_manual_decision(
+        self,
+        decision_type: str,
+        item_ids: list[str],
+        payload: dict[str, Any] | None = None,
+    ) -> str:
+        """记录一次人工纠错决策（merge/split/reject_merge）。
+        item_ids：决策锚定的成员条目 ID——Thread UUID 重建后失效，
+        条目 ID 稳定。"""
+        decision_id = str(uuid.uuid4())
+        with get_db() as conn:
+            conn.execute(
+                """INSERT INTO thread_manual_decisions
+                   (id, decision_type, item_ids, payload_json)
+                   VALUES (?, ?, ?, ?)""",
+                (decision_id, decision_type,
+                 json.dumps(list(item_ids), ensure_ascii=False),
+                 json.dumps(payload or {}, ensure_ascii=False)),
+            )
+        return decision_id
+
+    def list_pending_manual_decisions(self) -> list[dict[str, Any]]:
+        """待重放的人工决策（replayed_at IS NULL），按创建时间正序。"""
+        with get_db() as conn:
+            rows = conn.execute(
+                """SELECT * FROM thread_manual_decisions
+                   WHERE replayed_at IS NULL
+                   ORDER BY created_at ASC"""
+            ).fetchall()
+        result: list[dict[str, Any]] = []
+        for r in rows:
+            d = dict(r)
+            try:
+                d["item_ids"] = json.loads(d["item_ids"])
+            except Exception:
+                d["item_ids"] = []
+            try:
+                d["payload"] = json.loads(d["payload_json"])
+            except Exception:
+                d["payload"] = {}
+            result.append(d)
+        return result
+
+    def mark_manual_decision_replayed(self, decision_id: str) -> None:
+        with get_db() as conn:
+            conn.execute(
+                "UPDATE thread_manual_decisions SET replayed_at = ? WHERE id = ?",
+                (_now_iso(), decision_id),
+            )
+
     def record_override(
         self,
         thread_id: str,

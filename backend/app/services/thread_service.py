@@ -205,6 +205,99 @@ class ThreadService:
         )
         return len(clusterable)
 
+    def _replay_manual_decisions(self) -> int:
+        """重放待处理的人工纠错决策（ADR-001，staging 提交后调用）。
+
+        决策以成员条目 ID 为锚（跨重建稳定）：
+        - merge：锚点分散在多个 Thread 时合并回锚点最多的那个；
+        - split：保留侧锚点所在 Thread 若又包含被移出条目，重新拆分；
+        - reject_merge：两侧分属不同 Thread 时按当前 ID 重新登记仲裁。
+        单条决策失败只记日志（其余决策继续），决策永不静默丢失——
+        失败/未处理的决策保持待重放状态，下次重建自动补试。"""
+        from app.threads.split import thread_splitter
+
+        pending = thread_repo.list_pending_manual_decisions()
+        if not pending:
+            return 0
+        applied = 0
+        for decision in pending:
+            try:
+                dtype = decision["decision_type"]
+                anchors = decision.get("item_ids") or []
+                payload = decision.get("payload") or {}
+                if dtype == "merge":
+                    applied += self._replay_merge_decision(anchors)
+                elif dtype == "split":
+                    applied += self._replay_split_decision(
+                        anchors, payload.get("kept_anchor"), thread_splitter,
+                    )
+                elif dtype == "reject_merge":
+                    applied += self._replay_reject_decision(anchors)
+                thread_repo.mark_manual_decision_replayed(decision["id"])
+            except Exception as e:
+                logger.warning(
+                    "Manual decision replay failed (%s %s…): %s",
+                    decision.get("decision_type"),
+                    str(decision.get("id"))[:8], e,
+                )
+        if pending:
+            logger.info("Manual decision replay: %d/%d applied", applied, len(pending))
+        return applied
+
+    @staticmethod
+    def _thread_of_item(item_id: str) -> str | None:
+        from app.repositories.item_repo import item_repo
+        return (item_repo.get(item_id) or {}).get("thread_id")
+
+    def _replay_merge_decision(self, anchors: list[str]) -> int:
+        """merge 决策：锚点分散时合并回锚点最多的 Thread。"""
+        location: dict[str, list[str]] = {}
+        for anchor in anchors:
+            tid = self._thread_of_item(anchor)
+            if tid:
+                location.setdefault(tid, []).append(anchor)
+        if len(location) <= 1:
+            return 0  # 已聚合，决策自然满足
+        ordered = sorted(location.items(), key=lambda kv: -len(kv[1]))
+        target = ordered[0][0]
+        for source, _anchors in ordered[1:]:
+            thread_merger.merge(source, target, reason="manual_decision_replay")
+        return 1
+
+    def _replay_split_decision(
+        self, moved_ids: list[str], kept_anchor: str | None, splitter: Any,
+    ) -> int:
+        """split 决策：被移出条目若又被聚回保留侧，重新拆分。"""
+        if not kept_anchor:
+            return 0
+        kept_thread = self._thread_of_item(kept_anchor)
+        if not kept_thread:
+            return 0
+        still_in = [
+            mid for mid in moved_ids
+            if self._thread_of_item(mid) == kept_thread
+        ]
+        if not still_in:
+            return 0  # 已保持分离，决策自然满足
+        splitter.split(kept_thread, still_in)
+        return 1
+
+    @staticmethod
+    def _replay_reject_decision(anchors: list[str]) -> int:
+        """reject_merge 决策：两侧分属不同 Thread 时按当前 ID 重新登记。"""
+        if len(anchors) < 2:
+            return 0
+        side_a = thread_service._thread_of_item(anchors[0])
+        side_b = thread_service._thread_of_item(anchors[1])
+        if not side_a or not side_b or side_a == side_b:
+            return 0
+        if not thread_repo.is_pair_rejected(side_a, side_b):
+            thread_repo.record_override(
+                side_a, "reject_merge", target_thread_id=side_b,
+                reason="manual decision replay",
+            )
+        return 1
+
     @staticmethod
     def _validate_rebuild(conn: Any) -> None:
         """重建完整性校验（staging 提交前的最后一关，ADR-001）。
@@ -268,7 +361,19 @@ class ThreadService:
         Returns:
             合并后的 Thread dict
         """
-        return thread_merger.merge(source_thread_id, target_thread_id, reason)
+        # 人工合并记录为成员条目 ID 集合（稳定身份，ADR-001）：
+        # 重建生成新 Thread ID 后按集合重放，合并结果不再被算法无声拆散
+        member_ids = sorted({
+            m["id"]
+            for m in thread_repo.get_thread_item_map(
+                [source_thread_id, target_thread_id]
+            ).values()
+            for m in m
+        })
+        merged = thread_merger.merge(source_thread_id, target_thread_id, reason)
+        if merged:
+            thread_repo.record_manual_decision("merge", member_ids)
+        return merged
 
     def split_thread(
         self,
@@ -287,7 +392,21 @@ class ThreadService:
         Returns:
             新 Thread dict
         """
-        return thread_splitter.split(thread_id, item_ids, new_thread_title)
+        # 人工拆分记录为被移出条目 + 保留侧锚点（ADR-001）：重建后若
+        # 算法再次聚回同一 Thread，按决策重新拆分
+        existing_members = {
+            m["id"]
+            for m in thread_repo.get_thread_item_map([thread_id]).get(thread_id, [])
+        }
+        kept_anchor = next(
+            (mid for mid in existing_members if mid not in set(item_ids)), None
+        )
+        split = thread_splitter.split(thread_id, item_ids, new_thread_title)
+        if split and kept_anchor:
+            thread_repo.record_manual_decision(
+                "split", list(item_ids), {"kept_anchor": kept_anchor},
+            )
+        return split
 
     def list_threads(
         self,
@@ -326,6 +445,17 @@ class ThreadService:
         """
         deleted = thread_repo.delete_relation(thread_id, related_thread_id)
         if deleted:
+            # 解除关联记录两侧成员锚点（ADR-001）：重建后按当前 Thread ID
+            # 重新登记 reject_merge，自动关联不再重犯
+            member_map = thread_repo.get_thread_item_map([thread_id, related_thread_id])
+            anchor_a = next(
+                (m["id"] for m in member_map.get(thread_id, [])), None)
+            anchor_b = next(
+                (m["id"] for m in member_map.get(related_thread_id, [])), None)
+            if anchor_a and anchor_b:
+                thread_repo.record_manual_decision(
+                    "reject_merge", [anchor_a, anchor_b],
+                )
             thread_repo.record_override(
                 thread_id,
                 "reject_merge",
@@ -414,8 +544,8 @@ class ThreadService:
           活动窗口可调（window_hours，默认 24h 与采集路径一致）
         - 按批次重放，候选随批次刷新
         - thread_overrides 为人工纠错审计记录，保留不动（旧引用自然失效）
-        - 注意：重建会重新生成全部 Thread id，用户的人工合并/拆分/解除关联
-          记录无法跨重建保留（thread_overrides 的 id 引用随重建失效）
+        - 人工合并/拆分/解除关联按成员条目 ID 记录（031 决策表），
+          staging 提交后重放——人工纠错跨重建保留（ADR-001）
 
         进程内互斥：已有重建进行中时抛 ConflictError。
         个人规模的条目量（数千级）应在秒级到分钟级内完成；
@@ -463,11 +593,17 @@ class ThreadService:
                 self._validate_rebuild(conn)
 
             duration_ms = int((time.monotonic() - started) * 1000)
+
+            # 人工决策重放（ADR-001）：staging 提交后执行——决策合并器
+            # 自管事务，不能在 staging 事务内嵌套连接；崩溃时决策仍是
+            # 待重放状态，下次重建自动补放，人工纠错永不静默丢失
+            decisions_replayed = self._replay_manual_decisions()
             result = {
                 "items": len(items),
                 "threads": thread_repo.count_all(),
                 "orphans_swept": len(orphans),
                 "duration_ms": duration_ms,
+                "manual_decisions_replayed": decisions_replayed,
                 "window_hours": window_hours,
             }
             logger.info(
