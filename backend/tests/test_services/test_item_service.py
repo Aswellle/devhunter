@@ -99,3 +99,97 @@ class TestDeleteItemThreadCleanup:
         response = client.delete(f"/api/items/{ids[0]}", headers=_auth_headers())
 
         assert response.status_code == 204
+
+
+# ── 批量删除原子性：所有清理必须在一个事务内 ─────────────────────
+
+class TestBatchDeleteAtomicity:
+    """批量删除曾跨多次连接逐条提交：membership 摘除、条目删除、
+    Thread 统计、交互清理各自独立提交，中途异常留下半删除状态。"""
+
+    def _threads_for(self, count: int) -> tuple[str, list[str], list[str]]:
+        task_id, ids = _task_with_items(count)
+        thread_ids = [
+            thread_repo.create(f"批量删除 Thread {i}", ids[i], "hn")
+            for i in range(count)
+        ]
+        return task_id, ids, thread_ids
+
+    def test_batch_delete_recalculates_stats_across_threads(self):
+        """跨多个 Thread 批量删除：统计正确重算，空 Thread 回收。"""
+        _, ids, thread_ids = self._threads_for(3)
+        # 每条目除自身 Thread 外互不重叠；删 2 条，两个 Thread 变空
+        deleted = item_service.batch_delete(ids[:2])
+
+        assert deleted == 2
+        remaining = item_repo.get(ids[2])
+        assert remaining is not None
+        tid = thread_repo.get(thread_ids[0])
+        assert tid is None, "空 Thread 必须被回收"
+
+    def test_exception_in_membership_phase_rolls_everything_back(self, monkeypatch):
+        """membership 清理阶段抛异常 → 条目/交互/统计全部回滚。"""
+        _, ids, _ = self._threads_for(2)
+
+        from app.repositories import thread_repo as tr_module
+        real = tr_module.thread_repo.delete_item_from_thread
+        calls = {"n": 0}
+
+        def flaky(item_id, conn=None):
+            calls["n"] += 1
+            if calls["n"] == 2:
+                raise RuntimeError("injected mid-batch failure")
+            return real(item_id, conn=conn)
+
+        monkeypatch.setattr(tr_module.thread_repo, "delete_item_from_thread", flaky)
+        with pytest.raises(RuntimeError):
+            item_service.batch_delete(ids)
+
+        assert item_repo.get(ids[0]) is not None, "事务回滚后条目必须完好"
+        assert item_repo.get(ids[1]) is not None
+
+    def test_exception_in_item_delete_phase_rolls_back_membership(self, monkeypatch):
+        """条目删除阶段抛异常 → 已摘除的 membership 也要回滚。"""
+        _, ids, thread_ids = self._threads_for(2)
+
+        from app.repositories import item_repo as ir_module
+        real_batch = ir_module.item_repo.batch_delete
+
+        def flaky_batch(batch_ids, conn=None):
+            raise RuntimeError("injected item delete failure")
+
+        monkeypatch.setattr(ir_module.item_repo, "batch_delete", flaky_batch)
+        with pytest.raises(RuntimeError):
+            item_service.batch_delete(ids)
+
+        # membership 完好（旧实现已逐条提交摘除，无法回滚）
+        row = thread_repo.get(thread_ids[0])
+        assert row is not None
+        members = thread_repo.get_thread_item_map(thread_ids)
+        member_ids = {m["id"] for m in members.get(thread_ids[0], [])}
+        assert ids[0] in member_ids, "条目删除失败时 membership 必须回滚"
+
+    def test_interactions_cleaned_in_same_transaction(self):
+        """批量删除后 user_interactions 无孤儿（同一事务清理）。"""
+        _, ids, _ = self._threads_for(1)
+        from app.core.database import get_db
+        with get_db() as conn:
+            conn.execute(
+                "INSERT INTO user_interactions (id, item_id, interaction_type, created_at)"
+                " VALUES (?, ?, 'view', '2026-01-01T00:00:00Z')",
+                (str(uuid.uuid4()), ids[0]),
+            )
+
+        item_service.batch_delete(ids)
+
+        with get_db() as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) FROM user_interactions WHERE item_id = ?", (ids[0],)
+            ).fetchone()[0]
+        assert row == 0
+
+    def test_repeat_delete_is_idempotent(self):
+        """重复执行同一批删除安全：第二次返回 0 且不报错。"""
+        _, ids, _ = self._threads_for(2)
+        assert item_service.batch_delete(ids) == 2
+        assert item_service.batch_delete(ids) == 0

@@ -73,25 +73,36 @@ class ItemService:
             return item_repo.delete(item_id, conn=conn)
 
     def batch_delete(self, ids: list[str]) -> int:
+        """批量删除：membership 摘除、条目删除、受影响 Thread 统计重算
+        （含空 Thread 回收）与交互清理在同一个事务内完成——旧实现跨多次
+        连接逐条提交，中途异常会留下成员/统计/交互不一致的半删除状态。
+        幂等：不存在的 id 直接跳过，重复执行安全。"""
+        if not ids:
+            return 0
+        from app.core.database import transaction
         from app.repositories.thread_repo import thread_repo
-        from app.core.database import get_db
-        # collect thread_ids before deletion
-        thread_ids: set[str] = set()
-        for item_id in ids:
-            item = item_repo.get(item_id)
-            if item and item.get("thread_id"):
-                thread_ids.add(item["thread_id"])
-            thread_repo.delete_item_from_thread(item_id)
-        count = item_repo.batch_delete(ids)
-        for tid in thread_ids:
-            thread_repo.rebuild_thread_stats(tid)
-        # clean up orphan user_interactions
-        with get_db() as conn:
+
+        with transaction() as conn:
             placeholders = ",".join(["?"] * len(ids))
+            rows = conn.execute(
+                f"SELECT id, thread_id FROM items WHERE id IN ({placeholders})",
+                ids,
+            ).fetchall()
+            thread_ids = {r["thread_id"] for r in rows if r["thread_id"]}
+
+            for item_id in ids:
+                thread_repo.delete_item_from_thread(item_id, conn=conn)
+
+            count = item_repo.batch_delete(ids, conn=conn)
+
+            for tid in thread_ids:
+                thread_repo.rebuild_thread_stats(tid, conn=conn)
+
             conn.execute(
-                f"DELETE FROM user_interactions WHERE item_id IN ({placeholders})", ids
+                f"DELETE FROM user_interactions WHERE item_id IN ({placeholders})",
+                ids,
             )
-        return count
+            return count
 
 
 # 全局单例

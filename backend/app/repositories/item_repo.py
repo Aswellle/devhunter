@@ -396,11 +396,17 @@ class ItemRepository:
             cursor = conn.execute("DELETE FROM items WHERE id = ?", (item_id,))
         return cursor.rowcount > 0
 
-    def batch_delete(self, ids: list[str]) -> int:
-        """批量删除，返回删除行数"""
+    def batch_delete(self, ids: list[str], conn: sqlite3.Connection | None = None) -> int:
+        """批量删除，返回删除行数；传入 conn 时加入调用方事务"""
         if not ids:
             return 0
         placeholders = ",".join(["?"] * len(ids))
+        if conn is not None:
+            cursor = conn.execute(
+                f"DELETE FROM items WHERE id IN ({placeholders})",
+                ids,
+            )
+            return cursor.rowcount
         with get_db() as conn:
             cursor = conn.execute(
                 f"DELETE FROM items WHERE id IN ({placeholders})",
