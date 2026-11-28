@@ -148,6 +148,24 @@ class UserInteractionRepository:
             )
         return fid
 
+    def list_negative_feedback(self) -> list[dict]:
+        """全部负反馈记录（供屏蔽管理页展示与撤销）。"""
+        with get_db() as conn:
+            rows = conn.execute(
+                "SELECT id, feedback_type, target_value, reason, created_at"
+                " FROM user_negative_feedback ORDER BY created_at DESC"
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def revoke_negative_feedback(self, feedback_id: str) -> bool:
+        """撤销一条负反馈（物理删除）：get_negative_feedback_map 随之不再
+        排除该目标，推荐恢复。旧实现屏蔽是单向的，无法撤销。"""
+        with get_db() as conn:
+            cursor = conn.execute(
+                "DELETE FROM user_negative_feedback WHERE id = ?", (feedback_id,)
+            )
+        return cursor.rowcount > 0
+
     # R3: 获取负反馈映射（用于推荐排除）
     def get_negative_feedback_map(self) -> dict[str, set[str]]:
         """获取所有负反馈，按类型分组。返回 {feedback_type: set(target_value)}。"""

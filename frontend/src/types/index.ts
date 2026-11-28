@@ -483,6 +483,14 @@ export interface OpportunityEvent {
   created_at: string
 }
 
+export interface NegativeFeedbackEntry {
+  id: string
+  feedback_type: 'not_interested' | 'hide_source' | 'mute_topic'
+  target_value: string
+  reason: string
+  created_at: string
+}
+
 export interface Opportunity {
   id: string
   origin_type: 'item' | 'thread'

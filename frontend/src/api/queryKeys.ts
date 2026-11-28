@@ -76,6 +76,7 @@ export const queryKeys = {
     // 推荐质量打标（金标采样与汇总）
     labelSample: () => ['user-prefs', 'label-sample'] as const,
     labelSummary: () => ['user-prefs', 'label-summary'] as const,
+    negativeFeedback: () => ['user-prefs', 'negative-feedback'] as const,
   },
 
   // ── Sources ────────────────────────────────────────────

@@ -1,5 +1,5 @@
 import client from './client'
-import type { RecommendedItem, RecommendedTopic, UserTopic, UserTopicCreate, AffinityEntry, LabelSampleItem, LabelSummary } from '../types'
+import type { RecommendedItem, RecommendedTopic, UserTopic, UserTopicCreate, AffinityEntry, LabelSampleItem, LabelSummary, NegativeFeedbackEntry } from '../types'
 import type { PaginatedResponse } from '../types'
 
 export const userPrefsApi = {
@@ -48,6 +48,12 @@ export const userPrefsApi = {
   // 记录负反馈
   recordFeedback: (data: { item_id: string; feedback_type: string; reason?: string }) =>
     client.post('/user-prefs/feedback', data).then((r) => r.data),
+
+  listFeedback: () =>
+    client.get<NegativeFeedbackEntry[]>('/user-prefs/feedback').then((r) => r.data),
+
+  revokeFeedback: (id: string) =>
+    client.delete(`/user-prefs/feedback/${id}`).then((r) => r.data),
 
   // ── 推荐质量打标（金标）──
   // 采样待标注条目（带采样时的推荐得分快照）

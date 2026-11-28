@@ -269,6 +269,19 @@ def get_relevance_label_summary(_: str = Depends(require_auth)):
 
 # ── 负反馈 ────────────────────────────────────────────────
 
+@router.get("/feedback")
+def list_feedback(_: str = Depends(require_auth)):
+    """屏蔽管理：全部负反馈记录（含目标与原因），供撤销操作展示。"""
+    return user_interaction_repo.list_negative_feedback()
+
+
+@router.delete("/feedback/{feedback_id}", status_code=status.HTTP_204_NO_CONTENT)
+def revoke_feedback(feedback_id: str, _: str = Depends(require_auth)):
+    """撤销一条屏蔽：删除反馈行，推荐候选立即恢复。"""
+    if not user_interaction_repo.revoke_negative_feedback(feedback_id):
+        raise HTTPException(status_code=404, detail="Feedback not found")
+
+
 @router.post("/feedback", response_model=FeedbackResponse,
              status_code=status.HTTP_201_CREATED)
 def record_feedback(body: FeedbackRequest, _: str = Depends(require_auth)):

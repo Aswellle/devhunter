@@ -210,3 +210,52 @@ class TestInteractionVocabulary:
         stats = user_interaction_repo.get_user_engagement_stats(item_id)
         assert stats["view_count"] == 1
         assert stats["click_count"] == 1
+
+
+# ── 负反馈管理：列出与撤销（工作流 D：反馈可撤销）────────────────
+
+class TestNegativeFeedbackManagement:
+    def _record(self, ftype="not_interested", value=None):
+        # FeedbackRequest 的目标是真实条目 id（hide_source/mute_topic 由
+        # 服务端从条目推导 target_value）
+        task_id = _task_id()
+        item_id = value or _insert_item(task_id)
+        created = client.post("/api/user-prefs/feedback", json={
+            "item_id": item_id, "feedback_type": ftype, "reason": "test",
+        }, headers=_auth_headers())
+        assert created.status_code == 201, created.text
+        return created.json()["id"], created.json()["target_value"]
+
+    def test_list_feedback_returns_recorded_entries(self):
+        fid, value = self._record()
+        rows = client.get("/api/user-prefs/feedback", headers=_auth_headers()).json()
+        match = [r for r in rows if r["id"] == fid]
+        assert len(match) == 1
+        assert match[0]["feedback_type"] == "not_interested"
+        assert match[0]["target_value"] == value
+
+    def test_revoke_removes_exclusion_from_recommendations(self):
+        """撤销屏蔽 = 删除反馈行：get_negative_feedback_map 不再含该目标，
+        推荐候选恢复（旧实现记录后无法撤销，屏蔽是单向的）。"""
+        from app.repositories.user_prefs_repo import user_interaction_repo
+
+        fid, value = self._record()
+        assert value in user_interaction_repo.get_negative_feedback_map().get(
+            "not_interested", set())
+
+        resp = client.delete(f"/api/user-prefs/feedback/{fid}", headers=_auth_headers())
+        assert resp.status_code == 204
+
+        assert value not in user_interaction_repo.get_negative_feedback_map().get(
+            "not_interested", set())
+        rows = client.get("/api/user-prefs/feedback", headers=_auth_headers()).json()
+        assert not any(r["id"] == fid for r in rows)
+
+    def test_revoke_unknown_id_is_404(self):
+        resp = client.delete(
+            "/api/user-prefs/feedback/missing-id", headers=_auth_headers())
+        assert resp.status_code == 404
+
+    def test_revoke_requires_auth(self):
+        resp = client.delete("/api/user-prefs/feedback/any")
+        assert resp.status_code == 401

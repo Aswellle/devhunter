@@ -16,6 +16,7 @@ import { Empty } from '../components/ui/Empty'
 import { SkeletonList } from '../components/ui/Skeleton'
 import { LLMSetupCard } from '../components/profile/LLMSetupCard'
 import { LabelingAssistant } from '../components/profile/LabelingAssistant'
+import { FeedbackManager } from '../components/profile/FeedbackManager'
 import { PreferenceModal } from '../components/dashboard/PreferenceModal'
 import type { AffinityEntry, FeedInfo } from '../types'
 import { usePageTitle } from '../hooks/usePageTitle'
@@ -255,6 +256,7 @@ export function ProfilePage() {
           </section>
 
           {/* 推荐质量打标 */}
+          <FeedbackManager />
           <LabelingAssistant />
 
           {/* RSS 订阅 */}
