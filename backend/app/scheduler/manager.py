@@ -114,6 +114,19 @@ class SchedulerManager:
         except Exception as e:
             logger.error("Failed to register thread consolidation job: %s", e)
 
+        # Reddit TTL 清理（PROD-004）：每日 04:10 UTC 删除超期 Reddit 条目
+        try:
+            from app.scheduler.reddit_retention import reddit_retention_job
+            self._scheduler.add_job(
+                reddit_retention_job,
+                trigger=CronTrigger(hour=4, minute=10, timezone=datetime.timezone.utc),
+                id="__system_reddit_retention__",
+                replace_existing=True,
+                name="Reddit Retention (daily)",
+            )
+        except Exception as e:
+            logger.error("Failed to register reddit retention job: %s", e)
+
         # 通知投递（PROD-003）：每 5 分钟投递到期待发通知
         try:
             from app.notifications.service import dispatch_deliveries_job

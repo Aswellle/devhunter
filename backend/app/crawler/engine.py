@@ -129,6 +129,10 @@ def _parse_mode(selector_list: str) -> tuple[str, str, dict]:
         # GitHub 官方只读 Connector：后缀选 repo | releases | issues
         return "github", sl.split(":", 1)[1].strip(), {}
 
+    if sl.startswith("reddit:"):
+        # Reddit 官方 OAuth Connector：后缀选 new | hot | top | rising
+        return "reddit", sl.split(":", 1)[1].strip(), {}
+
     # Default: HTML mode
     return "html", sl, {}
 
@@ -761,6 +765,17 @@ def fetch_and_parse(
     mode, list_path, mode_extra = _parse_mode(selector_list)
 
     # X 模式：用户填 x.com/<账号> 即可，内部改写为公开嵌入时间线
+    if mode == "reddit":
+        # Reddit 官方 OAuth Connector（PROD-004）：域名固定 oauth.reddit.com
+        from app.sources.reddit_connector import fetch as _reddit_fetch
+        result = _reddit_fetch(url, list_path, on_progress=on_progress)
+        if result.error:
+            _emit(on_progress, "fetch_error", result.error, {"mode": "reddit"})
+        else:
+            _emit(on_progress, "fetch_done",
+                  f"Reddit API：{result.extracted_count} 条", {"mode": "reddit"})
+        return result
+
     if mode == "github":
         # GitHub 官方 API Connector（PROD-002）：请求域名固定 api.github.com
         # （无用户可控主机），自带 ETag 与 Link 分页，不走通用抓取循环

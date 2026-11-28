@@ -478,5 +478,20 @@
     "category": "社区讨论",
     "subcategory": "GitHub",
     "content_kind": "discussion"
+  },
+  {
+    "id": "reddit_official",
+    "name": "Reddit 官方 API（subreddit）",
+    "source_url": "https://www.reddit.com/r/rust/",
+    "selector_list": "reddit:new",
+    "selector_title": "reddit:title",
+    "selector_link": "reddit:url",
+    "selector_summary": "reddit:summary",
+    "description": "通过官方 OAuth 读取公开 subreddit 新帖（需配置 REDDIT_CLIENT_ID/SECRET/USER_AGENT）。遵守配额与 Retry-After；内容仅个人阅读/聚合、不得用于模型训练；条目按 TTL（默认 30 天）清理。",
+    "default_keywords": [],
+    "recommended_cron": "0 */2 * * *",
+    "category": "社区讨论",
+    "subcategory": "Reddit",
+    "content_kind": "discussion"
   }
 ]

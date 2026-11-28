@@ -84,6 +84,16 @@ class Settings(BaseSettings):
     # 不在任务模板或数据库中保存明文。
     github_token: str = ""
 
+    # ── Reddit Connector（PROD-004，可选）─────────
+    # 官方 OAuth（application-only）：需在 reddit.com/prefs/apps 创建应用。
+    # 凭据仅经环境变量注入；撤销 = 重置应用 secret 并更新环境变量。
+    # 数据用途限制：仅用于个人自托管阅读/聚合，不得用于模型训练。
+    reddit_client_id: str = ""
+    reddit_client_secret: str = ""
+    reddit_user_agent: str = "devhunter/1.0 (personal aggregator)"
+    # 内容 TTL（天）：按 Data API 条款支持删除/撤回后的清理
+    reddit_item_ttl_days: int = 30
+
     # ── CORS ────────────────────────────────────
     cors_origins: str = "http://localhost:5173,http://localhost:3000,http://localhost:5200,http://127.0.0.1:5200"
 

@@ -51,6 +51,8 @@ PRESET_TEMPLATES = {
     "github_repo",
     "github_releases",
     "github_issues",
+    # Reddit 官方 OAuth
+    "reddit_official",
     # 需求分享
     "reddit_forhire",
     "reddit_ideas",
@@ -81,6 +83,8 @@ def _selector_mode(selector_list: str | None) -> str:
         return "x"
     if sl.startswith("github:"):
         return "github"
+    if sl.startswith("reddit:"):
+        return "reddit"
     return "html"
 
 
@@ -127,7 +131,7 @@ def _validate_next_page_selector(v: str | None, mode: str | None = "html") -> st
     v = v.strip()
     if len(v) > _MAX_SELECTOR_LEN:
         raise InvalidSelectorError(f"selector_next_page 长度超过 {_MAX_SELECTOR_LEN}")
-    if mode in ("json", "json-post", "rss", "x", "github") or v.startswith("json:"):
+    if mode in ("json", "json-post", "rss", "x", "github", "reddit") or v.startswith("json:"):
         return v
     if v.startswith("json-post:"):
         return v
