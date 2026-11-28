@@ -30,6 +30,25 @@ def normalize_url(raw_url: str) -> str:
     return normalized
 
 
+def source_identity(source_url: str, fallback: str = "") -> str:
+    """来源 URL 的稳定 provider 身份（主机名，小写，去 www 前缀）。
+
+    Thread 来源独立性必须以它计算而不是任务名：任务改名不得改变身份，
+    同平台的多个任务（同一主机）不构成跨平台共识，不同平台主机不同
+    才是独立来源证据。URL 缺失或畸形时回退 fallback。
+    """
+    if not source_url:
+        return fallback
+    try:
+        host = urlparse(source_url.strip()).hostname or ""
+    except ValueError:
+        return fallback
+    host = host.lower()
+    if host.startswith("www."):
+        host = host[4:]
+    return host or fallback
+
+
 def compute_url_hash(raw_url: str) -> str:
     """规范化 URL 后计算 sha256，用于去重索引"""
     return sha256_hex(normalize_url(raw_url))

@@ -119,19 +119,32 @@ class ThreadScorer:
         score.temporal_score = temporal_score(new_date, thread_date, window_hours)
 
         # 5. Source score (来源独立性)
-        # items 表没有 source_id 列（采集入库不写），回退到任务名：
-        # 候选 Thread 的 platforms 存的也是任务名，二者必须同源比较，
-        # 否则所有条目都被当作"未知来源"拿固定 0.5，跨来源共识永远不生效
-        new_source_id = (
-            new_item.get("source_id")
-            or new_item.get("task_name")
-            or new_item.get("source_name")
-            or ""
-        )
-        score.source_score = self._calc_source_score(
-            new_source_id,
-            candidate_thread.get("platforms", []),
-        )
+        # 身份用稳定 provider 标识（来源 URL 主机名，030 起存于
+        # threads.source_keys）：任务改名不影响身份，同平台多任务不构成
+        # 跨平台共识。旧线程未回填 source_keys 时退回任务名比较
+        # （platforms 存任务名，与旧行为一致）。
+        thread_source_keys = candidate_thread.get("source_keys") or []
+        if thread_source_keys:
+            new_source_id = (
+                new_item.get("source_id")
+                or new_item.get("source_name")
+                or new_item.get("task_name")
+                or ""
+            )
+            score.source_score = self._calc_source_score(
+                new_source_id, thread_source_keys,
+            )
+        else:
+            legacy_source_id = (
+                new_item.get("task_name")
+                or new_item.get("source_id")
+                or new_item.get("source_name")
+                or ""
+            )
+            score.source_score = self._calc_source_score(
+                legacy_source_id,
+                candidate_thread.get("platforms", []),
+            )
 
         # 加权总分
         score.total_score = (

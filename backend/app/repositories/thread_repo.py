@@ -10,6 +10,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from app.core.database import get_db
+from app.utils.url import source_identity
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +39,12 @@ def _row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
             d["platforms"] = json.loads(d["platforms"])
         except Exception:
             d["platforms"] = []
+    # 解析 source_keys JSON 字段（030：稳定来源身份）
+    if d.get("source_keys") and isinstance(d["source_keys"], str):
+        try:
+            d["source_keys"] = json.loads(d["source_keys"])
+        except Exception:
+            d["source_keys"] = []
     # SQLite 0/1 -> bool
     return d
 
@@ -55,24 +62,28 @@ class ThreadRepository:
         similarity_threshold: float = 0.45,
         match_reason: str = "",
         conn: sqlite3.Connection | None = None,
+        source_key: str = "",
     ) -> str:
         """创建新 Thread，关联第一个 Item。返回 thread_id。
         T2: 存储 algorithm_version 和 similarity_threshold。
+        source_key：稳定来源身份（来源 URL 主机名），评分器以此判断
+        跨来源共识——任务名仅作展示，改名不影响身份。
         传入 conn 时加入调用方事务，不自行提交。
         """
         thread_id = str(uuid.uuid4())
         now = _now_iso()
         platforms = json.dumps([platform], ensure_ascii=False)
+        source_keys = json.dumps([source_key] if source_key else [], ensure_ascii=False)
 
         def _run(c: sqlite3.Connection) -> None:
             c.execute(
                 """
                 INSERT INTO threads
                     (id, title, first_seen_at, last_seen_at, item_count, platforms,
-                     algorithm_version, similarity_threshold, clustered_at)
-                VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?)
+                     source_keys, algorithm_version, similarity_threshold, clustered_at)
+                VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, ?)
                 """,
-                (thread_id, title, now, now, platforms,
+                (thread_id, title, now, now, platforms, source_keys,
                  algorithm_version, similarity_threshold, now),
             )
             c.execute(
@@ -322,11 +333,14 @@ class ThreadRepository:
         platform: str,
         match_reason: str = "",
         conn: sqlite3.Connection | None = None,
+        source_key: str = "",
     ) -> None:
         """
         将已有 Item 加入现有 Thread。
-        更新 Thread 元数据（item_count、last_seen_at、platforms、title 取最长的）。
+        更新 Thread 元数据（item_count、last_seen_at、platforms、
+        source_keys、title 取最长的）。
         T2: 记录 match_reason 到 thread_items。
+        source_key：稳定来源身份，去重合并进 threads.source_keys。
         传入 conn 时加入调用方事务，不自行提交。
         """
         now = _now_iso()
@@ -353,13 +367,16 @@ class ThreadRepository:
             # 更新 Thread 元数据
             # platforms: 添加新 platform（去重）
             th = c.execute(
-                "SELECT platforms, item_count, title FROM threads WHERE id = ?",
+                "SELECT platforms, source_keys, item_count, title FROM threads WHERE id = ?",
                 (thread_id,),
             ).fetchone()
             if th:
                 current_platforms: list[str] = json.loads(th["platforms"]) if th["platforms"] else []
                 if platform and platform not in current_platforms:
                     current_platforms.append(platform)
+                current_keys: list[str] = json.loads(th["source_keys"]) if th["source_keys"] else []
+                if source_key and source_key not in current_keys:
+                    current_keys.append(source_key)
                 new_count = th["item_count"] + (1 if was_inserted else 0)
                 # title 取最长的（更完整的描述）
                 new_title = title if len(title) > len(th["title"]) else th["title"]
@@ -367,10 +384,13 @@ class ThreadRepository:
                     """
                     UPDATE threads
                     SET item_count = ?, last_seen_at = ?,
-                        platforms = ?, title = ?
+                        platforms = ?, source_keys = ?, title = ?
                     WHERE id = ?
                     """,
-                    (new_count, now, json.dumps(current_platforms, ensure_ascii=False), new_title, thread_id),
+                    (new_count, now,
+                     json.dumps(current_platforms, ensure_ascii=False),
+                     json.dumps(current_keys, ensure_ascii=False),
+                     new_title, thread_id),
                 )
 
         if conn is not None:
@@ -647,7 +667,7 @@ class ThreadRepository:
         def _run(c: sqlite3.Connection) -> None:
             rows = c.execute(
                 """
-                SELECT i.title, t.name AS task_name
+                SELECT i.title, t.name AS task_name, t.source_url AS source_url
                 FROM thread_items ti
                 JOIN items i ON ti.item_id = i.id
                 LEFT JOIN tasks t ON i.task_id = t.id
@@ -675,6 +695,13 @@ class ThreadRepository:
                 return
 
             platforms = list({r["task_name"] for r in rows if r["task_name"]})
+            # source_keys：稳定来源身份（来源 URL 主机名）。从成员任务回填，
+            # 旧线程被触碰即自愈；任务改名不影响身份（URL 才是身份来源）
+            source_keys = sorted({
+                source_identity(r["source_url"], r["task_name"] or "")
+                for r in rows
+                if r["source_url"] or r["task_name"]
+            })
             titles = [r["title"] for r in rows]
             longest_title = max(titles, key=len) if titles else ""
             now = _now_iso()
@@ -682,10 +709,11 @@ class ThreadRepository:
             c.execute(
                 """
                 UPDATE threads
-                SET item_count = ?, platforms = ?, title = ?
+                SET item_count = ?, platforms = ?, source_keys = ?, title = ?
                 WHERE id = ?
                 """,
-                (len(rows), json.dumps(platforms, ensure_ascii=False), longest_title, thread_id),
+                (len(rows), json.dumps(platforms, ensure_ascii=False),
+                 json.dumps(source_keys, ensure_ascii=False), longest_title, thread_id),
             )
 
         if conn is not None:

@@ -12,6 +12,7 @@ from app.core.config import settings
 from app.core.exceptions import ConflictError
 from app.repositories.thread_repo import thread_repo
 from app.repositories.task_repo import task_repo
+from app.utils.url import source_identity
 from app.utils.similarity import DEFAULT_THRESHOLD, find_similar_titles, jaccard_similarity
 from app.features.extractor import feature_extractor
 from app.threads.clustering import thread_clusterer
@@ -81,6 +82,15 @@ class ThreadService:
             item["id"]: tasks.get(item.get("task_id"), {}).get("name", "unknown")
             for item in new_items
         }
+        # 稳定来源身份：来源 URL 主机名（任务改名不影响，同平台多任务
+        # 同主机不构成跨平台共识）
+        item_id_to_source_key = {
+            item["id"]: source_identity(
+                tasks.get(item.get("task_id"), {}).get("source_url", ""),
+                tasks.get(item.get("task_id"), {}).get("name", "unknown"),
+            )
+            for item in new_items
+        }
         clusterable = [
             item for item in new_items
             if tasks.get(item.get("task_id"), {}).get("content_kind", "discussion") == "discussion"
@@ -123,12 +133,13 @@ class ThreadService:
                         hours=window_hours, conn=conn,
                     )
 
-                    # source_id/source_name 在 items 表中不存在，评分器改用任务名
-                    # 与候选 Thread 的 platforms 比较，跨来源共识才会真正加分
+                    # source_id 用稳定身份（主机名）；task_name 保留展示名，
+                    # 供未回填 source_keys 的旧线程回退比较
+                    source_key = item_id_to_source_key.get(item_id, platform)
                     scoring_item = {
                         **item,
-                        "source_id": platform,
-                        "source_name": platform,
+                        "source_id": source_key,
+                        "source_name": source_key,
                         "task_name": platform,
                     }
 
@@ -148,10 +159,11 @@ class ThreadService:
                             platform=platform,
                             match_reason=result.match_reason,
                             conn=conn,
+                            source_key=source_key,
                         )
                     else:
                         # 创建新 Thread
-                        new_thread_id = thread_repo.create(title=title, item_id=item_id, platform=platform, algorithm_version="v2", similarity_threshold=threshold, match_reason="no_match", conn=conn)
+                        new_thread_id = thread_repo.create(title=title, item_id=item_id, platform=platform, algorithm_version="v2", similarity_threshold=threshold, match_reason="no_match", conn=conn, source_key=source_key)
                         # 同一故事线 near-miss：与最佳候选显式关联（展示层分层，不改变归属）
                         if result.related_thread_id:
                             thread_repo.record_relation(
@@ -439,6 +451,7 @@ class ThreadService:
             by_id = {t["id"]: dict(t) for t in threads}
             singles = [t for t in threads if (t.get("item_count") or 0) == 1]
             item_map = thread_repo.get_thread_item_map([t["id"] for t in singles])
+            tasks_by_id = {t["id"]: t for t in task_repo.list_all_tasks()}
             before = thread_repo.count_live_threads()
 
             merged = 0
@@ -461,9 +474,14 @@ class ThreadService:
 
                 item = dict(items[0])
                 platform = item.get("task_name") or "unknown"
+                # 稳定身份：成员条目按 task_id 反查任务 source_url
+                source_key = source_identity(
+                    tasks_by_id.get(item.get("task_id"), {}).get("source_url", ""),
+                    platform,
+                )
                 item.update({
-                    "source_id": platform,
-                    "source_name": platform,
+                    "source_id": source_key,
+                    "source_name": source_key,
                     "task_name": platform,
                 })
                 targets = [
@@ -503,6 +521,9 @@ class ThreadService:
                 target["title"] = merged_target.get("title") or target.get("title")
                 target["platforms"] = (
                     merged_target.get("platforms") or target.get("platforms")
+                )
+                target["source_keys"] = (
+                    merged_target.get("source_keys") or target.get("source_keys")
                 )
 
             # 合并期间到达的采集批次被锁让位，这里补聚，避免永久孤儿
@@ -604,6 +625,12 @@ class ThreadService:
         def _platform(item: dict) -> str:
             return tasks.get(item.get("task_id"), {}).get("name") or "unknown"
 
+        def _source_key(item: dict) -> str:
+            return source_identity(
+                tasks.get(item.get("task_id"), {}).get("source_url", ""),
+                _platform(item),
+            )
+
         default_title = max((i["title"] for i in items), key=len)
         new_title = " ".join((title or "").split()) or default_title
         new_title = new_title[:300]
@@ -633,6 +660,7 @@ class ThreadService:
                         platform=_platform(item),
                         match_reason="manual_aggregate",
                         conn=conn,
+                        source_key=_source_key(item),
                     )
                 rebuild = thread_id
             else:
@@ -641,6 +669,7 @@ class ThreadService:
                     title=new_title,
                     item_id=first["id"],
                     platform=_platform(first),
+                    source_key=_source_key(first),
                     algorithm_version="manual",
                     similarity_threshold=1.0,
                     match_reason="manual_aggregate",
