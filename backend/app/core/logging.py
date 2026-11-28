@@ -3,6 +3,7 @@ app/core/logging.py
 结构化日志配置 - 支持 JSON 格式和 text 格式
 """
 import logging
+import re
 import sys
 from typing import Any
 
@@ -18,6 +19,29 @@ class _RequestIdFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
         from app.core.request_id import get_current_request_id
         record.request_id = get_current_request_id()
+        return True
+
+
+# SEC-002：URL query 里的机器令牌不得进入日志（RSS 阅读器/分享链接常带
+# ?token=...）。只对消息与参数做模式替换，保留其余诊断信息。
+_TOKEN_QUERY_RE = re.compile(r"(token=)[A-Za-z0-9_\-\.]{4,}")
+
+
+class _TokenRedactionFilter(logging.Filter):
+    """把 `token=xxxx` 替换为 `token=***`（消息与 args 都处理）。"""
+
+    @staticmethod
+    def _redact(value):
+        if isinstance(value, str):
+            return _TOKEN_QUERY_RE.sub(lambda m: m.group(1) + "***", value)
+        return value
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        record.msg = self._redact(record.msg)
+        if isinstance(record.args, tuple):
+            record.args = tuple(self._redact(a) for a in record.args)
+        elif isinstance(record.args, dict):
+            record.args = {k: self._redact(v) for k, v in record.args.items()}
         return True
 
 
@@ -63,6 +87,7 @@ def setup_logging() -> None:
     handler = logging.StreamHandler(sys.stdout)
     handler.setLevel(log_level)
     handler.addFilter(_RequestIdFilter())
+    handler.addFilter(_TokenRedactionFilter())
     if settings.log_format == "json":
         handler.setFormatter(JSONFormatter(datefmt="%Y-%m-%dT%H:%M:%S"))
     else:
