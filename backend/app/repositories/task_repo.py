@@ -42,9 +42,16 @@ def _row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
 class TaskRepository:
 
     def insert(self, data: dict) -> dict:
-        """插入新任务，返回插入后的完整记录"""
+        """插入新任务，返回插入后的完整记录。
+
+        status 由调用方决定（active | paused）：草稿语义（向导验证失败、
+        OPML 导入）依赖它——旧实现 SQL 硬编码 'active'，草稿被直接启用。
+        """
         task_id = data.get("id") or str(uuid.uuid4())
         now = _now_iso()
+        status = data.get("status")
+        if status not in ("active", "paused"):
+            status = "active"
         keywords_json = json.dumps(data.get("keywords") or [], ensure_ascii=False)
         config_snapshot_json = json.dumps(data.get("config_snapshot") or {}, ensure_ascii=False) if data.get("config_snapshot") else None
 
@@ -63,7 +70,7 @@ class TaskRepository:
                     ?, ?, ?, ?,
                     ?, ?, ?, ?,
                     ?,
-                    ?, ?, 'active',
+                    ?, ?, ?,
                     0, 0,
                     ?, ?,
                     ?, ?
@@ -81,6 +88,7 @@ class TaskRepository:
                     data.get("selector_next_page"),
                     keywords_json,
                     data["cron_expression"],
+                    status,
                     config_snapshot_json,
                     data.get("content_kind") or "discussion",
                     now, now,
