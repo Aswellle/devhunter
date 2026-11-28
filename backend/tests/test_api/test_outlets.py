@@ -195,3 +195,46 @@ class TestApiHealth:
             json={"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
         )
         assert response.status_code == 401
+
+
+class TestRssPublishedAtPriority:
+    """RSS 导出的 pubDate 必须优先 published_at（原发时间），
+    fetched_at/created_at 只做回退——旧实现把抓取时间当发布时间输出。"""
+
+    def test_pub_date_prefers_published_at(self):
+        from email.utils import parsedate_to_datetime
+
+        task = task_repo.insert({
+            "name": f"RSS 原发时间 {uuid.uuid4().hex[:6]}",
+            "source_url": "https://example.com/feed",
+            "selector_list": "rss:",
+            "selector_title": "rss:title",
+            "selector_link": "rss:link",
+            "cron_expression": "0 9 * * *",
+        })
+        item_repo.bulk_insert([{
+            "task_id": task["id"],
+            "title": "原发时间优先",
+            "url": f"https://example.com/published/{uuid.uuid4().hex[:6]}",
+            "url_hash": hashlib.sha256(b"rss-published-at-priority").hexdigest(),
+            "summary": "published_at 与 fetched_at 相差数天",
+            "published_at": "2026-10-01T09:30:00Z",
+            "fetched_at": "2026-10-07T08:00:00Z",
+        }])
+
+        resp = client.get(f"/api/rss/{task['id']}", headers=_auth_headers())
+        assert resp.status_code == 200
+        pub_dates = [el.text for el in ET.fromstring(resp.text).iter("pubDate")]
+        assert pub_dates, "feed 必须含 pubDate"
+        parsed = parsedate_to_datetime(pub_dates[0])
+        assert (parsed.year, parsed.month, parsed.day) == (2026, 10, 1)
+
+    def test_pub_date_falls_back_to_fetched_at(self):
+        from email.utils import parsedate_to_datetime
+
+        task_id = _seed_task_and_items(1)
+        resp = client.get(f"/api/rss/{task_id}", headers=_auth_headers())
+        pub_dates = [el.text for el in ET.fromstring(resp.text).iter("pubDate")]
+        assert pub_dates
+        parsed = parsedate_to_datetime(pub_dates[0])
+        assert (parsed.year, parsed.month, parsed.day) == (2026, 10, 7)

@@ -209,6 +209,7 @@ class RecommendationService:
                 "url": item.get("url", ""),
                 "summary": item.get("summary"),
                 "fetched_at": item.get("fetched_at", ""),
+                "published_at": item.get("published_at", ""),
                 "recommendation_score": item["recommendation_score"],
             }
             for item in sampled
@@ -290,7 +291,9 @@ class RecommendationService:
         summary = item.get("summary", "") or ""
         task_id = item.get("task_id", "")
         task_name = item.get("task_name", "") or ""
-        fetched_at = item.get("fetched_at", "")
+        # 新鲜度基准优先用原发时间：昨天发布、今天才抓到的内容不能按
+        # 抓取时间拿满新鲜度分（时间语义见数据契约 published_at > fetched_at）
+        fetched_at = item.get("published_at") or item.get("fetched_at") or ""
 
         # ── 1. 主题匹配得分 ──────────────────────────────
         topic_score = self._calc_topic_score(title + " " + summary, topic_tokens_map)

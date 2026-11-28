@@ -183,3 +183,26 @@ class TestScoreNormalization:
             },
         )
         assert total == 0.0
+
+
+# ── 新鲜度：published_at 优先于 fetched_at ───────────────────────
+
+class TestRecencyUsesPublishedAt:
+    def test_published_at_takes_precedence(self):
+        """昨天发布、今天才抓到的内容，新鲜度必须按发布时间算——
+        否则旧闻会被当成新热点推到首位。"""
+        from datetime import datetime, timedelta, timezone
+
+        now = datetime.now(timezone.utc)
+        _, details = _details(item={
+            "id": "i1", "title": "t", "summary": "", "task_id": "task-1",
+            "task_name": "Hacker News",
+            "published_at": (now - timedelta(hours=72)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "fetched_at": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        })
+        assert details["recency_hours"] == pytest.approx(72.0, abs=0.5)
+
+    def test_falls_back_to_fetched_when_published_missing(self):
+        _, details = _details()
+        # 默认 fetched_at 为 2026-01-01，距今远超 720 小时
+        assert details["recency_hours"] > 720

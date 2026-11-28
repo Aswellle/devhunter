@@ -160,7 +160,8 @@ def _build_rss(channel_title: str, site_url: str, items: list[dict[str, Any]]) -
     手工构建 RSS 2.0 XML（无外部依赖）。
 
     所有动态文本经 xml escape，杜绝注入；guid 用条目内部 id（isPermaLink=false），
-    链接是外链原文地址；发布时间取 fetched_at（回落 created_at）。
+    链接是外链原文地址；发布时间优先 published_at（来源原发时间），
+    缺失时回落 fetched_at、created_at——导出时间语义与库内一致。
     """
     lines = [
         '<?xml version="1.0" encoding="UTF-8"?>',
@@ -175,7 +176,9 @@ def _build_rss(channel_title: str, site_url: str, items: list[dict[str, Any]]) -
         title = it.get("title") or "(untitled)"
         url = it.get("url") or ""
         summary = it.get("summary") or ""
-        pub_date = _rfc822(it.get("fetched_at") or it.get("created_at"))
+        pub_date = _rfc822(
+            it.get("published_at") or it.get("fetched_at") or it.get("created_at")
+        )
         task_name = it.get("task_name") or ""
         lines += [
             "<item>",

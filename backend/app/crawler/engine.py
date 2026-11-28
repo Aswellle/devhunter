@@ -18,6 +18,8 @@ import re
 import time
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from typing import Callable
 from urllib.parse import urljoin
 
@@ -218,6 +220,33 @@ def _strip_html_tags(text: str) -> str:
     return re.sub(r"<[^>]+>", "", text or "").strip()
 
 
+def _parse_feed_datetime(text: str | None) -> str | None:
+    """解析 Feed 时间字段为 UTC ISO（Z 结尾）；无法解析返回 None。
+
+    支持 RFC 822（RSS pubDate）与 ISO 8601/RFC 3339（Atom published/updated、
+    dc:date）。无时区视为 UTC；坏日期只损失该条目的发布时间，绝不让
+    整个 Feed 解析失败。"""
+    if not text:
+        return None
+    text = text.strip()
+    if not text:
+        return None
+    parsed: datetime | None = None
+    try:
+        parsed = parsedate_to_datetime(text)  # RFC 822
+    except (TypeError, ValueError):
+        pass
+    if parsed is None:
+        iso = text[:-1] + "+00:00" if text.endswith("Z") else text
+        try:
+            parsed = datetime.fromisoformat(iso)
+        except ValueError:
+            return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 def _parse_rss_items(xml_text: str, base_url: str) -> tuple[list[CrawlItem], int]:
     """Parse RSS 2.0 or Atom feed. Returns (items, raw_count)."""
     # Strip namespace declarations so ElementTree parses without ns prefixes
@@ -257,8 +286,20 @@ def _parse_rss_items(xml_text: str, base_url: str) -> tuple[list[CrawlItem], int
             if summary_el is not None and summary_el.text:
                 summary = _strip_html_tags(summary_el.text)[:200]
 
+            published_at = ""
+            pub_el = entry.find("published")
+            if pub_el is not None:
+                published_at = _parse_feed_datetime(pub_el.text) or ""
+            if not published_at:
+                upd_el = entry.find("updated")
+                if upd_el is not None:
+                    published_at = _parse_feed_datetime(upd_el.text) or ""
+
             if title and link:
-                items.append(CrawlItem(title=title, url=link, summary=summary))
+                items.append(CrawlItem(
+                    title=title, url=link, summary=summary,
+                    published_at=published_at,
+                ))
     else:
         # RSS 2.0 (root = <rss> or <rdf:RDF>)
         for item_el in root.iter("item"):
@@ -284,8 +325,21 @@ def _parse_rss_items(xml_text: str, base_url: str) -> tuple[list[CrawlItem], int
             if desc_el is not None and desc_el.text:
                 summary = _strip_html_tags(desc_el.text)[:200]
 
+            # pubDate（RFC 822）优先，dc:date（ISO，命名空间前缀已被剥掉）回退
+            date_el = item_el.find("pubDate")
+            published_at = ""
+            if date_el is not None:
+                published_at = _parse_feed_datetime(date_el.text) or ""
+            if not published_at:
+                dc_el = item_el.find("date")
+                if dc_el is not None:
+                    published_at = _parse_feed_datetime(dc_el.text) or ""
+
             if title and link:
-                items.append(CrawlItem(title=title, url=link, summary=summary))
+                items.append(CrawlItem(
+                    title=title, url=link, summary=summary,
+                    published_at=published_at,
+                ))
 
     return items, len(items)
 
