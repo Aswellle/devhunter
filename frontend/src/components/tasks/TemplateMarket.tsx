@@ -1,7 +1,10 @@
 /**
- * TemplateMarket：模板市场模态框。
+ * PresetLibrary（原 TemplateMarket）：预设来源库模态框。
  *
- * 按类别分组展示预设模板，支持一键启用。
+ * 展示内置预设模板并支持一键启用。命名与实现保持一致：这些是随仓库
+ * 发布的静态预设，不是跨实例共享的社区市场；后端 source_templates
+ * registry（share/import/clone）是另一条能力，尚未接入本 UI，不得在
+ * 文案中混称。
  * 模态框使用固定宽高，避免切换类别时视口摇晃。
  */
 import { useMemo, useState } from 'react'
@@ -120,13 +123,19 @@ export function TemplateMarket({ onClose, onCreated }: TemplateMarketProps) {
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-subtle shrink-0">
           <h2 id="template-market-title" className="text-lg font-semibold text-primary">
-            模板市场
+            预设来源库
           </h2>
           <button onClick={onClose} className="text-muted hover:text-secondary" aria-label="关闭">
             ✕
           </button>
         </div>
 
+
+        {/* 诚实标注数据来源：内置预设，非跨实例社区共享 */}
+        <p className="px-6 pt-3 text-xs text-muted">
+          以下为随版本内置的预设来源（静态模板），一键启用会创建采集任务；
+          不包含其他实例分享的社区模板。
+        </p>
 
         {/* Categories */}
         <div className="px-6 py-3 border-b bg-gray-50 shrink-0">
