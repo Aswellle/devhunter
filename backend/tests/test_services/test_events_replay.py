@@ -74,3 +74,66 @@ class TestListByTaskAfter:
         rows = execution_event_repo.list_by_task_after(task_id, after_id=ids[0])
 
         assert {r["task_id"] for r in rows} == {task_id}
+
+
+# ── seq 游标：同毫秒事件不漏发（时间戳游标的盲区）────────────────
+
+def _record_same_ms(task_id: str, count: int, ms_ts: str) -> list[dict]:
+    return [
+        execution_event_repo.record(
+            execution_id=task_id,
+            task_id=task_id,
+            event_type="fetch_done",
+            message=f"same-ms {i}",
+            data={},
+            created_at=ms_ts,
+        )
+        for i in range(count)
+    ]
+
+
+class TestSeqCursor:
+    def test_record_returns_globally_unique_monotonic_seq(self):
+        task_a, _ = _task_with_events(2)
+        task_b, _ = _task_with_events(2)
+        rows = (
+            execution_event_repo.list_by_task(task_a, limit=10)
+            + execution_event_repo.list_by_task(task_b, limit=10)
+        )
+        seqs = [r["seq"] for r in rows]
+        assert len(set(seqs)) == len(seqs), "seq 必须全局唯一"
+
+    def test_same_millisecond_events_are_not_skipped(self):
+        """同一毫秒内连续写入 3 条，游标停在第 1 条：时间戳比较
+        （created_at > cursor.created_at）会把第 2、3 条漏掉，
+        seq 游标必须一条不漏。"""
+        task_id, _ = _task_with_events(0)
+        rows = _record_same_ms(task_id, 3, "2026-11-28T04:00:00.100Z")
+
+        missed = execution_event_repo.list_by_task_after(task_id, after_id=rows[0]["id"])
+
+        assert [r["id"] for r in missed] == [rows[1]["id"], rows[2]["id"]]
+
+    def test_after_seq_cursor_returns_strictly_later_events(self):
+        task_id, _ = _task_with_events(3)
+        all_rows = execution_event_repo.list_by_task(task_id, limit=10)
+        seqs = sorted(r["seq"] for r in all_rows)
+
+        missed = execution_event_repo.list_by_task_after(task_id, after_seq=seqs[0])
+
+        assert [r["seq"] for r in missed] == seqs[1:]
+
+    def test_legacy_uuid_cursor_maps_to_seq(self):
+        """旧客户端发来的 Last-Event-ID 是事件 uuid：按其 seq 继续，
+        同毫秒内排在其后的事件不得被漏掉。"""
+        task_id, _ = _task_with_events(0)
+        rows = _record_same_ms(task_id, 3, "2026-11-28T04:00:00.200Z")
+
+        missed = execution_event_repo.list_by_task_after(task_id, after_seq=rows[0]["seq"])
+
+        assert [r["id"] for r in missed] == [rows[1]["id"], rows[2]["id"]]
+
+    def test_unknown_uuid_cursor_replays_nothing(self):
+        """无法解析的旧游标保持旧行为：安静返回空（等价从头订阅）。"""
+        task_id, _ = _task_with_events(2)
+        assert execution_event_repo.list_by_task_after(task_id, after_id="no-such-id") == []

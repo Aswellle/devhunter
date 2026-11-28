@@ -39,8 +39,17 @@ async def stream_task_events(
 
     q = event_bus.subscribe(task_id)
 
-    # E1: 获取 Last-Event-ID，用于断线补发
+    # E1: 获取 Last-Event-ID，用于断线补发。
+    # 新游标是全局递增 seq（纯数字）；旧客户端仍可能回传事件 uuid
     last_event_id = request.headers.get("Last-Event-ID")
+    after_seq: int | None = None
+    after_id: str | None = None
+    if last_event_id:
+        stripped = last_event_id.strip()
+        if stripped.isdigit():
+            after_seq = int(stripped)
+        else:
+            after_id = stripped
 
     async def event_generator():
         max_ticks = int(_MAX_STREAM_MINUTES * 60 / _HEARTBEAT_INTERVAL)
@@ -55,18 +64,19 @@ async def stream_task_events(
                 missed_events = await loop.run_in_executor(
                     None,
                     lambda: execution_event_repo.list_by_task_after(
-                        task_id, after_id=last_event_id
+                        task_id, after_id=after_id, after_seq=after_seq
                     ),
                 )
                 for evt in missed_events:
                     payload = {
                         "id":        evt.get("id", ""),
+                        "seq":       evt.get("seq"),
                         "type":      evt.get("event_type", ""),
                         "message":   evt.get("message", ""),
                         "data":      evt.get("data", {}),
                         "timestamp": evt.get("created_at", ""),
                     }
-                    yield _sse(payload)
+                    yield _sse(payload, event_seq=evt.get("seq"))
                     # 不因补发流里出现终态事件而提前结束：
                     # 游标可能落后于上一次执行，其后还有新一轮的事件
             except Exception:
@@ -83,12 +93,13 @@ async def stream_task_events(
                     event = q.get_nowait()
                     payload = {
                         "id":        _get_event_id(event),
+                        "seq":       event.data.get("event_seq"),
                         "type":      event.event_type,
                         "message":   event.message,
                         "data":      event.data,
                         "timestamp": event.timestamp,
                     }
-                    yield _sse(payload)
+                    yield _sse(payload, event_seq=event.data.get("event_seq"))
                     if event.event_type in ("success", "failure", "warning"):
                         return
                 except queue_module.Empty:
@@ -118,5 +129,8 @@ def _get_event_id(event) -> str:
     return event.data.get("event_id", "")
 
 
-def _sse(data: dict) -> str:
-    return f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
+def _sse(data: dict, event_seq: int | None = None) -> str:
+    """原生 SSE 帧：真实事件带 `id: <seq>`（断线续传游标），connected/
+    timeout 等控制帧不带 id，不会污染客户端游标。"""
+    id_line = f"id: {event_seq}\n" if event_seq is not None else ""
+    return f"{id_line}data: {json.dumps(data, ensure_ascii=False)}\n\n"

@@ -51,13 +51,27 @@ class ExecutionEventRepository:
         now = created_at or _now_iso()
         data_json = json.dumps(data or {}, ensure_ascii=False)
 
+        # seq 在同一条 BEGIN IMMEDIATE 事务里读取并写入：SQLite 单写者，
+        # 立即事务拿写锁后再读 MAX(seq)，并发 record() 不会拿到重复序号
+        # （029 的唯一索引兜底；游标语义要求 seq 严格递增且唯一）
         with get_db() as conn:
-            conn.execute(
-                """INSERT INTO execution_events
-                   (id, execution_id, task_id, event_type, message, data, created_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                (event_id, execution_id, task_id, event_type, message, data_json, now)
-            )
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                seq = conn.execute(
+                    "SELECT COALESCE(MAX(seq), 0) + 1 FROM execution_events"
+                ).fetchone()[0]
+                conn.execute(
+                    """INSERT INTO execution_events
+                       (id, execution_id, task_id, event_type, message, data,
+                        created_at, seq)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (event_id, execution_id, task_id, event_type, message,
+                     data_json, now, seq)
+                )
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
         return self.get(event_id) or {}
 
     def get(self, event_id: str) -> dict[str, Any] | None:
@@ -84,7 +98,7 @@ class ExecutionEventRepository:
             query += " AND created_at > (SELECT created_at FROM execution_events WHERE id = ?)"
             params.append(after_id)
 
-        query += " ORDER BY created_at ASC"
+        query += " ORDER BY seq ASC"
 
         with get_db() as conn:
             rows = conn.execute(query, params).fetchall()
@@ -107,23 +121,28 @@ class ExecutionEventRepository:
         self,
         task_id: str,
         after_id: str | None = None,
+        after_seq: int | None = None,
         limit: int = 500,
     ) -> list[dict[str, Any]]:
         """
-        断线补发：任务维度取游标之后的事件，按时间正序。
+        断线补发：任务维度取游标之后的事件，按 seq 正序。
 
-        按 task_id 而非 execution_id 查询——事件持久化历史上（engine 事件
-        不携带 execution_id，回退落 task_id），执行维度查询永远匹配不到；
-        而重连客户端要的本来就是"这个任务我错过的一切"。
-        游标无效（如占位 0）时子查询为 NULL，安静地返回空——等价于
-        无游标从头订阅，不补发历史。
+        游标优先用 after_seq（全局唯一递增序号，029 起由写入路径分配）；
+        after_id（旧客户端的 Last-Event-ID，事件 uuid）解析出该事件的 seq
+        后等价处理——同一毫秒内排在其后的事件不再被时间戳比较漏掉。
+        无法解析的旧游标安静返回空——等价于无游标从头订阅，不补发历史。
         """
         query = "SELECT * FROM execution_events WHERE task_id = ?"
         params: list[Any] = [task_id]
-        if after_id:
-            query += " AND created_at > (SELECT created_at FROM execution_events WHERE id = ?)"
+        if after_seq is not None:
+            query += " AND seq > ?"
+            params.append(after_seq)
+        elif after_id:
+            # 旧游标：uuid → seq。查不到（占位 0 / 未知 id）时条件为
+            # seq > NULL 恒假，安静返回空，与旧行为一致
+            query += " AND seq > (SELECT seq FROM execution_events WHERE id = ?)"
             params.append(after_id)
-        query += " ORDER BY created_at ASC, seq ASC LIMIT ?"
+        query += " ORDER BY seq ASC LIMIT ?"
         params.append(limit)
         with get_db() as conn:
             rows = conn.execute(query, params).fetchall()
@@ -133,7 +152,7 @@ class ExecutionEventRepository:
         """获取执行的最新事件"""
         with get_db() as conn:
             row = conn.execute(
-                "SELECT * FROM execution_events WHERE execution_id = ? ORDER BY created_at DESC LIMIT 1",
+                "SELECT * FROM execution_events WHERE execution_id = ? ORDER BY seq DESC LIMIT 1",
                 (execution_id,)
             ).fetchone()
             return _row_to_dict(row) if row else None

@@ -82,6 +82,10 @@ class EventBus:
             # 必须发生在入队之前——入队后事件对象随时会被消费线程读走
             if persisted and persisted.get("id"):
                 event.data["event_id"] = persisted["id"]
+                if persisted.get("seq") is not None:
+                    # 全局递增序号：SSE id 与客户端去重/续传游标的真正主键，
+                    # uuid 只作外部标识，毫秒时间戳无法区分同毫秒事件
+                    event.data["event_seq"] = persisted["seq"]
         except Exception:
             pass  # 持久化失败不影响实时流
 
