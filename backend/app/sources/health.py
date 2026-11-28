@@ -10,7 +10,7 @@ Source Health：数据源健康度计算。
 - Duplicate rate (10%)
 """
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from app.core.database import get_db
@@ -37,13 +37,39 @@ def _hours_since(iso_date: str) -> float:
 class SourceHealthCalculator:
     """数据源健康度计算器"""
 
+    # 统计窗口：主窗口 24h（与文案一致）；窗口内无执行时回退 7 天并标记
+    _WINDOW_HOURS = 24
+    _FALLBACK_WINDOW_HOURS = 24 * 7
+    # 条目样本量低于该值时标记 low_confidence——单次成功不该显示满分健康
+    _LOW_CONFIDENCE_SAMPLE = 10
+
+    def _recent_executions(self, task_id: str, window_hours: int) -> list[dict]:
+        """窗口内的执行记录（executed_at 字符串 ISO 序可直接比较）。"""
+        cutoff = (datetime.now(timezone.utc) - timedelta(hours=window_hours)).strftime(
+            "%Y-%m-%dT%H:%M:%SZ"
+        )
+        executions, _ = execution_repo.list_by_task(task_id, per_page=200)
+        return [
+            e for e in executions
+            if (e.get("executed_at") or "") >= cutoff
+        ]
+
     def calculate(self, task_id: str) -> dict[str, Any]:
         """
         计算指定任务（数据源）的健康评分。
         返回 health_score (0-100) 和详细指标。
+
+        field coverage 按 items 表 title/url 非空率计算，与 duplicate rate
+        （items_new/items_fetched）解耦——旧实现用 new/fetched 冒充覆盖率，
+        两个指标完全同源，加权等于重复计分。
         """
-        # 获取最近 24h 的执行记录
-        executions, _ = execution_repo.list_by_task(task_id, per_page=50)
+        window_hours = self._WINDOW_HOURS
+        executions = self._recent_executions(task_id, window_hours)
+        window = "24h"
+        if not executions:
+            window_hours = self._FALLBACK_WINDOW_HOURS
+            executions = self._recent_executions(task_id, window_hours)
+            window = "7d"
         if not executions:
             return {
                 "health_score": 0,
@@ -55,6 +81,10 @@ class SourceHealthCalculator:
                 "duplicate_rate": 0,
                 "total_executions": 0,
                 "last_executed_at": None,
+                "window": window,
+                "sample_size": 0,
+                "low_confidence": True,
+                "field_breakdown": {"title": 0.0, "url": 0.0},
             }
 
         total = len(executions)
@@ -64,15 +94,17 @@ class SourceHealthCalculator:
             if e.get("status") in ("success", "warning")
         )
 
-        # 计算字段覆盖率（从最近一次成功执行）
-        field_coverage = self._calc_field_coverage(task_id)
+        # 真实字段覆盖率：窗口内条目 title/url 非空率
+        field_coverage, breakdown, sample_size = self._calc_field_coverage(
+            task_id, window_hours
+        )
 
         # 新鲜度：最近执行时间
         latest = executions[0] if executions else {}
         last_executed = latest.get("executed_at")
         freshness = self._calc_freshness(last_executed)
 
-        # 重复率
+        # 重复率（与 field coverage 同窗口但不同源）
         duplicate_rate = self._calc_duplicate_rate(executions)
 
         # 加权计算
@@ -105,25 +137,39 @@ class SourceHealthCalculator:
             "duplicate_rate": round(duplicate_rate, 1),
             "total_executions": total,
             "last_executed_at": last_executed,
+            "window": window,
+            "sample_size": sample_size,
+            "low_confidence": sample_size < self._LOW_CONFIDENCE_SAMPLE,
+            "field_breakdown": breakdown,
         }
 
-    def _calc_field_coverage(self, task_id: str) -> float:
-        """计算最近一次成功执行的字段覆盖率"""
+    def _calc_field_coverage(
+        self, task_id: str, window_hours: int
+    ) -> tuple[float, dict[str, float], int]:
+        """窗口内条目的 title/url 非空率。
+
+        返回 (覆盖率百分比, 分字段百分比, 条目样本数)；样本为空返回 0。"""
+        cutoff = (datetime.now(timezone.utc) - timedelta(hours=window_hours)).strftime(
+            "%Y-%m-%dT%H:%M:%SZ"
+        )
         with get_db() as conn:
             row = conn.execute(
-                """SELECT items_fetched, items_new FROM task_executions
-                   WHERE task_id = ? AND status IN ('success', 'warning')
-                   ORDER BY executed_at DESC LIMIT 1""",
-                (task_id,)
+                """SELECT COUNT(*) AS total,
+                          SUM(CASE WHEN TRIM(COALESCE(title, '')) != ''
+                                   THEN 1 ELSE 0 END) AS title_ok,
+                          SUM(CASE WHEN TRIM(COALESCE(url, '')) != ''
+                                   THEN 1 ELSE 0 END) AS url_ok
+                   FROM items
+                   WHERE task_id = ? AND COALESCE(fetched_at, created_at) >= ?""",
+                (task_id, cutoff)
             ).fetchone()
-            if not row:
-                return 0.0
-            fetched = row["items_fetched"] or 0
-            new = row["items_new"] or 0
-            if fetched == 0:
-                return 0.0
-            # 用 items_new / items_fetched 作为字段覆盖的代理指标
-            return min(100.0, (new / fetched) * 100)
+        total = (row["total"] or 0) if row else 0
+        if not total:
+            return 0.0, {"title": 0.0, "url": 0.0}, 0
+        title_pct = (row["title_ok"] or 0) / total * 100
+        url_pct = (row["url_ok"] or 0) / total * 100
+        coverage = (title_pct + url_pct) / 2
+        return coverage, {"title": title_pct, "url": url_pct}, total
 
     def _calc_freshness(self, last_executed_at: str | None) -> float:
         """计算新鲜度分数"""
