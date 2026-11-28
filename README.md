@@ -60,13 +60,13 @@ RSS 阅读器解决不了（很多平台没有 Feed，也没有去重和搜索�
   </tr>
   <tr>
     <td width="50%" align="center">
-      <img src=".github/assets/market.png" alt="模板市场：按类别浏览并一键启用" width="100%" /><br/>
-      <sub><b>🏪 模板市场</b> · 25 个预设模板一键接入</sub>
+      <img src=".github/assets/market.png" alt="预设来源库：按类别浏览并一键启用" width="100%" /><br/>
+      <sub><b>📚 预设来源库</b> · 33 个预设模板一键接入</sub>
     </td>
     <td width="50%" align="center">
       <br/><br/>
-      <b>🌐 还有 25 个预设模板等你接入</b><br/>
-      <sub>Hacker News · GitHub Trending · V2EX · 掘金<br/>少数派 · B 站 · 知乎 · Product Hunt · Reddit ……</sub><br/><br/>
+      <b>🌐 还有 33 个预设模板等你接入</b><br/>
+      <sub>Hacker News · GitHub Trending · V2EX · 掘金 · 少数派 · B 站<br/>知乎 · Product Hunt · X（推特）· GitHub 官方 API · Reddit 官方 API ……</sub><br/><br/>
       <a href="#快速启动"><b>立即开始 →</b></a><br/><br/>
     </td>
   </tr>
@@ -78,7 +78,7 @@ RSS 阅读器解决不了（很多平台没有 Feed，也没有去重和搜索�
 
 ### 📥 多源采集，一次配置长期运行
 
-25 个预设模板一键接入（Hacker News、GitHub Trending、V2EX、掘金、少数派、Product Hunt、Reddit……），也支持任意自定义网站。5 段 Cron 定时调度、手动一键触发、失败自动重试、多模式抓取（HTML Selector / JSON API / RSS）、自动翻页——抓取这件事你不用再管。
+33 个预设模板一键接入（Hacker News、GitHub Trending、V2EX、掘金、少数派、Product Hunt、X、GitHub/Reddit 官方 API……），也支持任意自定义网站。5 段 Cron 定时调度、手动一键触发、失败自动重试、多模式抓取（HTML Selector / JSON API / RSS / X 时间线 / GitHub 与 Reddit 官方 API）、自动翻页——抓取这件事你不用再管。
 
 ### 🧵 跨平台事件聚合（Threads）
 
@@ -92,9 +92,9 @@ RSS 阅读器解决不了（很多平台没有 Feed，也没有去重和搜索�
 
 手动触发后，SSE 实时推送抓取 → 解析 → 过滤 → 去重 → 入库的每一步：HTTP 状态、耗时、解析条数、去重结果一目了然。断线自动重连，事件持久化可回放。
 
-### 🏪 模板市场
+### 📚 预设来源库
 
-把调好的采集配置分享成模板，也可以一键启用社区模板。已启用的模板自动标记，不会重复创建。
+内置预设模板按类别浏览、一键启用，已启用自动标记不会重复创建；OPML 可批量导入已有 RSS 清单（以草稿保存，验证后再启用）并导出已启用的 Feed。
 
 ### 🎯 越用越准的推荐（可解释）
 
@@ -175,10 +175,10 @@ score = 0.30·词法 + 0.25·实体 + 0.20·语义 + 0.15·时间 + 0.10·来源
 
 ## 支持的数据源
 
-内置 **25 个预设模板**，按类别分组；也支持完全自定义（填入任意 URL，自动发现结构）。
+内置 **33 个预设模板**，按类别分组；也支持完全自定义（填入任意 URL，自动发现结构）。
 
 <details>
-<summary><b>展开全部 25 个预设模板</b></summary>
+<summary><b>展开全部 33 个预设模板</b></summary>
 
 ### 开发趋势
 
@@ -255,7 +255,7 @@ score = 0.30·词法 + 0.25·实体 + 0.20·语义 + 0.15·时间 + 0.10·来源
 
 | 功能 | 说明 |
 |------|------|
-| 📥 采集任务管理 | 创建 / 编辑 / 删除，25 个预设模板一键接入 |
+| 📥 采集任务管理 | 创建 / 编辑 / 删除，33 个预设模板与 OPML 批量导入 |
 | 🧙 3 步模板向导 | URL 自动发现结构，无需手写 CSS Selector |
 | 🏪 模板市场 | 分享与一键导入，自动防重复启用 |
 | ⏰ 定时调度 | 5 段 Cron（UTC），分钟级精度 + 手动触发 |

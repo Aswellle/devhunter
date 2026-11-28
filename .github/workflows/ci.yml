@@ -68,6 +68,21 @@ jobs:
       - name: Run E2E smoke
         run: python e2e_test.py
 
+  docs-check:
+    name: Docs Consistency
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # 文档里的可统计数字（模板数/迁移数/测试数）与路由顺序不变量
+      - name: Check docs against code
+        run: python scripts/check_docs.py
+
   frontend-quality:
     name: Frontend Quality
     runs-on: ubuntu-latest
@@ -96,7 +111,7 @@ jobs:
 
   gate:
     name: CI Gate
-    needs: [backend-tests, backend-e2e, frontend-quality]
+    needs: [backend-tests, backend-e2e, frontend-quality, docs-check]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -106,9 +121,10 @@ jobs:
           echo "backend-tests = ${{ needs.backend-tests.result }}"
           echo "backend-e2e   = ${{ needs.backend-e2e.result }}"
           echo "frontend      = ${{ needs.frontend-quality.result }}"
+          echo "docs          = ${{ needs.docs-check.result }}"
           if [ "${{ needs.backend-tests.result }}" != "success" ] \
              || [ "${{ needs.backend-e2e.result }}" != "success" ] \
-             || [ "${{ needs.frontend-quality.result }}" != "success" ]; then
+             || [ "${{ needs.frontend-quality.result }}" != "success" ]              || [ "${{ needs.docs-check.result }}" != "success" ]; then
             echo "::error::CI gate failed"
             exit 1
           fi

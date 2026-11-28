@@ -52,6 +52,10 @@ DevHunter 是一个自托管的内容聚合系统，自动从 28+ 开发者平�
 - **rss:** — RSS 2.0 / Atom 订阅源解析
 - **x:** — X（推特）公开账号时间线：`https://x.com/<账号>` 自动改写为
   `syndication.twitter.com` 嵌入页并解析 `__NEXT_DATA__`，无需登录/API Key
+- **github:** — GitHub 官方只读 API（`repo` / `releases` / `issues`）：ETag 条件请求、
+  Link 分页、配额错误可行动；`GITHUB_TOKEN` 可选提升配额，仅发往 api.github.com
+- **reddit:** — Reddit 官方 OAuth（application-only）读取 subreddit 列表；
+  凭据经 `REDDIT_CLIENT_ID/SECRET/USER_AGENT` 注入，条目按 TTL 清理
 
 ### 实时事件
 - `EventBus` 单例通过 SSE 发布任务执行进度
@@ -77,10 +81,11 @@ devhunter/
 │   │   │   ├── deps.py     # require_auth 依赖注入
 │   │   │   └── router.py   # 中央 /api 路由器；threads 必须在 items 之前注册
 │   │   ├── core/           # 配置、数据库、安全、SSRF、日志、event_bus、http_client、exceptions、rate_limit
-│   │   ├── services/       # 业务逻辑（task、item、execution、thread、recommendation）
-│   │   ├── repositories/   # 数据访问层（6 个仓储）
+│   │   ├── services/       # 业务逻辑（task、item、execution、thread、recommendation、opportunity）
+│   │   ├── repositories/   # 数据访问层（task/item/execution/thread/user_prefs/star_folder/opportunity 等）
 │   │   ├── schemas/        # Pydantic 请求/响应模型
 │   │   ├── crawler/        # HTTP 抓取 + 解析引擎（engine、dedup、templates、x_source）
+│   │   ├── notifications/  # 通知渠道/规则/投递（webhook、重试、dead-letter）
 │   │   ├── sources/        # 模板注册、发现、预览、验证、健康、市场
 │   │   ├── threads/        # 聚类、评分、合并、拆分
 │   │   ├── recommendation/ # 候选、评分、排序、多样性、解释、画像、适配器
@@ -88,9 +93,9 @@ devhunter/
 │   │   ├── execution/      # 执行状态机
 │   │   ├── features/       # 实体提取、语义相似度、时间特征
 │   │   └── utils/          # 哈希、URL、相似度工具
-│   ├── migrations/         # 31 个纯 SQL 迁移文件（001–031）
+│   ├── migrations/         # 35 个纯 SQL 迁移文件（001–035）
 │   ├── templates/          # 预设爬取模板（JSON）
-│   ├── tests/              # 69 个测试文件，跨 12 个领域模块 + 迁移测试脚本 + 1 个独立 E2E 脚本
+│   ├── tests/              # 78 个测试文件，跨 12 个领域模块 + 迁移测试脚本 + 1 个独立 E2E 脚本
 │   ├── run.py              # 本地开发入口
 │   ├── e2e_test.py         # 独立 E2E 测试（自包含，使用临时 DB）
 │   └── pyproject.toml      # pytest 配置、依赖
@@ -158,7 +163,7 @@ git config core.hooksPath .githooks    # 克隆后执行一次：启用提交信
 - **错误处理：** `crawler/engine.py` 绝不抛出异常——所有错误通过 `CrawlResult.error` 返回。API 错误使用 `DevHunterError` 层级（含 `status_code` + `error_code`）。所有错误返回 `{"error": {"code": ..., "message": ...}}`。
 - **依赖注入：** `deps.py` 提供 `require_auth()`。服务层通过构造函数注入接收仓储。
 - **数据库访问：** `get_db()` 上下文管理器自动 commit/rollback。`transaction()` 用于跨仓储原子性。SQLite WAL 模式，`busy_timeout=5000`，`foreign_keys=ON`。
-- **迁移：** 31 个纯 SQL 迁移文件通过 `init_database()`（PRAGMA user_version 游标）在启动时应用。使用幂等 `ALTER TABLE ADD COLUMN`——永不破坏性变更。触发器感知的 SQL 拆分器正确处理 `BEGIN...END` 块。
+- **迁移：** 35 个纯 SQL 迁移文件通过 `init_database()`（PRAGMA user_version 游标）在启动时应用。使用幂等 `ALTER TABLE ADD COLUMN`——永不破坏性变更。触发器感知的 SQL 拆分器正确处理 `BEGIN...END` 块。
 - **单例模式：** `scheduler_manager`、`event_bus`、`settings`（lru_cache）、`get_http_client()`。所有仓储/服务导出单一实例。
 - **SSRF 防护：** 两层防线。① URL 预检（`core/ssrf.py::resolve_and_validate_url`）：HTTP 调用前阻止私有/环回/链路本地 IP 与 metadata.* 主机名，DNS 解析失败时 **fail-closed**。② 连接层 IP pinning（`SSRFPinnedNetworkBackend`，挂在共享客户端的传输后端）：每次 TCP 连接在同一次调用内解析 DNS、校验黑名单、只拨号到已验证 IP——关闭 DNS rebinding TOCTOU；TLS 的 SNI/证书校验仍用原始主机名，https 不受影响。`follow_redirects=False`——每个跳转手动重新预检。
 - **去重：** 三层去重——(1) `external_id` 按任务，(2) `url_hash` 全局，(3) `content_hash`（title+summary 的 SHA256）。
@@ -235,7 +240,7 @@ git config core.hooksPath .githooks    # 克隆后执行一次：启用提交信
   - **服务/仓储集成测试** — 使用共享的 session 级 SQLite 测试 DB 并应用迁移
   - **API 测试** — 通过 FastAPI `TestClient` 覆盖完整 ASGI 栈
 - **Fixture：** `backend/tests/conftest.py` — session 级临时 SQLite DB 带迁移，autouse monkeypatch 覆盖 `config.settings.db_path`
-- **组织：** 69 个测试文件，12 个领域模块：`test_api/`、`test_core/`、`test_crawler/`、`test_recommendation/`、`test_sources/`、`test_features/`、`test_threads/`、`test_services/`、`test_scheduler/`、`test_execution/`、`test_llm/`、`test_repositories/` + `test_migrations.py`
+- **组织：** 78 个测试文件，12 个领域模块：`test_api/`、`test_core/`、`test_crawler/`、`test_recommendation/`、`test_sources/`、`test_features/`、`test_threads/`、`test_services/`、`test_scheduler/`、`test_execution/`、`test_llm/`、`test_repositories/` + `test_migrations.py`
 - **模式：**
   - API 测试使用 FastAPI `TestClient` + `_auth_headers()` Bearer token 辅助函数
   - 爬取器测试使用 `_FakeResponse` + `_ScriptedClient`（脚本化响应序列 + `.calls` 计数器）
@@ -282,6 +287,10 @@ python e2e_test.py                  # 独立 E2E（必须从 backend/ 目录运�
 | `SCHEDULER_MAX_WORKERS` | `3` | 并行爬取任务数 |
 | `SCHEDULER_MISFIRE_GRACE_TIME` | `300` | APScheduler misfire grace（秒） |
 | `THREAD_CLUSTER_WINDOW_HOURS` | `72` | Thread 聚类候选活动窗口（小时） |
+| `GITHUB_TOKEN` | *(空)* | GitHub Connector 可选 token（只读即可；配额 60→5000/h） |
+| `REDDIT_CLIENT_ID` / `REDDIT_CLIENT_SECRET` | *(空)* | Reddit 官方 OAuth 应用凭据（未配置时连接器报可行动错误） |
+| `REDDIT_USER_AGENT` | `devhunter/1.0 (personal aggregator)` | Reddit API 必需 UA（平台条款） |
+| `REDDIT_ITEM_TTL_DAYS` | `30` | Reddit 条目保留天数（每日清理，删除同步策略） |
 | `LOG_LEVEL` | `INFO` | 日志级别 |
 | `LOG_FORMAT` | `json` | `json` 或 `text` |
 | `CORS_ORIGINS` | `http://localhost:5173,...` | 逗号分隔的允许来源 |
@@ -345,6 +354,16 @@ SQLite，WAL 模式。关键表：
 | `/items/threads/{id}/split` | POST | 人工拆分 Thread |
 | `/sources/discover` | POST | 自动发现来源结构 |
 | `/sources/preview` | POST | 预览爬取结果 |
+| `/sources/opml/preview` | POST | OPML 导入预览（SSRF 预检 + 重复标记） |
+| `/sources/opml/import` | POST | OPML 导入为草稿 RSS 任务 |
+| `/sources/opml/export` | GET | 导出已启用 RSS 来源为 OPML |
+| `/notifications/channels` | GET/POST | 通知渠道（webhook） |
+| `/notifications/rules` | GET/POST | 通知规则（keyword/thread/health） |
+| `/notifications/deliveries` | GET | 投递记录（含 dead-letter） |
+| `/notifications/deliveries/{id}/retry` | POST | 手动重试投递 |
+| `/opportunities` | GET/POST | 机会板列表 / 从 Item 或 Thread 创建 |
+| `/opportunities/{id}` | GET/PATCH/DELETE | 详情（含证据与审计）/ 更新 / 删除 |
+| `/ready` | GET | readiness（DB + 迁移游标 + Scheduler） |
 | `/sources/test` | POST | 测试爬取配置 |
 | `/sources` | GET/POST | 模板 CRUD |
 | `/sources/marketplace/list` | GET | 列出共享模板 |
@@ -459,3 +478,9 @@ SQLite，WAL 模式。关键表：
 36. **Thread 全量重建是 staging 单事务 + 人工决策重放**（ADR-001）：清空、重放、孤儿补聚、完整性校验（成员/镜像/计数一致）在同一事务内，任一违反回滚到旧投影；聚类算法走 `_cluster_items(conn=...)`（嵌套 `transaction()` 会拿第二个连接死锁在单写者锁上）。人工 merge/split/解除关联记录进 `thread_manual_decisions`（031，按成员条目 ID 锚定），staging 提交后重放——失败保持待重放，下次重建自动补试。
 37. **Task 与 Scheduler 靠 reconcile 收敛**：`scheduler_manager.reconcile()` 补注册缺失 Job、重排未同步 trigger、移除幽灵 Job（系统/手动 Job 不在范围）；启动 restore 后对账一次 + 每 10 分钟周期对账 + task service 同步失败立即对账重试。漂移快照走 `GET /tasks/scheduler-status`，手动重试走 `POST /tasks/scheduler-reconcile`。
 38. **推荐候选分批打分 + 有界 Top-K**：候选按页（500/页，最多 40 页）遍历全部 7 天条目，最小堆保留全局最高分 K=500——不要回到"第一页里的 Top-N"；触及上限记录日志。`score_candidates` 契约从"全部过阈值候选"变为"全局 Top-500"（消费方只取头部与等距采样，不受影响）。
+39. **连接器模式必须三处同步**：新增 `github:` / `reddit:` 解析模式时（实现分别在 `sources/github_connector.py` 与 `sources/reddit_connector.py`），`engine._parse_mode`、`schemas/task.py` 的 `_selector_mode` 与 `PRESET_TEMPLATES`、`templates/sources.json` 必须同时更新；`scripts/check_docs.py` 会校验 schema 预设集合与 JSON id 集合完全相等（历史坑：只改 JSON 会让任务创建 400）。GitHub 请求域名固定 `api.github.com`，Reddit 固定 `oauth.reddit.com`，token 绝不发往其他主机。
+40. **Reddit 凭据与数据用途边界**：只走官方 OAuth（application-only），不抓 HTML/JSON 绕过访问控制；凭据仅环境变量注入、不写模板/数据库，撤销即轮换应用 secret；条目按 `REDDIT_ITEM_TTL_DAYS`（默认 30 天）每日清理以履行删除同步，逐帖存在性轮询不应引入（成本高且易触发限流）。采集内容仅供个人阅读/聚合，不得用于模型训练；LLM 摘要须把帖子文本视为不可信输入。
+41. **通知投递的幂等与安全**：`(rule_id, event_key)` 唯一约束决定"同事件只通知一次"；新增触发源必须提供稳定 event_key。投递前每次都做 SSRF 预检（fail-closed），重试按 1/2/4/8/16 分钟退避、5 次进 dead-letter；错误信息只记状态码/异常类型，**绝不能回显 webhook URL**（可能含 path token）。渠道创建/修改 API 同样预检，不安全地址不得落库。
+42. **机会板审计不可丢**：`opportunity_repo.update` 在"仅事件无字段"（状态/优先级/笔记/标签/提醒变更）时也必须写入 `opportunity_events`——提前 return 会静默丢审计（已修）。机会记录不级联删除原始证据；证据因 TTL 清理缺失时列表返回 `evidence_missing` 而不是隐藏机会。
+43. **liveness 与 readiness 分离**：`/api/health` 只答进程存活；`/api/ready` 检查 DB `SELECT 1`、`PRAGMA user_version` 对照最新迁移文件、Scheduler 已启动，任一失败 503。Compose healthcheck 探 readiness——不要在 `/health` 里加 DB/Scheduler 探测（会让 liveness 误报进程死亡）。
+44. **任务 status 必须由 insert 保留**：`task_repo.insert` 曾硬编码 `'active'`，草稿（向导验证失败、OPML 导入）被直接启用并进入调度；insert 现只接受 active/paused（其余回退 active）。`execute_task` 对 paused 有早退守卫，但"注册 Job 即视为会抓取"仍是错误假设——新写入路径必须显式传 status。
