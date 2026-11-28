@@ -94,6 +94,11 @@ class Settings(BaseSettings):
     # 内容 TTL（天）：按 Data API 条款支持删除/撤回后的清理
     reddit_item_ttl_days: int = 30
 
+    # ── 机器出口令牌（SEC-002）────────────────────
+    # query token 是兼容模式：URL 会进入访问日志/浏览器历史，泄露面较大。
+    # 设为 false 后只接受 Authorization: Bearer（浏览器 Cookie 认证不受影响）
+    allow_query_token: bool = True
+
     # ── CORS ────────────────────────────────────
     cors_origins: str = "http://localhost:5173,http://localhost:3000,http://localhost:5200,http://127.0.0.1:5200"
 

@@ -18,7 +18,7 @@ from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
 
 from app.core.database import get_db
-from app.core.security import verify_machine_token
+from app.core.security import verify_machine_or_api_token, verify_machine_token
 from app.repositories.task_repo import task_repo
 from app.services.item_service import item_service
 from app.services.thread_service import thread_service
@@ -203,7 +203,11 @@ class MachineTokenMiddleware:
                     auth_header = value.decode("latin-1")
                     break
             bearer = auth_header[7:].strip() if auth_header.lower().startswith("bearer ") else ""
-            if not verify_machine_token(params.get("token")) and not verify_machine_token(bearer):
+            from app.core.config import settings as _settings
+            query_ok = bool(_settings.allow_query_token) and bool(
+                verify_machine_or_api_token(params.get("token"))
+            )
+            if not query_ok and not verify_machine_or_api_token(bearer):
                 response = JSONResponse(
                     status_code=401,
                     content={

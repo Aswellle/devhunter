@@ -5,6 +5,7 @@ app/api/router.py
 from fastapi import APIRouter
 
 from app.api import (
+    api_tokens,
     auth,
     events,
     executions,
@@ -37,3 +38,4 @@ api_router.include_router(user_prefs.router)
 api_router.include_router(llm.router)
 api_router.include_router(notifications.router)
 api_router.include_router(opportunities.router)
+api_router.include_router(api_tokens.router)

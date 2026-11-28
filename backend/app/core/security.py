@@ -77,3 +77,111 @@ def verify_machine_token(token: str | None) -> bool:
     if not token:
         return False
     return secrets.compare_digest(token, machine_token())
+
+
+# ── 独立命名机器令牌（SEC-002）──────────────────────────────────
+# 与 legacy machine_token（SECRET_KEY 派生、无法单独撤销）并存：
+# 命名令牌可单独创建/过期/撤销，scope 当前仅 read（RSS/MCP 只读出口），
+# 哈希入库（HMAC(secret_key, raw)），明文只在创建响应里出现一次。
+
+_API_TOKEN_DOMAIN = b"devhunter-api-token-v1"
+
+
+def _hash_api_token(raw: str) -> str:
+    """令牌哈希：HMAC-SHA256(secret_key, domain|raw)。
+
+    SECRET_KEY 参与意味着轮换 SECRET_KEY 会同时吊销全部命名令牌
+    （与 legacy 行为一致的兜底）；不允许用可逆/无盐哈希落库。"""
+    return hmac.new(
+        settings.secret_key.encode("utf-8"),
+        _API_TOKEN_DOMAIN + raw.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+
+
+def create_api_token(name: str, expires_at: str | None = None) -> tuple[dict, str]:
+    """创建命名令牌，返回 (记录, 明文)。明文只在此刻返回一次。"""
+    import uuid
+
+    from app.core.database import get_db
+
+    raw = "dh_" + secrets.token_urlsafe(32)
+    token_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    with get_db() as conn:
+        conn.execute(
+            """INSERT INTO api_tokens (id, name, token_hash, scope, created_at, expires_at)
+               VALUES (?, ?, ?, 'read', ?, ?)""",
+            (token_id, name[:100], _hash_api_token(raw), now, expires_at),
+        )
+        row = conn.execute("SELECT * FROM api_tokens WHERE id = ?", (token_id,)).fetchone()
+    record = dict(row) if row else {"id": token_id, "name": name}
+    record.pop("token_hash", None)
+    return record, raw
+
+
+def verify_api_token(raw: str | None) -> dict | None:
+    """校验命名令牌；有效返回记录（不含哈希）并更新 last_used_at。
+
+    撤销/过期立即无效：每次校验都查库，不做进程内缓存。"""
+    if not raw or not raw.startswith("dh_"):
+        return None
+    from app.core.database import get_db
+
+    token_hash = _hash_api_token(raw)
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT * FROM api_tokens WHERE token_hash = ?", (token_hash,)
+        ).fetchone()
+        if not row:
+            return None
+        record = dict(row)
+        if record.get("revoked_at"):
+            return None
+        if record.get("expires_at") and record["expires_at"] <= now:
+            return None
+        conn.execute(
+            "UPDATE api_tokens SET last_used_at = ? WHERE id = ?", (now, record["id"])
+        )
+    record.pop("token_hash", None)
+    return record
+
+
+def list_api_tokens() -> list[dict]:
+    from app.core.database import get_db
+
+    with get_db() as conn:
+        rows = conn.execute(
+            "SELECT * FROM api_tokens ORDER BY created_at DESC"
+        ).fetchall()
+    result = []
+    for r in rows:
+        d = dict(r)
+        d.pop("token_hash", None)
+        result.append(d)
+    return result
+
+
+def revoke_api_token(token_id: str) -> bool:
+    from app.core.database import get_db
+
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    with get_db() as conn:
+        cursor = conn.execute(
+            "UPDATE api_tokens SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL",
+            (now, token_id),
+        )
+    return cursor.rowcount > 0
+
+
+def verify_machine_or_api_token(token: str | None) -> str | None:
+    """统一的机器访问校验：命名令牌优先，其次 legacy machine token。
+
+    返回主体标识（"token:<name>" / "machine-token"），无效返回 None。"""
+    record = verify_api_token(token)
+    if record:
+        return f"token:{record.get('name') or record.get('id')}"
+    if verify_machine_token(token):
+        return "machine-token"
+    return None

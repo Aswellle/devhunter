@@ -6,7 +6,8 @@ from fastapi import Cookie, Depends, HTTPException, Query, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.core.exceptions import UnauthorizedError
-from app.core.security import decode_token, verify_machine_token
+from app.core.config import settings
+from app.core.security import decode_token, verify_machine_token, verify_machine_or_api_token
 
 bearer_scheme = HTTPBearer(auto_error=False)
 
@@ -67,9 +68,18 @@ def require_machine_access(
     浏览器内已登录的请求（如前端 Profile 页）自然回落到 Bearer/Cookie
     用户认证。
 
-    返回主体标识："machine-token" 或用户名。
+    SEC-002：支持独立命名令牌（可单独撤销/过期，scope=read）。header
+    优先；query token 是兼容模式，`ALLOW_QUERY_TOKEN=false` 时完全忽略
+    （浏览器 Cookie 认证不受影响）。
+
+    返回主体标识："token:<name>" / "machine-token" 或用户名。
     """
     header_token = credentials.credentials if credentials else None
-    if verify_machine_token(token) or verify_machine_token(header_token):
-        return "machine-token"
+    subject = verify_machine_or_api_token(header_token)
+    if subject:
+        return subject
+    if settings.allow_query_token:
+        subject = verify_machine_or_api_token(token)
+        if subject:
+            return subject
     return require_auth(credentials=credentials, token_cookie=token_cookie)
