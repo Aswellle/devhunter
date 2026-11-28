@@ -8,6 +8,7 @@ import type { Item } from '../../types'
 import { itemsApi } from '../../api/items'
 import { queryKeys } from '../../api/queryKeys'
 import { userPrefsApi } from '../../api/user_prefs'
+import { useDwellTracking } from '../../hooks/useDwellTracking'
 import { formatDateTime, formatDistanceToNow } from '../../utils/time'
 import { isSafeExternalUrl } from '../../utils/url'
 import { ClampText } from '../ui/ClampText'
@@ -30,6 +31,9 @@ export function ItemCard({
   folderControl,
 }: ItemCardProps) {
   const qc = useQueryClient()
+
+  // 停留埋点：前台可见 ≥5s 才记一次（工作流 D 行为埋点质量）
+  useDwellTracking(item.id)
 
   const handleTitleClick = () => {
     // 记录点击交互（fire-and-forget，失败静默）
@@ -69,6 +73,7 @@ export function ItemCard({
 
   return (
     <div
+      id={`item-card-${item.id}`}
       className={clsx(
         'card p-4 transition-all hover:shadow-md',
         !item.is_read && 'border-l-4 border-l-primary-500',

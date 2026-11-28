@@ -6,7 +6,9 @@ tests/test_api/test_user_prefs_api.py
 保存都调用它们），后端从未注册过 —— 前端拿到的一直是 404。
 """
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+
+from app.core.database import get_db
 
 from fastapi.testclient import TestClient
 
@@ -259,3 +261,56 @@ class TestNegativeFeedbackManagement:
     def test_revoke_requires_auth(self):
         resp = client.delete("/api/user-prefs/feedback/any")
         assert resp.status_code == 401
+
+
+# ── 行为埋点质量：dwell 去重（同条目 60 分钟内只记一次有效停留）────
+
+class TestDwellDedup:
+    def test_duplicate_dwell_within_window_is_ignored(self, monkeypatch):
+        """同一 dwell 已存在（1 小时内）→ 服务端忽略重复上报，
+        只保留第一条（带真实停留秒数）。旧实现每次都插行，
+        亲和度会被重复停留灌水。"""
+        task_id = _task_id()
+        item_id = _insert_item(task_id)
+
+        first = client.post("/api/user-prefs/interactions", json={
+            "item_id": item_id, "interaction_type": "dwell", "dwell_seconds": 42,
+        }, headers=_auth_headers())
+        assert first.status_code == 200
+
+        second = client.post("/api/user-prefs/interactions", json={
+            "item_id": item_id, "interaction_type": "dwell", "dwell_seconds": 3,
+        }, headers=_auth_headers())
+        assert second.status_code == 200
+
+        rows = user_interaction_repo.get_item_interactions(item_id)
+        dwells = [r for r in rows if r["interaction_type"] == "dwell"]
+        assert len(dwells) == 1, "重复 dwell 不得入库"
+        assert dwells[0]["dwell_seconds"] == 42, "保留的是首次有效停留"
+
+    def test_dwell_after_window_is_recorded_again(self, monkeypatch):
+        """超过去重窗口的 dwell 正常入库（长时间后的再次阅读是真实信号）。"""
+        task_id = _task_id()
+        item_id = _insert_item(task_id)
+
+        client.post("/api/user-prefs/interactions", json={
+            "item_id": item_id, "interaction_type": "dwell", "dwell_seconds": 30,
+        }, headers=_auth_headers())
+        # 人为把已有 dwell 行改到 2 小时前
+        from datetime import datetime, timedelta, timezone
+        old = (datetime.now(timezone.utc) - timedelta(hours=2)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        with get_db() as conn:
+            conn.execute(
+                "UPDATE user_interactions SET created_at = ?"
+                " WHERE item_id = ? AND interaction_type = 'dwell'",
+                (old, item_id),
+            )
+
+        again = client.post("/api/user-prefs/interactions", json={
+            "item_id": item_id, "interaction_type": "dwell", "dwell_seconds": 15,
+        }, headers=_auth_headers())
+        assert again.status_code == 200
+
+        rows = user_interaction_repo.get_item_interactions(item_id)
+        dwells = [r for r in rows if r["interaction_type"] == "dwell"]
+        assert len(dwells) == 2

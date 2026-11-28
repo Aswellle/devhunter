@@ -102,12 +102,22 @@ def get_recommended_topics(
 
 @router.post("/interactions", response_model=InteractionResponse)
 def record_interaction(body: InteractionRecord, _: str = Depends(require_auth)):
-    """记录用户交互行为（view/click/dwell/star/share）"""
+    """记录用户交互行为（view/click/dwell/star/share）。
+
+    dwell 有去重窗口（60 分钟）：同一条目窗口内的重复停留上报忽略并
+    返回已有记录——前台可见性阈值在客户端控制，服务端兜底防亲和度
+    被重复停留灌水（工作流 D：行为埋点质量）。"""
     if not item_repo.get(body.item_id):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail={"code": "ITEM_NOT_FOUND", "message": f"Item {body.item_id} not found"},
         )
+    if body.interaction_type == "dwell":
+        recent = user_interaction_repo.get_recent_dwell(
+            body.item_id, within_minutes=60,
+        )
+        if recent:
+            return recent
     return recommendation_service.record_interaction(
         item_id=body.item_id,
         interaction_type=body.interaction_type,

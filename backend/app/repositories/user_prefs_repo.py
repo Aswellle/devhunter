@@ -6,7 +6,7 @@ import json
 import logging
 import sqlite3
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Any
 
 from app.core.database import get_db
@@ -147,6 +147,25 @@ class UserInteractionRepository:
                 (fid, feedback_type, target_value, reason),
             )
         return fid
+
+    def get_recent_dwell(self, item_id: str, within_minutes: int = 60) -> dict | None:
+        """最近一次 dwell 交互（within_minutes 分钟内）；无则返回 None。
+
+        服务端去重窗口（工作流 D 行为埋点质量）：前台阈值由客户端控制，
+        这里兜底防重复停留把亲和度灌水。"""
+        cutoff = (
+            datetime.now(timezone.utc) - timedelta(minutes=within_minutes)
+        ).strftime("%Y-%m-%dT%H:%M:%SZ")
+        with get_db() as conn:
+            row = conn.execute(
+                """SELECT id, item_id, interaction_type, dwell_seconds, created_at
+                   FROM user_interactions
+                   WHERE item_id = ? AND interaction_type = 'dwell'
+                     AND created_at >= ?
+                   ORDER BY created_at DESC LIMIT 1""",
+                (item_id, cutoff),
+            ).fetchone()
+        return dict(row) if row else None
 
     def list_negative_feedback(self) -> list[dict]:
         """全部负反馈记录（供屏蔽管理页展示与撤销）。"""
