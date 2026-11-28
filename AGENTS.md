@@ -88,9 +88,9 @@ devhunter/
 │   │   ├── execution/      # 执行状态机
 │   │   ├── features/       # 实体提取、语义相似度、时间特征
 │   │   └── utils/          # 哈希、URL、相似度工具
-│   ├── migrations/         # 28 个纯 SQL 迁移文件（001–028）
+│   ├── migrations/         # 31 个纯 SQL 迁移文件（001–031）
 │   ├── templates/          # 预设爬取模板（JSON）
-│   ├── tests/              # 28 个测试文件，跨 8 个领域模块 + 1 个空目录 + 1 个独立 E2E 脚本
+│   ├── tests/              # 69 个测试文件，跨 12 个领域模块 + 迁移测试脚本 + 1 个独立 E2E 脚本
 │   ├── run.py              # 本地开发入口
 │   ├── e2e_test.py         # 独立 E2E 测试（自包含，使用临时 DB）
 │   └── pyproject.toml      # pytest 配置、依赖
@@ -158,7 +158,7 @@ git config core.hooksPath .githooks    # 克隆后执行一次：启用提交信
 - **错误处理：** `crawler/engine.py` 绝不抛出异常——所有错误通过 `CrawlResult.error` 返回。API 错误使用 `DevHunterError` 层级（含 `status_code` + `error_code`）。所有错误返回 `{"error": {"code": ..., "message": ...}}`。
 - **依赖注入：** `deps.py` 提供 `require_auth()`。服务层通过构造函数注入接收仓储。
 - **数据库访问：** `get_db()` 上下文管理器自动 commit/rollback。`transaction()` 用于跨仓储原子性。SQLite WAL 模式，`busy_timeout=5000`，`foreign_keys=ON`。
-- **迁移：** 纯 SQL 文件通过 `init_database()` 在启动时应用。使用幂等 `ALTER TABLE ADD COLUMN`——永不破坏性变更。触发器感知的 SQL 拆分器正确处理 `BEGIN...END` 块。
+- **迁移：** 31 个纯 SQL 迁移文件通过 `init_database()`（PRAGMA user_version 游标）在启动时应用。使用幂等 `ALTER TABLE ADD COLUMN`——永不破坏性变更。触发器感知的 SQL 拆分器正确处理 `BEGIN...END` 块。
 - **单例模式：** `scheduler_manager`、`event_bus`、`settings`（lru_cache）、`get_http_client()`。所有仓储/服务导出单一实例。
 - **SSRF 防护：** 两层防线。① URL 预检（`core/ssrf.py::resolve_and_validate_url`）：HTTP 调用前阻止私有/环回/链路本地 IP 与 metadata.* 主机名，DNS 解析失败时 **fail-closed**。② 连接层 IP pinning（`SSRFPinnedNetworkBackend`，挂在共享客户端的传输后端）：每次 TCP 连接在同一次调用内解析 DNS、校验黑名单、只拨号到已验证 IP——关闭 DNS rebinding TOCTOU；TLS 的 SNI/证书校验仍用原始主机名，https 不受影响。`follow_redirects=False`——每个跳转手动重新预检。
 - **去重：** 三层去重——(1) `external_id` 按任务，(2) `url_hash` 全局，(3) `content_hash`（title+summary 的 SHA256）。
@@ -235,7 +235,7 @@ git config core.hooksPath .githooks    # 克隆后执行一次：启用提交信
   - **服务/仓储集成测试** — 使用共享的 session 级 SQLite 测试 DB 并应用迁移
   - **API 测试** — 通过 FastAPI `TestClient` 覆盖完整 ASGI 栈
 - **Fixture：** `backend/tests/conftest.py` — session 级临时 SQLite DB 带迁移，autouse monkeypatch 覆盖 `config.settings.db_path`
-- **组织：** 28 个测试文件，8 个领域模块：`test_api/`、`test_crawler/`、`test_recommendation/`、`test_sources/`、`test_features/`、`test_threads/`、`test_services/`、`test_execution/`
+- **组织：** 69 个测试文件，12 个领域模块：`test_api/`、`test_core/`、`test_crawler/`、`test_recommendation/`、`test_sources/`、`test_features/`、`test_threads/`、`test_services/`、`test_scheduler/`、`test_execution/`、`test_llm/`、`test_repositories/` + `test_migrations.py`
 - **模式：**
   - API 测试使用 FastAPI `TestClient` + `_auth_headers()` Bearer token 辅助函数
   - 爬取器测试使用 `_FakeResponse` + `_ScriptedClient`（脚本化响应序列 + `.calls` 计数器）
@@ -323,7 +323,9 @@ SQLite，WAL 模式。关键表：
 | `/tasks` | GET/POST | 列出/创建爬取任务 |
 | `/tasks/{id}` | GET/PUT/DELETE | 任务 CRUD（更新用 PUT） |
 | `/tasks/{id}/execute` | POST | 手动执行触发（202） |
-| `/tasks/{id}/events` | GET | SSE 事件流 |
+| `/tasks/{id}/events` | GET | SSE 事件流（seq 游标续传） |
+| `/tasks/scheduler-status` | GET | 调度对账快照（漂移任务清单） |
+| `/tasks/scheduler-reconcile` | POST | 手动触发调度对账 |
 | `/tasks/{id}/executions` | GET | 执行历史 |
 | `/items` | GET | 列出条目（分页、FTS 搜索、过滤） |
 | `/items/{id}` | GET/PATCH/DELETE | 条目 CRUD |
@@ -446,6 +448,14 @@ SQLite，WAL 模式。关键表：
 25. **LLM 预算需调用前硬闸**：只判"剩余 > 0"时，剩余 50 token 的一次调用仍可能烧掉数千 token。`chat()` 必须以「输入估算（len/2）+ max_tokens」与剩余预算比较，不足则不发请求；`status()` 暴露 `budget_breaker_open` 供界面显示预算熔断。
 26. **收藏文件夹的归属语义**：`items.star_folder_id` 在取消收藏后**保留**（文件夹视图只筛 `is_starred=1`，重新收藏自动回位）；删除文件夹走 `ON DELETE SET NULL` 回到未分类，不取消收藏。名称用 `COLLATE NOCASE` 唯一索引，批量归组走 `/api/star-folders/assign`（`folder_id=null` 表示移出）。
 27. **Thread 聚合不能只靠采集管线**：采集只让**新条目**找候选 Thread，两个不同批次各自创建的单条 Thread 永远不会互相比较。`consolidate_threads()`（每小时系统任务 + `POST /items/threads/consolidate`）负责补聚孤儿并合并可归并的单条 Thread；手动聚合用 `POST /items/threads/aggregate`。候选窗口默认 72h（`THREAD_CLUSTER_WINDOW_HOURS`），24h 会让跨天报道等不到后续报道。
-28. **Thread 评分需要标题内容支持**：`source_score` 必须用任务名比较（items 表没有 source_id），而跨来源加分 + 泛化实体（例如所有 GPT-5 新闻）足以把总分推过 0.35；`MIN_CONTENT_SIMILARITY=0.18` 要求词级或字符级相似度至少一项达标，避免"同一实体、不同故事"被合并。
+28. **Thread 来源身份用 source_keys，不用任务名**：`source_score` 的身份是来源 URL 主机名（`threads.source_keys`，030 起 `rebuild_thread_stats` 从成员任务回填自愈）；任务改名不影响身份，同平台多任务（同主机）不构成跨平台共识。旧线程未回填时才回退任务名比较。跨来源加分 + 泛化实体（例如所有 GPT-5 新闻）足以把总分推过 0.35；`MIN_CONTENT_SIMILARITY=0.18` 要求词级或字符级相似度至少一项达标，避免"同一实体、不同故事"被合并。
 29. **X 来源走公开嵌入时间线，不是官方 API**：`x:` 模式把 `https://x.com/<账号>` 改写为 `syndication.twitter.com` 的 Next.js 页面并解析 `__NEXT_DATA__`，无需登录；只支持账号时间线（不支持搜索/列表），每次最多 40 条，转推/回复会被过滤。X 嵌入接口按 IP 限流（约 30 次/窗口），模板默认每小时一次，GET 429 有限重试。新增 X 模板时必须同步 `schemas/task.py` 的 `PRESET_TEMPLATES` 与 `_selector_mode`（否则任务创建 400/422），并保留 `selector_title/link/summary` 的非空占位值。
-30. **published_at 优先于 fetched_at**：X/RSS 等带原发时间的条目在入库时写 `items.published_at`，Thread 时间因子（`threads/scoring.py`）与展示层都优先使用它；缺失时才回退 `fetched_at`。不要把 `fetched_at` 当成事件发生时间，否则一周前的推文刚抓到就会被当成新热点。
+30. **published_at 优先于 fetched_at**：X/RSS 等带原发时间的条目在入库时写 `items.published_at`，Thread 时间因子（`threads/scoring.py`）与展示层都优先使用它；缺失时才回退 `fetched_at`。不要把 `fetched_at` 当成事件发生时间，否则一周前的推文刚抓到就会被当成新热点。推荐新鲜度对未来时间 clamp 到 0、published_at 损坏时回退 fetched_at（两个都损坏才拿最大年龄 999h）。
+31. **SSE 断线续传用全局递增 seq，不用毫秒时间戳**：029 起事件写入时在 `BEGIN IMMEDIATE` 事务内分配全局唯一 `seq`（历史行按 rowid 重排，唯一索引兜底）；重放查询走 `seq > cursor` keyset（`up_to_seq` 封顶水位线），SSE 帧带原生 `id: <seq>`；旧客户端的 uuid 游标解析出对应 seq 等价续传。端点先订阅后取水位线：补发封顶于 `(cursor, watermark]`，实时只放行 `seq > watermark`，实时 seq 缺口（队列溢出丢帧）按 DB 补齐。前端 hook 按 seq/uuid 幂等去重，重复帧不重复应用状态。
+32. **抓取上限是部分成功，不是普通成功**：达到 `MAX_PAGES`/`MAX_ITEMS_PER_EXECUTION` 时 `CrawlResult.is_partial=True` + `stop_reason`（`page_limit`/`item_limit`），引擎发 `crawl_partial` 事件（不是 `fetch_error`——那会被步骤机标红）；执行状态映射为 `warning`（两条 finalize 路径共用同一状态），UI 显示"部分成功：已达上限"。
+33. **重定向逐跳安全语义**：301/302/303 把 POST 降级为 GET 并丢弃请求体与 POST 专用头；307/308 仅同源保留 POST+body，跨域直接拒绝；任意跨域跳转不转发站点专用头（referer/api-key/内部标识）——跟随跨域 307 等于把请求体和内部头泄露给第三方主机。每跳 SSRF 校验不变。
+34. **去重与删除的事务边界**：批内去重每保留一条立即登记 external_id/url_hash/content_hash（同批重复候选不得同时进入待插入列表）；批量删除（membership 摘除、条目删除、Thread 统计重算、交互清理）必须在单个事务内完成——`item_repo.batch_delete` 支持 conn 参数，重复执行同一批删除幂等。
+35. **来源健康度的 field coverage 是真实非空率**：`sources/health.py` 按 items 表 title/url 非空率计算（同窗口），与重复率（`items_new/items_fetched`）完全解耦——不要再用新增比例冒充字段覆盖。执行统计窗口 24h（无执行回退 7 天并标记 `window=7d`），窗口外执行不混入；条目样本 <10 标记 `low_confidence`。
+36. **Thread 全量重建是 staging 单事务 + 人工决策重放**（ADR-001）：清空、重放、孤儿补聚、完整性校验（成员/镜像/计数一致）在同一事务内，任一违反回滚到旧投影；聚类算法走 `_cluster_items(conn=...)`（嵌套 `transaction()` 会拿第二个连接死锁在单写者锁上）。人工 merge/split/解除关联记录进 `thread_manual_decisions`（031，按成员条目 ID 锚定），staging 提交后重放——失败保持待重放，下次重建自动补试。
+37. **Task 与 Scheduler 靠 reconcile 收敛**：`scheduler_manager.reconcile()` 补注册缺失 Job、重排未同步 trigger、移除幽灵 Job（系统/手动 Job 不在范围）；启动 restore 后对账一次 + 每 10 分钟周期对账 + task service 同步失败立即对账重试。漂移快照走 `GET /tasks/scheduler-status`，手动重试走 `POST /tasks/scheduler-reconcile`。
+38. **推荐候选分批打分 + 有界 Top-K**：候选按页（500/页，最多 40 页）遍历全部 7 天条目，最小堆保留全局最高分 K=500——不要回到"第一页里的 Top-N"；触及上限记录日志。`score_candidates` 契约从"全部过阈值候选"变为"全局 Top-500"（消费方只取头部与等距采样，不受影响）。
