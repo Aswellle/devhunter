@@ -21,6 +21,7 @@ import uuid
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from typing import Optional
 
@@ -141,6 +142,114 @@ def test_source(
 
     result = config_tester.test(url, selectors, expected_min_items, required_fields)
     return result.to_dict()
+
+
+class OpmlPreviewRequest(BaseModel):
+    content: str = Field(..., description="OPML 文件全文")
+
+
+class OpmlImportEntry(BaseModel):
+    xml_url: str = Field(..., max_length=2048)
+    title: str = Field("", max_length=200)
+    html_url: str = Field("", max_length=2048)
+
+
+class OpmlImportRequest(BaseModel):
+    entries: list[OpmlImportEntry] = Field(..., min_length=1, max_length=200)
+
+
+@router.post("/opml/preview")
+def opml_preview(
+    body: OpmlPreviewRequest,
+    _: str = Depends(require_auth),
+):
+    """OPML 导入预览：解析清单、SSRF 预检、标记与既有来源重复的条目。
+
+    只做预览不落库——用户确认（可去掉重复/不安全条目）后再调用
+    /opml/import。
+    """
+    from app.sources import opml as opml_module
+    from app.repositories.task_repo import task_repo as _task_repo
+
+    try:
+        entries = opml_module.parse_opml(body.content)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "INVALID_OPML", "message": str(e)},
+        )
+    existing = {
+        t.get("source_url") for t in _task_repo.list_all_tasks() if t.get("source_url")
+    }
+    preview = opml_module.preview_entries(entries, existing)
+    return {
+        "entries": preview,
+        "total": len(preview),
+        "duplicates": sum(1 for e in preview if e["duplicate"]),
+        "unsafe": sum(1 for e in preview if not e["safe"]),
+    }
+
+
+@router.post("/opml/import", status_code=status.HTTP_201_CREATED)
+def opml_import(
+    body: OpmlImportRequest,
+    _: str = Depends(require_auth),
+):
+    """把选定的 OPML 条目导入为草稿（paused）RSS 任务。
+
+    导入前逐条重新执行 SSRF 校验（不信任客户端回传的 preview 结论）；
+    重复来源（同 source_url 已存在）与不安全地址跳过并计入响应。
+    """
+    from app.sources import opml as opml_module
+    from app.repositories.task_repo import task_repo as _task_repo
+    from app.services.task_service import task_service
+
+    entries = [
+        {"title": e.title, "xml_url": e.xml_url, "html_url": e.html_url}
+        for e in body.entries
+    ]
+    existing = {
+        t.get("source_url") for t in _task_repo.list_all_tasks() if t.get("source_url")
+    }
+    created = 0
+    skipped_duplicate = 0
+    skipped_unsafe = 0
+    errors: list[str] = []
+    for entry in entries:
+        url = entry["xml_url"]
+        if url in existing:
+            skipped_duplicate += 1
+            continue
+        safe, reason = opml_module._validate_url_safe(url)
+        if not safe:
+            skipped_unsafe += 1
+            errors.append(f"{url}: {reason}")
+            continue
+        try:
+            task_service.create(opml_module.task_payloads([entry])[0])
+            created += 1
+        except Exception as e:
+            errors.append(f"{url}: {e}")
+    return {
+        "created": created,
+        "skipped_duplicate": skipped_duplicate,
+        "skipped_unsafe": skipped_unsafe,
+        "errors": errors,
+    }
+
+
+@router.get("/opml/export")
+def opml_export(_: str = Depends(require_auth)):
+    """导出已启用的 RSS 来源为 OPML 2.0（可用其他阅读器导入）。"""
+    from app.sources import opml as opml_module
+    from app.repositories.task_repo import task_repo as _task_repo
+
+    xml_text = opml_module.export_opml(_task_repo.list_all_tasks())
+    return Response(
+        content=xml_text,
+        media_type="text/x-opml; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="devhunter-feeds.opml"'},
+    )
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
