@@ -224,6 +224,11 @@ function RelatedThreadsBand({ threadId, relations }: { threadId: string; relatio
 
 export function ThreadCard({ thread, defaultExpanded = false }: ThreadCardProps) {
   const [expanded, setExpanded] = useState(defaultExpanded)
+  // 深链高亮（机会板证据回溯等）：挂载时只读一次 URL，不进 effect 依赖
+  const [isDeepLinkTarget] = useState(
+    () => typeof window !== 'undefined'
+      && new URLSearchParams(window.location.search).get('thread') === thread.id,
+  )
   const qc = useQueryClient()
 
   // Thread 内条目的阅读闭环：点标题标已读并记录交互，星标可切换。
@@ -285,7 +290,10 @@ export function ThreadCard({ thread, defaultExpanded = false }: ThreadCardProps)
   const items = details?.items || []
 
   return (
-    <div className="card overflow-hidden">
+    <div
+      id={`thread-${thread.id}`}
+      className={clsx('card overflow-hidden', isDeepLinkTarget && 'ring-2 ring-amber-400')}
+    >
       {/* Thread header */}
       <button
         onClick={() => setExpanded(e => !e)}

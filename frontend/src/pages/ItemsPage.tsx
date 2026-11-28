@@ -50,7 +50,14 @@ export function ItemsPage() {
     starred: searchParams.get('starred') === 'true' ? true : searchParams.get('starred') === 'false' ? false : undefined,
     is_read: searchParams.get('is_read') === 'true' ? true : searchParams.get('is_read') === 'false' ? false : undefined,
   })
-  const [viewMode, setViewMode] = useState<ViewMode>((searchParams.get('view') as ViewMode) || 'source')
+  // 深链：/?thread=<id> 直接切到 Thread 视图并展开该 Thread（机会板证据回溯）。
+  // 只在首挂载读取一次 URL——不进 effect 依赖，避免 16 号坑的跳页回弹
+  const [deepLinkThreadId] = useState(
+    () => new URLSearchParams(window.location.search).get('thread'),
+  )
+  const [viewMode, setViewMode] = useState<ViewMode>(
+    () => (searchParams.get('view') as ViewMode) || (deepLinkThreadId ? 'thread' : 'source'),
+  )
   // Thread 视图排序：state 为源，URL 为镜像（与 filters/viewMode 同一模式）
   const [threadSort, setThreadSort] = useState<'first_seen' | 'hotness'>(
     searchParams.get('sort') === 'hotness' ? 'hotness' : 'first_seen',
@@ -68,6 +75,24 @@ export function ItemsPage() {
   // 丢掉 page，分页立刻弹回第 1 页。routerRef 在每次渲染后同步最新值
   // （无依赖 effect），本 effect 只在真实状态变化时执行
   const routerRef = useRef({ setSearchParams, searchParams })
+  // 深链定位：Thread 数据到达后滚到目标 Thread（最多等 3s，找不到就算了）
+  useEffect(() => {
+    if (!deepLinkThreadId) return
+    let tries = 0
+    const timer = window.setInterval(() => {
+      tries += 1
+      const el = document.getElementById(`thread-${deepLinkThreadId}`)
+      if (el) {
+        el.scrollIntoView({ block: 'center', behavior: 'smooth' })
+        window.clearInterval(timer)
+      } else if (tries > 10) {
+        window.clearInterval(timer)
+      }
+    }, 300)
+    return () => window.clearInterval(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   useEffect(() => {
     routerRef.current = { setSearchParams, searchParams }
   })
@@ -637,7 +662,7 @@ export function ItemsPage() {
               <ThreadCard
                 key={thread.id}
                 thread={thread as ThreadWithItems}
-                defaultExpanded={false}
+                defaultExpanded={thread.id === deepLinkThreadId}
               />
             ))}
             {/* Thread 视图分页（固定 per_page=50） */}
