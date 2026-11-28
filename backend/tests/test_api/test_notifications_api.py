@@ -16,6 +16,22 @@ from app.main import app
 client = TestClient(app)
 
 
+@pytest.fixture(autouse=True)
+def _deterministic_ssrf(monkeypatch):
+    """渠道 API 直接调用 SSRF 预检（含 DNS 解析）：CI 环境 hooks.example.com
+    不可解析会 fail-closed 400，测试必须确定——IP 字面量按黑名单拒绝，
+    域名一律放行（真正的私网/回环拦截由 ssrf 单测覆盖）。"""
+    from urllib.parse import urlparse
+
+    def fake_resolve(url: str):
+        host = urlparse(url).hostname or ""
+        if host in ("127.0.0.1", "0.0.0.0", "::1") or host.startswith("10.")                 or host.startswith("192.168."):
+            return False, f"禁止访问私有/保留 IP 地址: {host}", None
+        return True, "", None
+
+    monkeypatch.setattr("app.core.ssrf.resolve_and_validate_url", fake_resolve)
+
+
 def _auth():
     return {"Authorization": f"Bearer {create_access_token({'sub': 'admin'})}"}
 
