@@ -81,6 +81,27 @@ def _filter_by_priority(items: list[CrawlItem], task_id: str) -> list[CrawlItem]
     else:
         existing_content = set()
 
-    new_items = [i for i in after_url if not i.content_hash or i.content_hash not in existing_content]
+    # 批内集合：每保留一条立即登记其三级键，同一批次内相同 external_id /
+    # url_hash / content_hash 的后续候选不再进入待插入列表——一次性对 DB
+    # 查重只覆盖既有数据，批内重复（同 ID 不同 URL、同内容不同 URL）会
+    # 全部漏过并触发批量插入约束冲突
+    seen_external_ids = set(existing_ext)
+    seen_url_hashes = set(existing_hashes)
+    seen_content_hashes = set(existing_content)
+
+    new_items: list[CrawlItem] = []
+    for item in after_url:
+        if item.external_id and item.external_id in seen_external_ids:
+            continue
+        if item.url_hash in seen_url_hashes:
+            continue
+        if item.content_hash and item.content_hash in seen_content_hashes:
+            continue
+        if item.external_id:
+            seen_external_ids.add(item.external_id)
+        seen_url_hashes.add(item.url_hash)
+        if item.content_hash:
+            seen_content_hashes.add(item.content_hash)
+        new_items.append(item)
 
     return new_items
