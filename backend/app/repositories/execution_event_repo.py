@@ -117,11 +117,20 @@ class ExecutionEventRepository:
             ).fetchall()
             return [_row_to_dict(r) for r in rows]
 
+    def max_seq(self) -> int:
+        """全表当前最大 seq（029 起全局唯一递增）——SSE 水位线。"""
+        with get_db() as conn:
+            row = conn.execute(
+                "SELECT COALESCE(MAX(seq), 0) FROM execution_events"
+            ).fetchone()
+            return int(row[0])
+
     def list_by_task_after(
         self,
         task_id: str,
         after_id: str | None = None,
         after_seq: int | None = None,
+        up_to_seq: int | None = None,
         limit: int = 500,
     ) -> list[dict[str, Any]]:
         """
@@ -142,6 +151,10 @@ class ExecutionEventRepository:
             # seq > NULL 恒假，安静返回空，与旧行为一致
             query += " AND seq > (SELECT seq FROM execution_events WHERE id = ?)"
             params.append(after_id)
+        if up_to_seq is not None:
+            # 补发窗口上界（水位线）：水位线之后的事件留给实时通道
+            query += " AND seq <= ?"
+            params.append(up_to_seq)
         query += " ORDER BY seq ASC LIMIT ?"
         params.append(limit)
         with get_db() as conn:

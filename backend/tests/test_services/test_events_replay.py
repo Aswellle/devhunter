@@ -137,3 +137,24 @@ class TestSeqCursor:
         """无法解析的旧游标保持旧行为：安静返回空（等价从头订阅）。"""
         task_id, _ = _task_with_events(2)
         assert execution_event_repo.list_by_task_after(task_id, after_id="no-such-id") == []
+
+
+# ── 水位线：replay/live 去重协议原语 ─────────────────────────────
+
+class TestWatermarkProtocol:
+    def test_max_seq_returns_latest(self):
+        task_id, _ = _task_with_events(3)
+        seqs = sorted(r["seq"] for r in execution_event_repo.list_by_task(task_id, limit=10))
+        assert execution_event_repo.max_seq() == seqs[-1]
+
+    def test_up_to_seq_bounds_replay_window(self):
+        """补发窗口 (cursor, watermark]：水位线之后的事件留给实时通道，
+        不在补发结果中重复出现。"""
+        task_id, _ = _task_with_events(4)
+        seqs = sorted(r["seq"] for r in execution_event_repo.list_by_task(task_id, limit=10))
+
+        rows = execution_event_repo.list_by_task_after(
+            task_id, after_seq=seqs[0], up_to_seq=seqs[2],
+        )
+
+        assert [r["seq"] for r in rows] == seqs[1:3]

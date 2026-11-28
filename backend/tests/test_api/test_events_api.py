@@ -209,3 +209,45 @@ class TestSeqUpgradePath:
             database.MIGRATIONS_DIR = real_migrations
             for suffix in ("", "-wal", "-shm"):
                 Path(raw_path + suffix).unlink(missing_ok=True)
+
+
+class TestReplayLiveDedup:
+    def test_event_published_during_replay_is_delivered_once(self, monkeypatch):
+        """补发查询执行期间发布的事件：旧实现先订阅队列再查库补发，
+        该事件既出现在补发结果又留在实时队列（重复送达）；水位线协议下
+        补发窗口封顶于 watermark，只送达一次。"""
+        task_id = _task()
+        rows = _record_same_ms(task_id, 2, "2026-11-28T05:00:00.300Z")
+
+        from app.api import events as events_module
+
+        real_replay = events_module.execution_event_repo.list_by_task_after
+        published_during: list[int] = []
+
+        def replay_and_publish(*args, **kwargs):
+            # 模拟"补发查询执行期间"发布：先持久化并入队，再跑真实查询
+            publish_event(task_id, "fetch_done", "published-during-replay", {})
+            published_during.append(execution_event_repo.max_seq())
+            return real_replay(*args, **kwargs)
+
+        monkeypatch.setattr(
+            events_module.execution_event_repo,
+            "list_by_task_after",
+            replay_and_publish,
+        )
+
+        headers = {**_auth_headers(), "Last-Event-ID": str(rows[0]["seq"])}
+        result: dict = {}
+        driver = threading.Thread(
+            target=_drive_stream,
+            args=(f"/api/tasks/{task_id}/events", headers, result),
+            daemon=True,
+        )
+        driver.start()
+        _finish_with_terminal(task_id, driver, delay=1.5)
+
+        assert result["status"] == 200
+        assert published_during, "屏障事件必须已发布"
+        ids = re.findall(r"^id: (\d+)$", result["text"], re.MULTILINE)
+        assert len(ids) == len(set(ids)), f"事件被重复送达：{ids}"
+        assert str(published_during[0]) in ids

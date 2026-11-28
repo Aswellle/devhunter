@@ -55,6 +55,12 @@ async def stream_task_events(
         max_ticks = int(_MAX_STREAM_MINUTES * 60 / _HEARTBEAT_INTERVAL)
         ticks = 0
 
+        # 水位线：订阅发生在生成器启动之前，补发查询执行期间发布的事件
+        # 会同时进入实时队列和补发结果——先固定 DB 当前最高 seq，补发只补
+        # (cursor, watermark]，实时只放行 seq > watermark，两侧不再重叠。
+        watermark = await loop.run_in_executor(None, execution_event_repo.max_seq)
+        last_sent_seq = watermark
+
         # E1: 如果有 Last-Event-ID，先从 DB 补发断线期间的事件。
         # 按任务维度补发（list_by_task_after）：事件持久化历史上
         # execution_id 落的是 task_id，按执行维度查询永远为空；
@@ -64,7 +70,8 @@ async def stream_task_events(
                 missed_events = await loop.run_in_executor(
                     None,
                     lambda: execution_event_repo.list_by_task_after(
-                        task_id, after_id=after_id, after_seq=after_seq
+                        task_id, after_id=after_id, after_seq=after_seq,
+                        up_to_seq=watermark,
                     ),
                 )
                 for evt in missed_events:
@@ -77,6 +84,8 @@ async def stream_task_events(
                         "timestamp": evt.get("created_at", ""),
                     }
                     yield _sse(payload, event_seq=evt.get("seq"))
+                    if evt.get("seq") is not None:
+                        last_sent_seq = max(last_sent_seq, evt["seq"])
                     # 不因补发流里出现终态事件而提前结束：
                     # 游标可能落后于上一次执行，其后还有新一轮的事件
             except Exception:
@@ -91,6 +100,42 @@ async def stream_task_events(
                 ticks += 1
                 try:
                     event = q.get_nowait()
+                    evt_seq = event.data.get("event_seq")
+                    # 水位线以下的实时事件已在补发窗口内送达过，跳过去重；
+                    # 无 seq（极旧事件/持久化失败回退）保持原样放行
+                    if evt_seq is not None and evt_seq <= watermark:
+                        continue
+                    # 队列溢出/静默丢帧会在 seq 上留下缺口：发现 gap 时按 DB
+                    # 补齐 (last_sent, evt_seq) 区间，客户端无需自行探测
+                    if (
+                        evt_seq is not None
+                        and evt_seq > last_sent_seq + 1
+                    ):
+                        try:
+                            gap_events = await loop.run_in_executor(
+                                None,
+                                lambda: execution_event_repo.list_by_task_after(
+                                    task_id, after_seq=last_sent_seq,
+                                    up_to_seq=evt_seq - 1,
+                                ),
+                            )
+                            for gap_evt in gap_events:
+                                if gap_evt.get("seq") is None:
+                                    continue
+                                gap_payload = {
+                                    "id":        gap_evt.get("id", ""),
+                                    "seq":       gap_evt.get("seq"),
+                                    "type":      gap_evt.get("event_type", ""),
+                                    "message":   gap_evt.get("message", ""),
+                                    "data":      gap_evt.get("data", {}),
+                                    "timestamp": gap_evt.get("created_at", ""),
+                                }
+                                yield _sse(gap_payload, event_seq=gap_evt.get("seq"))
+                                last_sent_seq = gap_evt["seq"]
+                        except Exception:
+                            pass  # gap 补发失败不影响实时流
+                    if evt_seq is not None:
+                        last_sent_seq = max(last_sent_seq, evt_seq)
                     payload = {
                         "id":        _get_event_id(event),
                         "seq":       event.data.get("event_seq"),

@@ -18,6 +18,8 @@ export interface StepState {
 // ── 原始事件 ─────────────────────────────────────────────
 export interface StreamEvent {
   id: string
+  // 服务端全局递增序号（SSE id: 帧或 payload.seq）：断线续传游标与去重主键
+  seq?: number
   type: string
   message: string
   data?: Record<string, unknown>
@@ -102,6 +104,13 @@ function extractHint(data: Record<string, unknown> | undefined): string | undefi
   return undefined
 }
 
+// 持久化事件的服务端 id 是 uuid；connected/stuck-warning 等客户端合成帧
+// 不参与去重（跨重连的 connected 帧是正常路径，不能当成重复丢弃）
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+// 已见事件 uuid 滑动集合上限：防御旧服务端无 seq 的重复推送
+const SEEN_IDS_CAP = 800
+
 // ── Hook ─────────────────────────────────────────────────
 export function useTaskEventStream({ taskId, active }: { taskId: string | null; active: boolean }) {
   const [events, setEvents]         = useState<StreamEvent[]>([])
@@ -116,6 +125,10 @@ export function useTaskEventStream({ taskId, active }: { taskId: string | null; 
   const retryCount = useRef(0)
   const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const lastEventIdRef = useRef<string>("")
+  // 断线恢复协议：已应用的最大 seq（重放与实时两侧共用一份水位线，
+  // 重复帧直接丢弃，状态机不重复应用）+ 已见 uuid 集合兜底
+  const lastSeqRef   = useRef<number>(0)
+  const seenIdsRef   = useRef<Set<string>>(new Set())
 
   const reset = useCallback(() => {
     abortRef.current?.abort()
@@ -129,6 +142,23 @@ export function useTaskEventStream({ taskId, active }: { taskId: string | null; 
     setStatus('idle')
     retryCount.current = 0
     lastEventIdRef.current = ""
+    lastSeqRef.current = 0
+    seenIdsRef.current = new Set()
+  }, [])
+
+  // 幂等闸门：水位线以下的 seq（补发与实时重叠窗口）与已见 uuid
+  // 一律跳过——重放/实时重复到达时日志不重复、步骤状态不倒退
+  const isDuplicateEvent = useCallback((evt: StreamEvent): boolean => {
+    if (evt.seq != null) {
+      if (evt.seq <= lastSeqRef.current) return true
+      lastSeqRef.current = evt.seq
+    }
+    if (evt.id && UUID_RE.test(evt.id)) {
+      if (seenIdsRef.current.has(evt.id)) return true
+      if (seenIdsRef.current.size >= SEEN_IDS_CAP) seenIdsRef.current.clear()
+      seenIdsRef.current.add(evt.id)
+    }
+    return false
   }, [])
 
   const applyEvent = useCallback((evt: StreamEvent) => {
@@ -188,6 +218,8 @@ export function useTaskEventStream({ taskId, active }: { taskId: string | null; 
     setStatus('waiting')
     retryCount.current = 0
     lastEventIdRef.current = ""
+    lastSeqRef.current = 0
+    seenIdsRef.current = new Set()
 
     const stuckTimerId = setTimeout(() => {
       if (controller.signal.aborted) return
@@ -265,6 +297,51 @@ export function useTaskEventStream({ taskId, active }: { taskId: string | null; 
           const reader  = res.body.getReader()
           const decoder = new TextDecoder()
           let   buffer  = ''
+          // 原生 SSE id: 行（seq 游标）与其 data: 帧逐帧关联
+          let   pendingSseId: string | null = null
+
+          const processEvent = (evt: StreamEvent): 'terminal' | null => {
+            if (isDuplicateEvent(evt)) return null
+
+            // 断线续传游标优先用全局递增 seq（同毫秒事件 uuid 无法排序）
+            const cursor = evt.seq != null ? String(evt.seq) : evt.id
+            if (cursor && cursor !== 'connected' && cursor !== 'timeout') {
+              lastEventIdRef.current = cursor
+            }
+
+            applyEvent(evt)
+
+            if (evt.type === 'items_preview' && Array.isArray(evt.data?.items)) {
+              setPreview(evt.data.items as ItemPreview[])
+            }
+
+            // 终态事件同样要进日志：否则失败原因只存在于 finalData，
+            // 原始日志里看不到任何线索（本次报障的直接现象）
+            if (evt.type !== 'connected') {
+              setEvents((prev) => pushEvent(prev, evt))
+            }
+
+            if (['success', 'failure', 'warning'].includes(evt.type)) {
+              setFinalData(evt.data ?? null)
+              // failure 必须落到 failed，之前在 done 上，UI 会显示"已完成"
+              setStatus(evt.type === 'failure' ? 'failed' : 'done')
+              if (evt.type === 'failure') markActiveStepFailed(evt.message)
+              clearTimeout(stuckTimerId)
+              return 'terminal'
+            }
+
+            if (evt.type === 'diagnostic') {
+              const hint = extractHint(evt.data)
+              if (hint === 'worker_not_started') {
+                setEvents((prev) => pushEvent(prev, {
+                  id: 'diagnostic-warn',
+                  type: 'warning',
+                  message: '⚠️ Worker 尚未响应，任务可能卡在队列中，或 APScheduler 未正确加载该任务。请检查任务状态是否为 active。',
+                }))
+              }
+            }
+            return null
+          }
 
           while (true) {
             const { done, value: chunk } = await reader.read()
@@ -273,10 +350,7 @@ export function useTaskEventStream({ taskId, active }: { taskId: string | null; 
               if (buffer.trim().startsWith('data: ')) {
                 try {
                   const evt: StreamEvent = JSON.parse(buffer.trim().slice(6))
-                  applyEvent(evt)
-                  if (evt.type !== 'connected') {
-                    setEvents((prev) => pushEvent(prev, evt))
-                  }
+                  processEvent(evt)
                 } catch { /* ignore parse error */ }
               }
               clearTimeout(stuckTimerId)
@@ -289,45 +363,20 @@ export function useTaskEventStream({ taskId, active }: { taskId: string | null; 
 
 
             for (const line of lines) {
+              if (line.startsWith('id: ')) {
+                pendingSseId = line.slice(4).trim()
+                continue
+              }
               if (!line.startsWith('data: ')) continue
               try {
-                const evt: StreamEvent = JSON.parse(line.slice(6))
+                const raw: StreamEvent = JSON.parse(line.slice(6))
+                const sseSeq = pendingSseId != null && /^\d+$/.test(pendingSseId)
+                  ? Number(pendingSseId)
+                  : undefined
+                pendingSseId = null
+                const evt: StreamEvent = { ...raw, seq: raw.seq ?? sseSeq }
 
-                if (evt.id && evt.id !== 'connected' && evt.id !== 'timeout') {
-                  lastEventIdRef.current = evt.id
-                }
-
-                applyEvent(evt)
-
-                if (evt.type === 'items_preview' && Array.isArray(evt.data?.items)) {
-                  setPreview(evt.data.items as ItemPreview[])
-                }
-
-                // 终态事件同样要进日志：否则失败原因只存在于 finalData，
-                // 原始日志里看不到任何线索（本次报障的直接现象）
-                if (evt.type !== 'connected') {
-                  setEvents((prev) => pushEvent(prev, evt))
-                }
-
-                if (['success', 'failure', 'warning'].includes(evt.type)) {
-                  setFinalData(evt.data ?? null)
-                  // failure 必须落到 failed，之前在 done 上，UI 会显示"已完成"
-                  setStatus(evt.type === 'failure' ? 'failed' : 'done')
-                  if (evt.type === 'failure') markActiveStepFailed(evt.message)
-                  clearTimeout(stuckTimerId)
-                  return
-                }
-
-                if (evt.type === 'diagnostic') {
-                  const hint = extractHint(evt.data)
-                  if (hint === 'worker_not_started') {
-                    setEvents((prev) => pushEvent(prev, {
-                      id: 'diagnostic-warn',
-                      type: 'warning',
-                      message: '⚠️ Worker 尚未响应，任务可能卡在队列中，或 APScheduler 未正确加载该任务。请检查任务状态是否为 active。',
-                    }))
-                  }
-                }
+                if (processEvent(evt) === 'terminal') return
 
               } catch { /* ignore parse error */ }
             }
