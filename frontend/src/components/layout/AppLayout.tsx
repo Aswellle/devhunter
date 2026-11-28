@@ -8,7 +8,7 @@
  */
 import { useState } from 'react'
 import { Link, NavLink, useNavigate } from 'react-router-dom'
-import { BarChart2, Cloud, LayoutDashboard, LogOut, Rss, Sparkles, Star, User } from 'lucide-react'
+import { BarChart2, Cloud, LayoutDashboard, Lightbulb, LogOut, Rss, Sparkles, Star, User } from 'lucide-react'
 import { clsx } from 'clsx'
 import { useAuthStore } from '../../stores/authStore'
 import { ConfirmDialog } from '../ui/ConfirmDialog'
@@ -34,6 +34,7 @@ const navGroups: Array<{
       { to: '/',          label: '采集结果', icon: LayoutDashboard },
       { to: '/starred',   label: '已收藏',   icon: Star },
       { to: '/cloud',     label: '结果云',   icon: Cloud },
+      { to: '/opportunities', label: '机会板', icon: Lightbulb },
     ],
   },
   {

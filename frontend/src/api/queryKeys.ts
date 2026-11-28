@@ -14,6 +14,10 @@
  * queryKey: ['items', 'grouped', filters]
  */
 export const queryKeys = {
+  opportunities: {
+    all: ['opportunities'] as const,
+    list: (status?: string) => ['opportunities', 'list', status ?? 'all'] as const,
+  },
   // ── Items ──────────────────────────────────────────────
   items: {
 

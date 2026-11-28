@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'react-hot-toast'
-import { ChevronDown, ChevronRight, ExternalLink, Flame, Gauge, GitBranch, Globe, Link2, RefreshCw, Rss, Sparkles, Star, TrendingDown, TrendingUp, X } from 'lucide-react'
+import { ChevronDown, ChevronRight, ExternalLink, Flame, Gauge, GitBranch, Globe, Lightbulb, Link2, RefreshCw, Rss, Sparkles, Star, TrendingDown, TrendingUp, X } from 'lucide-react'
 import { clsx } from 'clsx'
 import { useQuery } from '@tanstack/react-query'
 import type { Thread, ThreadRelation, ThreadStats } from '../../types'
@@ -314,6 +314,15 @@ export function ThreadCard({ thread, defaultExpanded = false }: ThreadCardProps)
           <div className="flex items-center gap-2 flex-wrap">
             <span className="font-medium text-gray-900 truncate">{thread.title}</span>
             <ThreadStatusBadge lastSeenAt={thread.last_seen_at} />
+            <Link
+              to={`/opportunities?thread=${thread.id}`}
+              onClick={(e) => e.stopPropagation()}
+              className="inline-flex items-center gap-0.5 text-xs text-gray-400 hover:text-amber-600"
+              title="把这个热点加入机会板"
+            >
+              <Lightbulb className="h-3 w-3" />
+              机会
+            </Link>
           </div>
           <div className="flex items-center gap-2 mt-1 flex-wrap">
             {/* Platform badges */}

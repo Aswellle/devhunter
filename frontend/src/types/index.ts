@@ -455,6 +455,53 @@ export interface PaginatedResponse<T> {
 }
 
 // ── Source Template ──────────────────────────────────────
+// ── 机会板（PROD-005）────────────────────────────────────────
+export type OpportunityStatus =
+  | 'inbox' | 'investigating' | 'planned' | 'building' | 'shipped' | 'dismissed'
+export type OpportunityType =
+  | 'user_problem' | 'product_launch' | 'open_source_project'
+  | 'hiring' | 'collaboration' | 'trend' | 'technical_risk' | 'idea'
+export type OpportunityPriority = 'low' | 'normal' | 'high'
+
+export interface OpportunityEvidence {
+  type: 'item' | 'thread'
+  id: string
+  title: string
+  url: string
+  summary?: string
+  item_count?: number
+  platforms?: string[]
+  published_at?: string | null
+}
+
+export interface OpportunityEvent {
+  id: string
+  event_type: 'created' | 'status_change' | 'priority_change' | 'note' | 'tags' | 'remind'
+  from_value?: string | null
+  to_value?: string | null
+  note?: string | null
+  created_at: string
+}
+
+export interface Opportunity {
+  id: string
+  origin_type: 'item' | 'thread'
+  origin_id: string
+  title: string
+  opportunity_type: OpportunityType
+  status: OpportunityStatus
+  priority: OpportunityPriority
+  value_score: number | null
+  notes: string
+  tags: string[]
+  remind_at: string | null
+  created_at: string
+  updated_at: string
+  evidence?: OpportunityEvidence | null
+  evidence_missing?: boolean
+  events: OpportunityEvent[]
+}
+
 export interface SourceTemplate {
   id: string
   name: string

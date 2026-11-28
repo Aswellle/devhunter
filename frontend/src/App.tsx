@@ -11,6 +11,7 @@ import { LoginPage } from './pages/LoginPage'
 import { ItemsPage } from './pages/ItemsPage'
 import { TasksPage } from './pages/TasksPage'
 import { StarredPage } from './pages/StarredPage'
+import { OpportunityPage } from './pages/OpportunityPage'
 import { DashboardPage } from './pages/DashboardPage'
 import { CloudPage } from './pages/CloudPage'
 import { ProfilePage } from './pages/ProfilePage'
@@ -75,6 +76,7 @@ export default function App() {
                       <Route path="/tasks"      element={<TasksPage />} />
                       <Route path="/cloud"      element={<CloudPage />} />
                       <Route path="/starred"    element={<StarredPage />} />
+                      <Route path="/opportunities" element={<OpportunityPage />} />
                       <Route path="/dashboard"  element={<DashboardPage />} />
                       <Route path="/recommend"  element={<RecommendPage />} />
                       <Route path="/profile" element={<ProfilePage />} />

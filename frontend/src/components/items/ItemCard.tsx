@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
-import { ExternalLink, Star } from 'lucide-react'
+import { Link } from 'react-router-dom'
+import { ExternalLink, Lightbulb, Star } from 'lucide-react'
 import { clsx } from 'clsx'
 import { toast } from 'react-hot-toast'
 import type { Item } from '../../types'
@@ -137,6 +138,15 @@ export function ItemCard({
             <span title={`${item.published_at ? '原发时间' : '采集时间'}：${formatDateTime(item.published_at || item.fetched_at)}`}>
               {formatDistanceToNow(item.published_at || item.fetched_at)}
             </span>
+            <Link
+              to={`/opportunities?item=${item.id}`}
+              onClick={(e) => e.stopPropagation()}
+              className="inline-flex items-center gap-1 text-gray-400 hover:text-amber-600"
+              title="把这条加入机会板"
+            >
+              <Lightbulb className="h-3 w-3" />
+              机会
+            </Link>
             {folderControl}
           </div>
         </div>
